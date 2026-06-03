@@ -87,7 +87,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     triggerToast(`Matière "${newSubj}" ajoutée.`);
   };
 
-  const initBuffer = (studs: Eleve[], subject: string, currentTerm: string) => {
+  function initBuffer(studs: Eleve[], subject: string, currentTerm: string) {
     const buffer: Record<string, string | number> = {};
     let foundCoef = 1;
     let hasFoundCoef = false;
@@ -106,7 +106,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     });
     setGradesBuffer(buffer);
     setSelectedCoef(foundCoef);
-  };
+  }
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);

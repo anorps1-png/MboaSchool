@@ -133,7 +133,7 @@ export default function ComptabilitePage() {
     const ts = Date.now();
     const ref = expReference || `OP-${ts.toString().slice(-6)}`;
     
-    let newEcritures: EcritureComptable[] = [];
+    const newEcritures: EcritureComptable[] = [];
 
     // 1. Constatation (si ce n'est pas un simple règlement)
     if (expTypeSaisie === 'immediat' || expTypeSaisie === 'credit') {
