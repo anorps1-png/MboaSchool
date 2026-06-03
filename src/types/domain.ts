@@ -185,3 +185,70 @@ export interface EcritureComptable {
   reference: string;
   lignes: LigneEcriture[];
 }
+
+// Module Ressources Humaines (RH)
+
+export interface MembrePersonnel {
+  id: string;
+  nom: string;
+  prenom: string;
+  email: string;
+  telephone: string;
+  sexe: 'M' | 'F';
+  categorie: 'Administration' | 'Enseignant' | 'Personnel d\'appui' | 'Technique';
+  typeContrat: 'CDI' | 'CDD' | 'Intérimaire' | 'Stagiaire';
+  salaireDeBase: number;
+  dateEmbauche: string;
+  statut: 'actif' | 'suspendu' | 'quitte';
+}
+
+export interface MasseSalarialeHistorique {
+  periode: string; // ex: "2026-01" ou "2025"
+  valeurTotal: number;
+  nombreSalaries: number;
+  salaireMoyen: number;
+  interessement: number;
+  tauxCroissance: number;
+}
+
+export interface AbsenceRecord {
+  id: string;
+  personnelId: string;
+  nomPersonnel: string;
+  dateDebut: string;
+  dateFin: string;
+  motif: 'Maladie' | 'Maternité' | 'Congé' | 'Injustifié' | 'Autre';
+  dureeJours: number;
+}
+
+export interface MouvementPersonnel {
+  id: string;
+  personnelId: string;
+  nomPersonnel: string;
+  type: 'embauche' | 'depart_volontaire' | 'mutation' | 'licenciement';
+  date: string;
+  details: string; // ex: motif ou cible
+}
+
+export interface EvaluationRH {
+  id: string;
+  enseignantId: string;
+  nomEnseignant: string;
+  noteMoyenne: number; // sur 100
+  adherenceJobRole: number; // pourcentage
+  adherenceValeurs: number; // pourcentage
+  noteFormationMoyenne: number; // sur 20
+  dateEvaluation: string;
+  evaluateur: string;
+}
+
+export interface FormationRH {
+  id: string;
+  theme: string;
+  dateDebut: string;
+  dateFin: string;
+  beneficiairesIds: string[]; // IDs des membres de personnel bénéficiaires
+  coutTotal: number;
+  organisme: string;
+  statut: 'planifié' | 'en_cours' | 'terminé';
+}
