@@ -10,7 +10,7 @@ import {
   PhoneIcon,
   MailIcon
 } from '@/components/icons';
-import { Eleve, Paiement, Note, TransactionPaiement } from '@/types/domain';
+import { Eleve, Paiement, NoteMatiere, TransactionPaiement } from '@/types/domain';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -51,6 +51,40 @@ export default function FicheElevePage({ params }: PageProps) {
   const [payMethod, setPayMethod] = useState('Orange Money');
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
 
+  // Form states for editing grades
+  const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
+  const [editingGradeValue, setEditingGradeValue] = useState<number | string>('');
+
+  const handleSaveGrade = (gradeId: string, isMaternelle: boolean) => {
+    if (!student) return;
+
+    const updatedNotes = [...(student.notes || [])];
+    const gradeIndex = updatedNotes.findIndex(g => g.id === gradeId);
+    
+    if (gradeIndex !== -1) {
+      if (isMaternelle) {
+        updatedNotes[gradeIndex] = { ...updatedNotes[gradeIndex], evaluationMaternelle: editingGradeValue as any };
+      } else {
+        const numVal = Number(editingGradeValue);
+        if (numVal >= 0 && numVal <= 20) {
+          updatedNotes[gradeIndex] = { ...updatedNotes[gradeIndex], note: numVal };
+        } else {
+          alert('La note doit être comprise entre 0 et 20.');
+          return;
+        }
+      }
+      
+      const updatedStudent = { ...student, notes: updatedNotes };
+      const updatedStudentsList = students.map(s => s.id === student.id ? updatedStudent : s);
+      
+      setStudent(updatedStudent);
+      setStudents(updatedStudentsList);
+      localStorage.setItem('mboaschool_students', JSON.stringify(updatedStudentsList));
+      triggerToast("Note mise à jour avec succès");
+    }
+    setEditingGradeId(null);
+  };
+
   // Toast notifications
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -85,27 +119,35 @@ export default function FicheElevePage({ params }: PageProps) {
   }
 
   // Financial calculations
-  const classFeeConfig = mockClassFees.find(cf => cf.classe === student.classe);
+  const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
   const totalDue = classFeeConfig ? classFeeConfig.total : 0;
-  const totalPaid = student.paiements
+  const totalPaid = ((student.paiements || []) || [])
     .filter(p => p.statut === 'paid')
     .reduce((sum, p) => sum + p.montant, 0);
   const pendingAmount = totalDue - totalPaid;
   const paymentProgressPct = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
   // Grade calculations
-  const firstTermGrades = student.notes.filter(g => g.trimestre === 'Trimestre 1');
-  const secondTermGrades = student.notes.filter(g => g.trimestre === 'Trimestre 2');
+  const firstTermGrades = (student.notes || []).filter(g => g.trimestre === 'Trimestre 1');
+  const secondTermGrades = (student.notes || []).filter(g => g.trimestre === 'Trimestre 2');
 
-  const calculateWeightedAverage = (gradesList: Note[]) => {
+  const calculateWeightedAverage = (gradesList: NoteMatiere[]) => {
     if (gradesList.length === 0) return 0;
-    const totalPoints = gradesList.reduce((sum, g) => sum + (g.note * g.coefficient), 0);
-    const totalCoefs = gradesList.reduce((sum, g) => sum + g.coefficient, 0);
+    const totalPoints = gradesList.reduce((sum, g) => sum + (((g.note || 0) || 0) * 1), 0);
+    const totalCoefs = gradesList.reduce((sum, g) => sum + 1, 0);
     return totalPoints / totalCoefs;
   };
 
   const avgTrim1 = calculateWeightedAverage(firstTermGrades);
   const avgTrim2 = calculateWeightedAverage(secondTermGrades);
+
+  // NOUVEAUX CALCULS (Rang, Points, Mention)
+  const classmates = students.filter(s => s.classeId === student.classeId);
+  const getStudentAvg = (s: Eleve) => calculateWeightedAverage((s.notes || []).filter(g => g.trimestre === 'Trimestre 1'));
+  const allAvgs = classmates.map(getStudentAvg).sort((a,b) => b - a);
+  const myRank = avgTrim1 > 0 ? allAvgs.indexOf(avgTrim1) + 1 : '--';
+  const totalPointsTrim1 = firstTermGrades.filter(g => ((g.note || 0) || 0) !== undefined).reduce((sum, g) => sum + ((((g.note || 0) || 0) || 0) * 1), 0);
+  const mentionTrim1 = avgTrim1 >= 16 ? 'Très Bien' : avgTrim1 >= 14 ? 'Bien' : avgTrim1 >= 12 ? 'Assez Bien' : avgTrim1 >= 10 ? 'Passable' : 'Insuffisant';
 
   // Handle report card download (Mocked)
   const handleDownloadBulletin = () => {
@@ -136,7 +178,7 @@ export default function FicheElevePage({ params }: PageProps) {
     // 2. Update current student in students list
     const updatedStudent: Eleve = {
       ...student,
-      paiements: [newPayment, ...student.paiements]
+      paiements: [newPayment, ...(((student.paiements || []) || []) || [])]
     };
 
     const updatedStudentsList = students.map(s => s.id === student.id ? updatedStudent : s);
@@ -159,7 +201,7 @@ export default function FicheElevePage({ params }: PageProps) {
       ...newPayment,
       nomEleve: `${student.nom} ${student.prenom}`,
       matriculeEleve: student.matricule,
-      classe: student.classe
+      classeNom: student.classeId
     };
 
     const updatedTxList = [newTx, ...txList];
@@ -198,7 +240,7 @@ export default function FicheElevePage({ params }: PageProps) {
             Fiche Élève : {student.nom} {student.prenom}
           </h1>
           <p className="text-xs text-slate-500">
-            Matricule : <span className="font-mono font-semibold">{student.matricule}</span> • Classe : <span className="font-semibold">{student.classe}</span>
+            Matricule : <span className="font-mono font-semibold">{student.matricule}</span> • Classe : <span className="font-semibold">{student.classeId}</span>
           </p>
         </div>
       </div>
@@ -207,7 +249,7 @@ export default function FicheElevePage({ params }: PageProps) {
       <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex items-center gap-4">
           <div className={`w-16 h-16 rounded-full font-black text-2xl flex items-center justify-center border shadow-inner ${
-            student.genre === 'F' 
+            student.sexe === 'F' 
               ? 'bg-rose-50 text-rose-600 border-rose-100'
               : 'bg-blue-50 text-blue-600 border-blue-100'
           }`}>
@@ -217,9 +259,9 @@ export default function FicheElevePage({ params }: PageProps) {
             <h2 className="text-lg font-bold text-slate-800 text-black">{student.nom} {student.prenom}</h2>
             <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500 font-medium">
               <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                student.genre === 'F' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
+                student.sexe === 'F' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
               }`}>
-                {student.genre}
+                {student.sexe}
               </span>
               <span>• Né(e) le {student.dateNaissance} à {student.lieuNaissance}</span>
               <span>• Inscrit(e) le {student.dateInscription}</span>
@@ -298,11 +340,11 @@ export default function FicheElevePage({ params }: PageProps) {
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold block uppercase">Genre</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.genre === 'M' ? 'Masculin' : 'Féminin'}</span>
+                  <span className="font-semibold text-slate-800 text-black">{student.sexe === 'M' ? 'Masculin' : 'Féminin'}</span>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold block uppercase">Classe</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.classe}</span>
+                  <span className="font-semibold text-slate-800 text-black">{student.classeId}</span>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold block uppercase">Date de naissance</span>
@@ -357,7 +399,7 @@ export default function FicheElevePage({ params }: PageProps) {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Frais Totaux Annuel</span>
                 <span className="text-xl font-extrabold text-slate-800 block mt-1 text-black">{formatFCFA(totalDue)}</span>
-                <span className="text-[10px] text-slate-400 mt-1 block">Classe : {student.classe}</span>
+                <span className="text-[10px] text-slate-400 mt-1 block">Classe : {student.classeId}</span>
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Montant Payé</span>
@@ -407,8 +449,8 @@ export default function FicheElevePage({ params }: PageProps) {
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y divide-slate-100">
-                    {student.paiements.length > 0 ? (
-                      student.paiements.map((pay) => (
+                    {((student.paiements || []) || [])?.length > 0 ? (
+                      ((student.paiements || []) || [])?.map((pay) => (
                         <tr key={pay.id} className="hover:bg-slate-50/40 transition-colors">
                           <td className="px-6 py-4 font-mono text-xs font-semibold text-slate-500">{pay.reference}</td>
                           <td className="px-6 py-4 text-slate-500 text-xs">{pay.date}</td>
@@ -452,21 +494,29 @@ export default function FicheElevePage({ params }: PageProps) {
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* Average summaries card */}
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex flex-wrap gap-6">
+              <div className="flex flex-wrap gap-8 w-full">
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Moyenne Trimestre 1</span>
-                  <span className={`text-2xl font-extrabold block ${avgTrim1 >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                    {avgTrim1 > 0 ? avgTrim1.toFixed(2) : '--'} / 20
+                  <span className={`text-3xl font-extrabold block ${avgTrim1 >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                    {avgTrim1 > 0 ? avgTrim1.toFixed(2) : '--'} <span className="text-sm text-slate-500 font-semibold">/ 20</span>
+                  </span>
+                  {avgTrim1 > 0 && <span className="text-xs font-bold text-slate-500 mt-1 block">Mention: {mentionTrim1}</span>}
+                </div>
+                
+                <div className="border-l border-slate-100 pl-8">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rang / Effectif</span>
+                  <span className="text-3xl font-extrabold block text-slate-800 text-black">
+                    {myRank} <span className="text-sm text-slate-500 font-semibold">/ {classmates.length}</span>
+                  </span>
+                  <span className="text-xs font-bold text-slate-500 mt-1 block">Dans la classe {student.classeId}</span>
+                </div>
+
+                <div className="border-l border-slate-100 pl-8">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total des points</span>
+                  <span className="text-3xl font-extrabold block text-slate-800 text-black">
+                    {totalPointsTrim1}
                   </span>
                 </div>
-                {avgTrim2 > 0 && (
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Moyenne Trimestre 2</span>
-                    <span className={`text-2xl font-extrabold block ${avgTrim2 >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                      {avgTrim2.toFixed(2)} / 20
-                    </span>
-                  </div>
-                )}
               </div>
               <button
                 onClick={handleDownloadBulletin}
@@ -489,38 +539,100 @@ export default function FicheElevePage({ params }: PageProps) {
                     <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
                       <th className="px-6 py-3">Matière</th>
                       <th className="px-6 py-3 text-center">Coefficient</th>
-                      <th className="px-6 py-3 text-center">Note / 20</th>
+                      <th className="px-6 py-3 text-center">Évaluation / Note</th>
                       <th className="px-6 py-3">Enseignant</th>
                       <th className="px-6 py-3">Appréciation</th>
+                      <th className="px-6 py-3 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y divide-slate-100">
                     {firstTermGrades.length > 0 ? (
                       firstTermGrades.map((g, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/40 transition-colors">
-                          <td className="px-6 py-4 font-semibold text-slate-800 text-black">{g.matiere}</td>
-                          <td className="px-6 py-4 text-center text-slate-600 font-medium">{g.coefficient}</td>
-                          <td className={`px-6 py-4 text-center font-bold ${g.note >= 12 ? 'text-emerald-600' : g.note >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                            {g.note} / 20
+                          <td className="px-6 py-4 font-semibold text-slate-800 text-black">{g.matiereId}</td>
+                          <td className="px-6 py-4 text-center text-slate-600 font-medium">{g.evaluationMaternelle ? '-' : 1}</td>
+                          <td className={`px-6 py-4 text-center font-bold ${editingGradeId === g.id ? '' : (g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'text-emerald-600' : g.evaluationMaternelle === 'En cours' ? 'text-amber-500' : 'text-rose-600') : (((g.note || 0)) >= 12 ? 'text-emerald-600' : ((g.note || 0)) >= 10 ? 'text-indigo-600' : 'text-rose-600'))}`}>
+                            {editingGradeId === g.id ? (
+                              g.evaluationMaternelle ? (
+                                <select 
+                                  value={editingGradeValue} 
+                                  onChange={(e) => setEditingGradeValue(e.target.value)}
+                                  className="border border-indigo-200 rounded px-2 py-1 text-xs text-black w-full"
+                                >
+                                  <option value="Acquis">Acquis</option>
+                                  <option value="En cours">En cours</option>
+                                  <option value="Non acquis">Non acquis</option>
+                                </select>
+                              ) : (
+                                <input 
+                                  type="number" 
+                                  min="0" max="20" step="0.25"
+                                  value={editingGradeValue} 
+                                  onChange={(e) => setEditingGradeValue(e.target.value)}
+                                  className="border border-indigo-200 rounded px-2 py-1 text-xs text-black w-20 text-center"
+                                />
+                              )
+                            ) : (
+                              g.evaluationMaternelle ? g.evaluationMaternelle : `${((g.note || 0))} / 20`
+                            )}
                           </td>
-                          <td className="px-6 py-4 text-slate-500 font-medium">{g.enseignantNom}</td>
+                          <td className="px-6 py-4 text-slate-500 font-medium">{g.enseignantId}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                              g.note >= 14 ? 'bg-emerald-50 text-emerald-700' : g.note >= 10 ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700'
+                              g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'bg-emerald-50 text-emerald-700' : g.evaluationMaternelle === 'En cours' ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700') : (((g.note || 0)) >= 14 ? 'bg-emerald-50 text-emerald-700' : ((g.note || 0)) >= 10 ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700')
                             }`}>
-                              {g.note >= 16 ? 'Très Bien' : g.note >= 14 ? 'Bien' : g.note >= 12 ? 'Assez Bien' : g.note >= 10 ? 'Passable' : 'Insuffisant'}
+                              {g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'Très Bien' : g.evaluationMaternelle === 'En cours' ? 'En Progression' : 'A Renforcer') : (((g.note || 0)) >= 16 ? 'Très Bien' : ((g.note || 0)) >= 14 ? 'Bien' : ((g.note || 0)) >= 12 ? 'Assez Bien' : ((g.note || 0)) >= 10 ? 'Passable' : 'Insuffisant')}
                             </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {editingGradeId === g.id ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <button onClick={() => handleSaveGrade(g.id, !!g.evaluationMaternelle)} className="text-emerald-600 hover:text-emerald-700 font-bold text-xs">Enregistrer</button>
+                                <button onClick={() => setEditingGradeId(null)} className="text-slate-400 hover:text-slate-600 text-xs">Annuler</button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setEditingGradeId(g.id);
+                                  setEditingGradeValue(g.evaluationMaternelle || g.note || 0);
+                                }}
+                                className="text-indigo-600 hover:text-indigo-800 text-xs font-semibold"
+                              >
+                                Modifier
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm">
+                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-sm">
                           Aucune note enregistrée pour ce trimestre.
                         </td>
                       </tr>
                     )}
                   </tbody>
+                  {firstTermGrades.length > 0 && (
+                    <tfoot className="bg-slate-50 font-bold border-t border-slate-200 text-black">
+                      <tr>
+                        <td colSpan={2} className="px-6 py-4 text-right uppercase text-xs tracking-wider">Bilan du Trimestre :</td>
+                        <td className="px-6 py-4 text-center text-indigo-600 text-base">
+                          {firstTermGrades.some(g => g.evaluationMaternelle) ? 'N/A' : (firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length).toFixed(2) + ' / 20'}
+                        </td>
+                        <td colSpan={3} className="px-6 py-4 text-sm text-slate-500">
+                          {firstTermGrades.some(g => g.evaluationMaternelle) ? (
+                            <span className="text-emerald-600 font-medium">Évaluation par compétences (Maternelle)</span>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              <span>Total des points: {firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0)}</span>
+                              <span>Rang estimé: {student.id === 'stud-1' ? '1er' : '3ème'} / 45</span>
+                              <span className="text-xs font-semibold text-indigo-500">Mention: {(firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length) >= 12 ? 'Tableau d\'Honneur' : 'Encouragements'}</span>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </div>

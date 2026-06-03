@@ -186,8 +186,8 @@ export default function FraisPage() {
                   {feeConfigs.map((config, index) => {
                     const isEditing = editingIndex === index;
                     return (
-                      <tr key={config.classe} className="hover:bg-slate-50/30 transition-colors">
-                        <td className="px-6 py-4 font-bold text-slate-800 text-black">{config.classe}</td>
+                      <tr key={config.niveauId} className="hover:bg-slate-50/30 transition-colors">
+                        <td className="px-6 py-4 font-bold text-slate-800 text-black">{config.niveauId}</td>
                         <td className="px-6 py-4 text-black">
                           {isEditing ? (
                             <input
@@ -338,7 +338,7 @@ export default function FraisPage() {
                             <span className="font-semibold text-slate-800 text-black">{tx.nomEleve}</span>
                             <span className="block text-[10px] text-slate-400">{tx.matriculeEleve}</span>
                           </td>
-                          <td className="px-6 py-4 text-slate-600 font-medium">{tx.classe}</td>
+                          <td className="px-6 py-4 text-slate-600 font-medium">{tx.classeNom}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                               tx.typeFrais === 'Inscription' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-blue-50 text-blue-700 border border-blue-100'

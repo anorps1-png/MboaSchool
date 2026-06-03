@@ -3,12 +3,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { mockStudents } from '@/mock/students';
 import { mockClassFees } from '@/mock/fees';
+import { mockClasses } from '@/mock/classes';
 import Link from 'next/link';
 import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@/components/icons';
-import { Eleve } from '@/types/domain';
+import { Eleve, Classe } from '@/types/domain';
 
 export default function ElevesPage() {
   const [students, setStudents] = useState<Eleve[]>([]);
+  const [classesList, setClassesList] = useState<Classe[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Form states for adding student
@@ -47,6 +49,18 @@ export default function ElevesPage() {
   // Load from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      const storedClasses = localStorage.getItem('mboaschool_classes');
+      if (storedClasses) {
+        try {
+          setClassesList(JSON.parse(storedClasses));
+        } catch (e) {
+          setClassesList(mockClasses);
+        }
+      } else {
+        localStorage.setItem('mboaschool_classes', JSON.stringify(mockClasses));
+        setClassesList(mockClasses);
+      }
+
       const stored = localStorage.getItem('mboaschool_students');
       if (stored) {
         try {
@@ -64,9 +78,9 @@ export default function ElevesPage() {
 
   // Helper: Get student payment stats
   const getStudentPaymentStats = (student: Eleve) => {
-    const classFeeConfig = mockClassFees.find(cf => cf.classe === student.classe);
+    const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
     const totalDue = classFeeConfig ? classFeeConfig.total : 0;
-    const totalPaid = student.paiements
+    const totalPaid = (student.paiements || [])
       .filter(p => p.statut === 'paid')
       .reduce((sum, p) => sum + p.montant, 0);
     
@@ -90,14 +104,14 @@ export default function ElevesPage() {
       const matchesSearch = fullName.includes(searchTerm.toLowerCase()) || matriculeVal.includes(searchTerm.toLowerCase());
 
       // 2. Class
-      const matchesClass = selectedClass === 'All' || student.classe === selectedClass;
+      const matchesClass = selectedClass === 'All' || student.classeId === selectedClass;
 
       // 3. Payment Status
       const stats = getStudentPaymentStats(student);
       const matchesPayment = selectedPaymentStatus === 'All' || stats.status === selectedPaymentStatus;
 
       // 4. Gender
-      const matchesGender = selectedGender === 'All' || student.genre === selectedGender;
+      const matchesGender = selectedGender === 'All' || student.sexe === selectedGender;
 
       return matchesSearch && matchesClass && matchesPayment && matchesGender;
     });
@@ -151,14 +165,15 @@ export default function ElevesPage() {
       matricule: generatedMatricule,
       prenom: firstName,
       nom: lastName,
-      genre: gender,
-      classe: className,
+      sexe: gender,
+      classeId: className,
       nomParent: parentName,
       telephoneParent: parentPhone,
       emailParent: parentEmail || 'N/A',
       dateNaissance: dateOfBirth || '2012-01-01',
       lieuNaissance: birthPlace || 'Yaoundé',
       dateInscription: new Date().toISOString().split('T')[0],
+      anneeScolaireId: 'as-2025',
       statut: 'actif',
       paiements: [], // starts with 0 payments
       notes: []    // starts with empty grades
@@ -269,8 +284,8 @@ export default function ElevesPage() {
                 className="w-full sm:w-auto appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-2 rounded-lg text-xs font-semibold text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
               >
                 <option value="All">Toutes les classes</option>
-                {mockClassFees.map(c => (
-                  <option key={c.classe} value={c.classe}>{c.classe}</option>
+                {classesList.map(c => (
+                  <option key={c.id} value={c.nom}>{c.nom}</option>
                 ))}
               </select>
             </div>
@@ -340,7 +355,7 @@ export default function ElevesPage() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center border shadow-inner ${
-                            student.genre === 'F' 
+                            student.sexe === 'F' 
                               ? 'bg-rose-50 text-rose-600 border-rose-100'
                               : 'bg-blue-50 text-blue-600 border-blue-100'
                           }`}>
@@ -362,15 +377,15 @@ export default function ElevesPage() {
 
                       {/* Class */}
                       <td className="px-6 py-4 text-slate-600 font-medium">
-                        {student.classe}
+                        {student.classeId}
                       </td>
 
                       {/* Gender Badge */}
                       <td className="px-6 py-4 text-center">
                         <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                          student.genre === 'F' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
+                          student.sexe === 'F' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
                         }`}>
-                          {student.genre}
+                          {student.sexe}
                         </span>
                       </td>
 
@@ -561,8 +576,8 @@ export default function ElevesPage() {
                     onChange={(e) => setClassName(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
                   >
-                    {mockClassFees.map(c => (
-                      <option key={c.classe} value={c.classe}>{c.classe}</option>
+                    {classesList.map(c => (
+                      <option key={c.id} value={c.nom}>{c.nom}</option>
                     ))}
                   </select>
                 </div>

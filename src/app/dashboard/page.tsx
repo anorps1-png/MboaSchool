@@ -55,9 +55,19 @@ export default function Dashboard() {
   const totalTeachers = teachers.length;
   const activeTeachers = teachers.filter(t => t.statut === 'active').length;
 
+  // Calcul du Taux de Réussite Global
+  const studentsWithGrades = mockStudents.filter(s => s.notes && (s.notes || []).length > 0);
+  const studentsPassed = studentsWithGrades.filter(s => {
+    const grades = (s.notes || []).filter(g => ((g.note || 0) || 0) !== undefined);
+    if(grades.length === 0) return false;
+    const avg = grades.reduce((sum, g) => sum + (((g.note || 0) || 0) || 0), 0) / grades.length;
+    return avg >= 10;
+  });
+  const globalSuccessRate = studentsWithGrades.length > 0 ? ((studentsPassed.length / studentsWithGrades.length) * 100).toFixed(1) : '--';
+
   // Total paid
   const totalPaid = students.reduce((sum, student) => {
-    const studentPaid = student.paiements
+    const studentPaid = (((student.paiements || []) || []) || [])
       .filter(p => p.statut === 'paid')
       .reduce((s, p) => s + p.montant, 0);
     return sum + studentPaid;
@@ -65,7 +75,7 @@ export default function Dashboard() {
 
   // Total expected
   const totalExpected = students.reduce((sum, student) => {
-    const classFeeConfig = mockClassFees.find(cf => cf.classe === student.classe);
+    const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
     return sum + (classFeeConfig ? classFeeConfig.total : 0);
   }, 0);
 
@@ -79,15 +89,15 @@ export default function Dashboard() {
 
   // Group by class for charts
   const classStats = mockClassFees.map(cf => {
-    const studentsInClass = students.filter(s => s.classe === cf.classe);
+    const studentsInClass = students.filter(s => s.classeId === cf.niveauId);
     const count = studentsInClass.length;
     const expected = count * cf.total;
     const paid = studentsInClass.reduce((sum, s) => {
-      return sum + s.paiements.filter(p => p.statut === 'paid').reduce((ps, p) => ps + p.montant, 0);
+      return sum + (((s.paiements || []) || []) || [])?.filter(p => p.statut === 'paid').reduce((ps, p) => ps + p.montant, 0);
     }, 0);
     const pending = expected - paid;
     return {
-      classeName: cf.classe,
+      classeName: cf.niveauId,
       studentCount: count,
       expected,
       paid,
@@ -138,9 +148,14 @@ export default function Dashboard() {
           </div>
           <div className="mt-4">
             <h3 className="text-3xl font-extrabold text-slate-800 text-black">{totalStudents}</h3>
-            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              <span className="text-emerald-500 font-semibold">{activeStudents} actifs</span>
-              <span>• {totalStudents - activeStudents} suspendus</span>
+            <p className="text-xs text-slate-500 mt-1 flex flex-col gap-1">
+              <span className="flex items-center gap-1">
+                <span className="text-emerald-500 font-semibold">{activeStudents} actifs</span>
+                <span>• {totalStudents - activeStudents} suspendus</span>
+              </span>
+              <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded inline-flex w-fit mt-1">
+                Taux de réussite : {globalSuccessRate}%
+              </span>
             </p>
           </div>
         </div>
@@ -309,10 +324,10 @@ export default function Dashboard() {
 
           <div className="border-t border-slate-100 pt-4 mt-6 flex justify-between text-[11px] text-slate-500">
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Filles ({((mockStudents.filter(s => s.genre === 'F').length / totalStudents) * 100).toFixed(0)}%)
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Filles ({((mockStudents.filter(s => s.sexe === 'F').length / totalStudents) * 100).toFixed(0)}%)
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Garçons ({((mockStudents.filter(s => s.genre === 'M').length / totalStudents) * 100).toFixed(0)}%)
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Garçons ({((mockStudents.filter(s => s.sexe === 'M').length / totalStudents) * 100).toFixed(0)}%)
             </span>
           </div>
         </div>
@@ -356,7 +371,7 @@ export default function Dashboard() {
                     <span className="font-semibold text-slate-800 text-black">{tx.nomEleve}</span>
                     <span className="block text-[10px] text-slate-400 font-medium">{tx.matriculeEleve}</span>
                   </td>
-                  <td className="px-6 py-4 text-slate-600 font-medium">{tx.classe}</td>
+                  <td className="px-6 py-4 text-slate-600 font-medium">{tx.classeNom}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                       tx.typeFrais === 'Inscription' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-blue-50 text-blue-700 border border-blue-100'

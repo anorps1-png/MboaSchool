@@ -11,7 +11,10 @@ import {
   TimetableIcon,
   SearchIcon,
   NotificationIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  AcademicIcon,
+  UsersIcon,
+  ChartIcon
 } from './icons';
 
 interface DashboardLayoutProps {
@@ -27,10 +30,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const menuItems = [
     { name: 'Tableau de bord', href: '/dashboard', icon: DashboardIcon },
+    { name: 'Sections', href: '/sections', icon: DashboardIcon },
+    { name: 'Classes', href: '/classes', icon: StudentsIcon },
     { name: 'Élèves', href: '/eleves', icon: StudentsIcon },
+    { name: 'Parents & Messages', href: '/parents', icon: UsersIcon },
     { name: 'Enseignants', href: '/enseignants', icon: TeachersIcon },
+    { name: 'Évaluations', href: '/evaluations', icon: AcademicIcon },
     { name: 'Frais Scolaires', href: '/frais', icon: FeesIcon },
-    { name: 'Emploi du Temps', href: '/emploi-du-temps', icon: TimetableIcon },
+    { name: 'Comptabilité', href: '/comptabilite', icon: ChartIcon },
   ];
 
   const notifications = [

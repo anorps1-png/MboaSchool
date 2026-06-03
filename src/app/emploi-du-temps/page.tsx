@@ -6,7 +6,7 @@ import { mockClassFees } from '@/mock/fees';
 import { ChevronDownIcon } from '@/components/icons';
 
 export default function EmploiDuTempsPage() {
-  const classesList = mockClassFees.map(cf => cf.classe);
+  const classesList = mockClassFees.map(cf => cf.niveauId);
   const [selectedClass, setSelectedClass] = useState(classesList[0] || 'Terminale D');
   const [selectedMobileDay, setSelectedMobileDay] = useState(1); // 1 = Lundi for mobile view
 
@@ -34,7 +34,7 @@ export default function EmploiDuTempsPage() {
 
   // Filter lessons for selected class
   const classLessons = useMemo(() => {
-    return mockLessons.filter(l => l.classe === selectedClass);
+    return mockLessons.filter(l => l.classeId === selectedClass);
   }, [selectedClass]);
 
   // Timetable slots
@@ -131,8 +131,8 @@ export default function EmploiDuTempsPage() {
                         <div key={day.num} className="p-2.5 border-r border-slate-100 flex items-stretch">
                           <div className={`w-full p-3 rounded-xl border flex flex-col justify-between transition-all hover:shadow-sm ${colors.bg} ${colors.text} ${colors.border}`}>
                             <div>
-                              <span className="font-extrabold text-xs block leading-tight">{satLesson.matiere}</span>
-                              <span className="text-[10px] opacity-80 mt-1 block">Prof: {satLesson.enseignantNom}</span>
+                              <span className="font-extrabold text-xs block leading-tight">{satLesson.matiereId}</span>
+                              <span className="text-[10px] opacity-80 mt-1 block">Prof: {satLesson.enseignantId}</span>
                             </div>
                             <div className="flex justify-between items-center mt-3 text-[9px] font-bold opacity-75">
                               <span>{satLesson.salle}</span>
@@ -154,8 +154,8 @@ export default function EmploiDuTempsPage() {
                       <div key={day.num} className="p-2.5 border-r border-slate-100 flex items-stretch">
                         <div className={`w-full p-3 rounded-xl border flex flex-col justify-between transition-all hover:shadow-sm ${colors.bg} ${colors.text} ${colors.border}`}>
                           <div>
-                            <span className="font-extrabold text-xs block leading-tight">{lesson.matiere}</span>
-                            <span className="text-[10px] opacity-80 mt-1 block">Prof: {lesson.enseignantNom}</span>
+                            <span className="font-extrabold text-xs block leading-tight">{lesson.matiereId}</span>
+                            <span className="text-[10px] opacity-80 mt-1 block">Prof: {lesson.enseignantId}</span>
                           </div>
                           <div className="flex justify-between items-center mt-3 text-[9px] font-bold opacity-75">
                             <span>{lesson.salle}</span>
@@ -207,10 +207,10 @@ export default function EmploiDuTempsPage() {
                 return (
                   <div className={`p-4 rounded-xl border flex flex-col gap-2 ${colors.bg} ${colors.text} ${colors.border}`}>
                     <div className="flex justify-between items-start">
-                      <span className="font-extrabold text-sm">{satLesson.matiere}</span>
+                      <span className="font-extrabold text-sm">{satLesson.matiereId}</span>
                       <span className="text-xs font-bold opacity-80">{satLesson.heureDebut} - {satLesson.heureFin}</span>
                     </div>
-                    <p className="text-xs opacity-90">Enseignant : {satLesson.enseignantNom}</p>
+                    <p className="text-xs opacity-90">Enseignant : {satLesson.enseignantId}</p>
                     <p className="text-xs font-bold opacity-75 mt-1 flex items-center gap-1">
                       <span>📍 Salle :</span> <span>{satLesson.salle}</span>
                     </p>
@@ -233,10 +233,10 @@ export default function EmploiDuTempsPage() {
                   return (
                     <div key={lesson.id} className={`p-4 rounded-xl border flex flex-col gap-2 ${colors.bg} ${colors.text} ${colors.border}`}>
                       <div className="flex justify-between items-start">
-                        <span className="font-extrabold text-sm">{lesson.matiere}</span>
+                        <span className="font-extrabold text-sm">{lesson.matiereId}</span>
                         <span className="text-xs font-bold opacity-80">{lesson.heureDebut} - {lesson.heureFin}</span>
                       </div>
-                      <p className="text-xs opacity-90">Enseignant : {lesson.enseignantNom}</p>
+                      <p className="text-xs opacity-90">Enseignant : {lesson.enseignantId}</p>
                       <p className="text-xs font-bold opacity-75 mt-1 flex items-center gap-1">
                         <span>📍 Salle :</span> <span>{lesson.salle}</span>
                       </p>

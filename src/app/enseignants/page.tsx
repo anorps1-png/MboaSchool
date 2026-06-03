@@ -2,17 +2,31 @@
 
 import React, { useState, useEffect } from 'react';
 import { mockTeachers } from '@/mock/teachers';
+import { mockClasses } from '@/mock/classes';
 import { PhoneIcon, MailIcon, PlusIcon } from '@/components/icons';
-import { Enseignant } from '@/types/domain';
+import { Enseignant, Classe } from '@/types/domain';
 
 export default function EnseignantsPage() {
   const [teachers, setTeachers] = useState<Enseignant[]>([]);
+  const [classesList, setClassesList] = useState<Classe[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      const storedClasses = localStorage.getItem('mboaschool_classes');
+      if (storedClasses) {
+        try {
+          setClassesList(JSON.parse(storedClasses));
+        } catch (e) {
+          setClassesList(mockClasses);
+        }
+      } else {
+        localStorage.setItem('mboaschool_classes', JSON.stringify(mockClasses));
+        setClassesList(mockClasses);
+      }
+
       const stored = localStorage.getItem('mboaschool_teachers');
       if (stored) {
         try {
@@ -35,7 +49,7 @@ export default function EnseignantsPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [subjectsStr, setSubjectsStr] = useState('');
-  const [classesStr, setClassesStr] = useState('');
+  const [selectedClassesIds, setSelectedClassesIds] = useState<string[]>([]);
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
 
   const triggerToast = (msg: string) => {
@@ -59,8 +73,8 @@ export default function EnseignantsPage() {
       email,
       telephone: phone,
       genre: gender,
-      matieres: subjectsStr ? subjectsStr.split(',').map(s => s.trim()) : [],
-      classes: classesStr ? classesStr.split(',').map(c => c.trim()) : [],
+      matieresId: subjectsStr ? subjectsStr.split(',').map(s => s.trim()) : [],
+      classesId: selectedClassesIds,
       statut: status,
       dateRecrutement: new Date().toISOString().split('T')[0]
     };
@@ -76,7 +90,7 @@ export default function EnseignantsPage() {
     setEmail('');
     setPhone('');
     setSubjectsStr('');
-    setClassesStr('');
+    setSelectedClassesIds([]);
     setStatus('active');
     
     setShowAddModal(false);
@@ -179,7 +193,7 @@ export default function EnseignantsPage() {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Matières</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {teacher.matieres.map((sub) => (
+                  {teacher.matieresId.map((sub) => (
                     <span key={sub} className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold px-2 py-0.5 rounded">
                       {sub}
                     </span>
@@ -189,7 +203,7 @@ export default function EnseignantsPage() {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Classes Affectées</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {teacher.classes.map((cls) => (
+                  {teacher.classesId.map((cls) => (
                     <span key={cls} className="bg-slate-100 border border-slate-200 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded">
                       {cls}
                     </span>
@@ -337,15 +351,30 @@ export default function EnseignantsPage() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Classes affectées (séparées par une virgule)
+                  Classes affectées
                 </label>
-                <input
-                  type="text"
-                  value={classesStr}
-                  onChange={(e) => setClassesStr(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                  placeholder="ex: Terminale D, Seconde C"
-                />
+                <div className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 text-black max-h-40 overflow-y-auto space-y-2">
+                  {classesList.map(cls => (
+                    <label key={cls.id} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedClassesIds.includes(cls.nom)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedClassesIds([...selectedClassesIds, cls.nom]);
+                          } else {
+                            setSelectedClassesIds(selectedClassesIds.filter(id => id !== cls.nom));
+                          }
+                        }}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>{cls.nom}</span>
+                    </label>
+                  ))}
+                  {classesList.length === 0 && (
+                    <span className="text-slate-400 italic">Aucune classe disponible. Créez-en d&apos;abord.</span>
+                  )}
+                </div>
               </div>
 
               <div className="flex gap-3 pt-4 border-t border-slate-100">
