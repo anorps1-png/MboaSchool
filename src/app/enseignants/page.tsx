@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { mockTeachers } from '@/mock/teachers';
 import { mockClasses } from '@/mock/classes';
 import { PhoneIcon, MailIcon, PlusIcon } from '@/components/icons';
-import { Enseignant, Classe } from '@/types/domain';
+import { Enseignant, Classe, MembrePersonnel, MouvementPersonnel } from '@/types/domain';
+import { mockPersonnel, mockMouvements } from '@/mock/rh';
 
 export default function EnseignantsPage() {
   const [teachers, setTeachers] = useState<Enseignant[]>([]);
@@ -52,6 +53,9 @@ export default function EnseignantsPage() {
   const [subjectsStr, setSubjectsStr] = useState('');
   const [selectedClassesIds, setSelectedClassesIds] = useState<string[]>([]);
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
+  const [salary, setSalary] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
+
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -62,13 +66,15 @@ export default function EnseignantsPage() {
 
   const handleAddTeacher = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName || !lastName || !email || !phone) {
+    if (!firstName || !lastName || !email || !phone || !salary || !effectiveDate) {
       alert("Veuillez remplir tous les champs obligatoires.");
       return;
     }
 
+    const newTeacherId = `teach-${Date.now()}`;
+
     const newTeacher: Enseignant = {
-      id: `teach-${Date.now()}`,
+      id: newTeacherId,
       prenom: firstName,
       nom: lastName,
       email,
@@ -77,12 +83,62 @@ export default function EnseignantsPage() {
       matieresId: subjectsStr ? subjectsStr.split(',').map(s => s.trim()) : [],
       classesId: selectedClassesIds,
       statut: status,
-      dateRecrutement: new Date().toISOString().split('T')[0]
+      dateRecrutement: effectiveDate
     };
 
     const updatedList = [newTeacher, ...teachers];
     setTeachers(updatedList);
     localStorage.setItem('mboaschool_teachers', JSON.stringify(updatedList));
+
+    // Link to RH module:
+    if (typeof window !== 'undefined') {
+      // 1. MembrePersonnel
+      const storedPers = localStorage.getItem('mboaschool_rh_personnel');
+      let loadedPers: MembrePersonnel[] = mockPersonnel;
+      if (storedPers) {
+        try {
+          const parsed = JSON.parse(storedPers);
+          if (Array.isArray(parsed)) {
+            loadedPers = parsed.filter(Boolean);
+          }
+        } catch (e) { }
+      }
+      const newPersonnel: MembrePersonnel = {
+        id: newTeacherId,
+        nom: lastName,
+        prenom: firstName,
+        email,
+        telephone: phone,
+        sexe: gender,
+        categorie: 'Enseignant',
+        typeContrat: 'CDI',
+        salaireDeBase: Number(salary) || 0,
+        dateEmbauche: effectiveDate,
+        statut: 'actif'
+      };
+      localStorage.setItem('mboaschool_rh_personnel', JSON.stringify([...loadedPers, newPersonnel]));
+
+      // 2. MouvementPersonnel
+      const storedMouv = localStorage.getItem('mboaschool_rh_mouvements');
+      let loadedMouv: MouvementPersonnel[] = mockMouvements;
+      if (storedMouv) {
+        try {
+          const parsed = JSON.parse(storedMouv);
+          if (Array.isArray(parsed)) {
+            loadedMouv = parsed.filter(Boolean);
+          }
+        } catch (e) { }
+      }
+      const newMouvement: MouvementPersonnel = {
+        id: `mov-${Date.now()}`,
+        personnelId: newTeacherId,
+        nomPersonnel: `${lastName} ${firstName}`,
+        type: 'embauche',
+        date: effectiveDate,
+        details: `Embauche de l'enseignant en CDI`
+      };
+      localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify([newMouvement, ...loadedMouv]));
+    }
 
     // Reset fields
     setFirstName('');
@@ -93,6 +149,8 @@ export default function EnseignantsPage() {
     setSubjectsStr('');
     setSelectedClassesIds([]);
     setStatus('active');
+    setSalary('');
+    setEffectiveDate(new Date().toISOString().split('T')[0]);
     
     setShowAddModal(false);
     triggerToast(`L'enseignant ${lastName} ${firstName} a été ajouté avec succès.`);
@@ -335,6 +393,35 @@ export default function EnseignantsPage() {
                   placeholder="ex: +237 677 12 34 56"
                   required
                 />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Salaire Mensuel Brut (FCFA) *
+                  </label>
+                  <input
+                    type="number"
+                    value={salary}
+                    onChange={(e) => setSalary(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black font-mono"
+                    placeholder="ex: 250000"
+                    required
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Date de prise d'effet *
+                  </label>
+                  <input
+                    type="date"
+                    value={effectiveDate}
+                    onChange={(e) => setEffectiveDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    required
+                  />
+                </div>
               </div>
 
               <div>

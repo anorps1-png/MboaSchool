@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { mockStudents } from '@/mock/students';
 import { mockClassFees } from '@/mock/fees';
 import { mockClasses } from '@/mock/classes';
@@ -25,6 +25,7 @@ export default function ElevesPage() {
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [birthPlace, setBirthPlace] = useState('');
   const [matricule, setMatricule] = useState('');
+  const [initialPayment, setInitialPayment] = useState('');
 
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -78,10 +79,11 @@ export default function ElevesPage() {
   }, []);
 
   // Helper: Get student payment stats
-  const getStudentPaymentStats = (student: Eleve) => {
+  const getStudentPaymentStats = useCallback((student: Eleve) => {
     if (!student) return { totalDue: 0, totalPaid: 0, status: 'unpaid' as const };
     const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
-    const totalDue = classFeeConfig ? classFeeConfig.total : 0;
+    const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
+    const totalDue = classObj && typeof classObj.prix !== 'undefined' ? classObj.prix : (classFeeConfig ? classFeeConfig.total : 200000);
     const totalPaid = (student.paiements || [])
       .filter(p => p.statut === 'paid')
       .reduce((sum, p) => sum + p.montant, 0);
@@ -94,7 +96,7 @@ export default function ElevesPage() {
     }
 
     return { totalDue, totalPaid, status };
-  };
+  }, [classesList]);
 
   // Filter students
   const filteredStudents = useMemo(() => {
@@ -118,7 +120,7 @@ export default function ElevesPage() {
 
       return matchesSearch && matchesClass && matchesPayment && matchesGender;
     });
-  }, [students, searchTerm, selectedClass, selectedPaymentStatus, selectedGender, isLoaded]);
+  }, [students, searchTerm, selectedClass, selectedPaymentStatus, selectedGender, isLoaded, getStudentPaymentStats]);
 
   // Total counts for widgets
   const widgetStats = useMemo(() => {
@@ -136,7 +138,7 @@ export default function ElevesPage() {
     });
 
     return { paidCount, partialCount, unpaidCount, total: students.length };
-  }, [students, isLoaded]);
+  }, [students, isLoaded, getStudentPaymentStats]);
 
   // Pagination Logic
   const totalItems = filteredStudents.length;
@@ -164,8 +166,21 @@ export default function ElevesPage() {
     // Auto-generate matricule if empty
     const generatedMatricule = matricule.trim() || `26YAE${Math.floor(100 + Math.random() * 900)}`;
 
+    const newStudentId = `stud-${Date.now()}`;
+    const initialPaid = Number(initialPayment) || 0;
+    const initialPaiements = initialPaid > 0 ? [{
+      id: `pay-${Date.now()}`,
+      eleveId: newStudentId,
+      montant: initialPaid,
+      date: new Date().toISOString().split('T')[0],
+      modePaiement: 'Espèces' as const,
+      typeFrais: 'Scolarité' as const,
+      statut: 'paid' as const,
+      reference: `REG-${Date.now().toString().slice(-6)}`
+    }] : [];
+
     const newStudent: Eleve = {
-      id: `stud-${Date.now()}`,
+      id: newStudentId,
       matricule: generatedMatricule,
       prenom: firstName,
       nom: lastName,
@@ -179,7 +194,7 @@ export default function ElevesPage() {
       dateInscription: new Date().toISOString().split('T')[0],
       anneeScolaireId: 'as-2025',
       statut: 'actif',
-      paiements: [], // starts with 0 payments
+      paiements: initialPaiements,
       notes: []    // starts with empty grades
     };
 
@@ -198,6 +213,7 @@ export default function ElevesPage() {
     setDateOfBirth('');
     setBirthPlace('');
     setMatricule('');
+    setInitialPayment('');
 
     setShowAddModal(false);
     triggerToast(`L'élève ${lastName} ${firstName} a été inscrit avec succès.`);
@@ -623,6 +639,20 @@ export default function ElevesPage() {
                   onChange={(e) => setBirthPlace(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
                   placeholder="ex: Yaoundé"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Montant payé à l'inscription (FCFA)
+                </label>
+                <input
+                  type="number"
+                  value={initialPayment}
+                  onChange={(e) => setInitialPayment(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono text-black"
+                  placeholder="ex: 150000"
+                  min="0"
                 />
               </div>
 

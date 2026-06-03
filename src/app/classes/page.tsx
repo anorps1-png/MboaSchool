@@ -11,6 +11,7 @@ export default function ClassesPage() {
   const [nom, setNom] = useState('');
   const [niveauId, setNiveauId] = useState('');
   const [sectionId, setSectionId] = useState('sec-fr');
+  const [prix, setPrix] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -33,6 +34,7 @@ export default function ClassesPage() {
       anneeScolaireId: 'as-2025',
       enseignantPrincipalId: 'ens-1', // Default mock
       sectionId,
+      prix: Number(prix) || 0,
     };
     const updated = [newClass, ...classesList];
     setClassesList(updated);
@@ -41,6 +43,7 @@ export default function ClassesPage() {
     setNom('');
     setNiveauId('');
     setSectionId('sec-fr');
+    setPrix('');
   };
 
   const handleDeleteClass = (id: string) => {
@@ -83,6 +86,9 @@ export default function ClassesPage() {
               </button>
               <h2 className="text-xl font-bold text-black pr-8">{cls.nom}</h2>
               <p className="text-sm text-slate-500 mt-2">Niveau: {cls.niveauId}</p>
+              <p className="text-sm font-bold text-slate-700 mt-1">
+                Scolarité: {cls.prix ? `${new Intl.NumberFormat('fr-FR').format(cls.prix)} FCFA` : 'Non défini'}
+              </p>
               <p className="text-xs font-semibold text-indigo-600 bg-indigo-50 inline-block px-2 py-1 rounded mt-2">
                 {cls.sectionId === 'sec-en' ? 'Anglophone' : 'Francophone'}
               </p>
@@ -117,6 +123,10 @@ export default function ClassesPage() {
                   <option value="sec-fr">Francophone</option>
                   <option value="sec-en">Anglophone</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Prix de la Scolarité (FCFA) *</label>
+                <input type="number" value={prix} onChange={(e) => setPrix(e.target.value)} required placeholder="Ex: 250000" min="0" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-mono" />
               </div>
               <div className="pt-4 flex justify-end">
                 <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold">Enregistrer</button>

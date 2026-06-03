@@ -10,7 +10,8 @@ import {
   PhoneIcon,
   MailIcon
 } from '@/components/icons';
-import { Eleve, Paiement, NoteMatiere, TransactionPaiement } from '@/types/domain';
+import { Eleve, Paiement, NoteMatiere, TransactionPaiement, Classe } from '@/types/domain';
+import { mockClasses } from '@/mock/classes';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -21,12 +22,22 @@ export default function FicheElevePage({ params }: PageProps) {
   const studentId = resolvedParams.id;
 
   const [students, setStudents] = useState<Eleve[]>([]);
+  const [classesList, setClassesList] = useState<Classe[]>([]);
   const [student, setStudent] = useState<Eleve | undefined>(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'finance' | 'grades'>('info');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      const storedClasses = localStorage.getItem('mboaschool_classes');
+      let loadedClasses = mockClasses;
+      if (storedClasses) {
+        try {
+          loadedClasses = JSON.parse(storedClasses);
+        } catch (e) {}
+      }
+      setClassesList(loadedClasses);
+
       const stored = localStorage.getItem('mboaschool_students');
       let currentStudents = mockStudents;
       if (stored) {
@@ -122,7 +133,8 @@ export default function FicheElevePage({ params }: PageProps) {
 
   // Financial calculations
   const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
-  const totalDue = classFeeConfig ? classFeeConfig.total : 0;
+  const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
+  const totalDue = classObj && typeof classObj.prix !== 'undefined' ? classObj.prix : (classFeeConfig ? classFeeConfig.total : 200000);
   const totalPaid = ((student.paiements || []) || [])
     .filter(p => p.statut === 'paid')
     .reduce((sum, p) => sum + p.montant, 0);

@@ -36,7 +36,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { name: 'Parents & Messages', href: '/parents', icon: UsersIcon },
     { name: 'Enseignants', href: '/enseignants', icon: TeachersIcon },
     { name: 'Évaluations', href: '/evaluations', icon: AcademicIcon },
-    { name: 'Frais Scolaires', href: '/frais', icon: FeesIcon },
     { name: 'Finance', href: '/finance', icon: ChartIcon },
     { name: 'Ressources Humaines', href: '/rh', icon: UsersIcon },
   ];

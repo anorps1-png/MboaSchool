@@ -350,10 +350,10 @@ export default function Dashboard() {
             <p className="text-xs text-slate-400">Derniers versements enregistrés dans l&apos;établissement</p>
           </div>
           <Link
-            href="/frais"
+            href="/eleves"
             className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 transition-all"
           >
-            Voir tous les frais
+            Voir tous les élèves
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
             </svg>

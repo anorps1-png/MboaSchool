@@ -33,6 +33,7 @@ export interface Classe {
   enseignantPrincipalId: string;
   enseignantAssistantId?: string;
   sectionId?: string; // ex: 'sec-fr' ou 'sec-en'
+  prix?: number; // Prix de la scolarité pour cette classe
   // Agrégations pré-calculées
   effectifTotal?: number;
   effectifFilles?: number;

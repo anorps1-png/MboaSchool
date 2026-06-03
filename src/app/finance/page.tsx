@@ -11,7 +11,7 @@ import {
 import { planComptableOHADA, mockEcrituresInitiales } from '@/mock/comptabilite';
 import { mockStudents } from '@/mock/students';
 import { mockPersonnel, mockFormations } from '@/mock/rh';
-import { mockBSCHistorique, mockBudget2026 } from '@/mock/finance';
+import { mockBSCHistorique, mockBudget2026, BudgetPrevisionnel } from '@/mock/finance';
 
 export default function FinancePage() {
   const [activeTab, setActiveTab] = useState<'bsc' | 'productivity' | 'ratios' | 'cash' | 'budget' | 'accounting'>('bsc');
@@ -46,6 +46,25 @@ export default function FinancePage() {
   // Subtab for accounting
   const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance'>('journal');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // BSC years state
+  const [bscYears, setBscYears] = useState({ year1: 2024, year2: 2025, year3: 2026 });
+
+  // Budget states
+  const [budgetLines, setBudgetLines] = useState<BudgetPrevisionnel[]>([]);
+  const [showAddBudgetModal, setShowAddBudgetModal] = useState(false);
+  const [newBudgetPoste, setNewBudgetPoste] = useState('');
+  const [newBudgetCategorie, setNewBudgetCategorie] = useState<'Revenu' | 'Charge'>('Charge');
+  const [newBudgetPrevu, setNewBudgetPrevu] = useState('');
+
+  // Editing budget lines
+  const [editingBudgetIndex, setEditingBudgetIndex] = useState<number | null>(null);
+  const [editBudgetPoste, setEditBudgetPoste] = useState('');
+  const [editBudgetCategorie, setEditBudgetCategorie] = useState<'Revenu' | 'Charge'>('Charge');
+  const [editBudgetPrevu, setEditBudgetPrevu] = useState('');
+
+  // Budget report state
+  const [showBudgetReportModal, setShowBudgetReportModal] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -131,6 +150,29 @@ export default function FinancePage() {
       );
       setEcritures(combined);
       if (!storedEcritures) localStorage.setItem('mboaschool_ecritures', JSON.stringify(customEcritures));
+
+      // 6. BSC Years
+      const storedBscYears = localStorage.getItem('mboaschool_bsc_years');
+      if (storedBscYears) {
+        try {
+          setBscYears(JSON.parse(storedBscYears));
+        } catch (e) {}
+      } else {
+        localStorage.setItem('mboaschool_bsc_years', JSON.stringify({ year1: 2024, year2: 2025, year3: 2026 }));
+      }
+
+      // 7. Budget lines
+      const storedBudget = localStorage.getItem('mboaschool_budget_lines');
+      if (storedBudget) {
+        try {
+          setBudgetLines(JSON.parse(storedBudget));
+        } catch (e) {
+          setBudgetLines(mockBudget2026);
+        }
+      } else {
+        localStorage.setItem('mboaschool_budget_lines', JSON.stringify(mockBudget2026));
+        setBudgetLines(mockBudget2026);
+      }
     }
   }, []);
 
@@ -307,18 +349,29 @@ export default function FinancePage() {
 
   // --- Budget Variance ---
   const getBudgetVariance = () => {
-    return mockBudget2026.map(item => {
+    return budgetLines.map(item => {
       let realized = 0;
+      const lowerPoste = item.poste.toLowerCase();
       if (item.categorie === 'Revenu') {
-        if (item.poste.includes('scolarité')) realized = totalCA2026;
-        else realized = 150000; // divers
+        if (lowerPoste.includes('scolarité') || lowerPoste.includes('inscription') || lowerPoste.includes('revenu')) {
+          realized = totalCA2026;
+        } else {
+          realized = 150000; // divers
+        }
       } else {
-        if (item.poste.includes('Masse salariale')) realized = masseSalarialeAnnuelle2026;
-        else if (item.poste.includes('formation')) realized = totalTrainingCosts2026;
-        else if (item.poste.includes('fourniture')) realized = totalChargesComptables2026 * 0.4;
-        else if (item.poste.includes('Loyer')) realized = totalChargesComptables2026 * 0.3;
-        else if (item.poste.includes('Fluides')) realized = totalChargesComptables2026 * 0.15;
-        else realized = totalChargesComptables2026 * 0.15; // equipement
+        if (lowerPoste.includes('salariale') || lowerPoste.includes('salaire')) {
+          realized = masseSalarialeAnnuelle2026;
+        } else if (lowerPoste.includes('formation') || lowerPoste.includes('stage')) {
+          realized = totalTrainingCosts2026;
+        } else if (lowerPoste.includes('fourniture') || lowerPoste.includes('entretien')) {
+          realized = totalChargesComptables2026 * 0.4;
+        } else if (lowerPoste.includes('loyer') || lowerPoste.includes('locat')) {
+          realized = totalChargesComptables2026 * 0.3;
+        } else if (lowerPoste.includes('fluid') || lowerPoste.includes('eau') || lowerPoste.includes('élec') || lowerPoste.includes('internet')) {
+          realized = totalChargesComptables2026 * 0.15;
+        } else {
+          realized = totalChargesComptables2026 * 0.15; // equipement/divers
+        }
       }
 
       const diff = item.categorie === 'Revenu' ? realized - item.budgetPrevu : item.budgetPrevu - realized;
@@ -420,6 +473,56 @@ export default function FinancePage() {
     triggerToast("Compte comptable créé !");
   };
 
+  const handleAddBudgetLine = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBudgetPoste || !newBudgetPrevu) return;
+    const newLine: BudgetPrevisionnel = {
+      poste: newBudgetPoste,
+      categorie: newBudgetCategorie,
+      budgetPrevu: Number(newBudgetPrevu) || 0
+    };
+    const updated = [...budgetLines, newLine];
+    setBudgetLines(updated);
+    localStorage.setItem('mboaschool_budget_lines', JSON.stringify(updated));
+    setShowAddBudgetModal(false);
+    setNewBudgetPoste('');
+    setNewBudgetPrevu('');
+    triggerToast("Ligne budgétaire ajoutée !");
+  };
+
+  const handleEditBudgetLine = (index: number) => {
+    const line = budgetLines[index];
+    if (!line) return;
+    setEditingBudgetIndex(index);
+    setEditBudgetPoste(line.poste);
+    setEditBudgetCategorie(line.categorie);
+    setEditBudgetPrevu(String(line.budgetPrevu));
+  };
+
+  const handleSaveBudgetLine = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingBudgetIndex === null || !editBudgetPoste || !editBudgetPrevu) return;
+    const updated = [...budgetLines];
+    updated[editingBudgetIndex] = {
+      poste: editBudgetPoste,
+      categorie: editBudgetCategorie,
+      budgetPrevu: Number(editBudgetPrevu) || 0
+    };
+    setBudgetLines(updated);
+    localStorage.setItem('mboaschool_budget_lines', JSON.stringify(updated));
+    setEditingBudgetIndex(null);
+    triggerToast("Ligne budgétaire modifiée !");
+  };
+
+  const handleDeleteBudgetLine = (index: number) => {
+    if (confirm('Voulez-vous vraiment supprimer cette ligne budgétaire ?')) {
+      const updated = budgetLines.filter((_, idx) => idx !== index);
+      setBudgetLines(updated);
+      localStorage.setItem('mboaschool_budget_lines', JSON.stringify(updated));
+      triggerToast("Ligne budgétaire supprimée !");
+    }
+  };
+
   // Accounting balance
   const accountBalances: Record<string, { debit: number, credit: number, solde: number }> = {};
   planComptable.forEach(c => {
@@ -499,6 +602,57 @@ export default function FinancePage() {
       {/* -------------------- TAB: BALANCED SCORECARD -------------------- */}
       {activeTab === 'bsc' && (
         <div className="space-y-6">
+          {/* Configuration of BSC Years */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm">
+            <div>
+              <h4 className="font-bold text-slate-800 text-black text-sm">Périodes d'Analyse Balanced Scorecard</h4>
+              <p className="text-xs text-slate-500 font-medium">Modifiez les dates des indicateurs du BSC pour réaligner les colonnes</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500 font-semibold">Année 1:</span>
+                <input
+                  type="number"
+                  value={bscYears.year1}
+                  onChange={(e) => {
+                    const val = Number(e.target.value) || 2024;
+                    const updated = { ...bscYears, year1: val };
+                    setBscYears(updated);
+                    localStorage.setItem('mboaschool_bsc_years', JSON.stringify(updated));
+                  }}
+                  className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500 font-semibold">Année 2:</span>
+                <input
+                  type="number"
+                  value={bscYears.year2}
+                  onChange={(e) => {
+                    const val = Number(e.target.value) || 2025;
+                    const updated = { ...bscYears, year2: val };
+                    setBscYears(updated);
+                    localStorage.setItem('mboaschool_bsc_years', JSON.stringify(updated));
+                  }}
+                  className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500 font-semibold">Année 3:</span>
+                <input
+                  type="number"
+                  value={bscYears.year3}
+                  onChange={(e) => {
+                    const val = Number(e.target.value) || 2026;
+                    const updated = { ...bscYears, year3: val };
+                    setBscYears(updated);
+                    localStorage.setItem('mboaschool_bsc_years', JSON.stringify(updated));
+                  }}
+                  className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
             {/* Perspective: Finances */}
@@ -511,9 +665,9 @@ export default function FinancePage() {
                 <thead>
                   <tr className="text-slate-400 font-bold border-b border-slate-100">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">2024</th>
-                    <th className="pb-2 text-right">2025</th>
-                    <th className="pb-2 text-right">2026</th>
+                    <th className="pb-2 text-right">{bscYears.year1}</th>
+                    <th className="pb-2 text-right">{bscYears.year2}</th>
+                    <th className="pb-2 text-right">{bscYears.year3}</th>
                     <th className="pb-2 text-center">Tendance</th>
                   </tr>
                 </thead>
@@ -553,9 +707,9 @@ export default function FinancePage() {
                 <thead>
                   <tr className="text-slate-400 font-bold border-b border-slate-100">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">2024</th>
-                    <th className="pb-2 text-right">2025</th>
-                    <th className="pb-2 text-right">2026</th>
+                    <th className="pb-2 text-right">{bscYears.year1}</th>
+                    <th className="pb-2 text-right">{bscYears.year2}</th>
+                    <th className="pb-2 text-right">{bscYears.year3}</th>
                     <th className="pb-2 text-center">Tendance</th>
                   </tr>
                 </thead>
@@ -595,9 +749,9 @@ export default function FinancePage() {
                 <thead>
                   <tr className="text-slate-400 font-bold border-b border-slate-100">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">2024</th>
-                    <th className="pb-2 text-right">2025</th>
-                    <th className="pb-2 text-right">2026</th>
+                    <th className="pb-2 text-right">{bscYears.year1}</th>
+                    <th className="pb-2 text-right">{bscYears.year2}</th>
+                    <th className="pb-2 text-right">{bscYears.year3}</th>
                     <th className="pb-2 text-center">Tendance</th>
                   </tr>
                 </thead>
@@ -637,9 +791,9 @@ export default function FinancePage() {
                 <thead>
                   <tr className="text-slate-400 font-bold border-b border-slate-100">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">2024</th>
-                    <th className="pb-2 text-right">2025</th>
-                    <th className="pb-2 text-right">2026</th>
+                    <th className="pb-2 text-right">{bscYears.year1}</th>
+                    <th className="pb-2 text-right">{bscYears.year2}</th>
+                    <th className="pb-2 text-right">{bscYears.year3}</th>
                     <th className="pb-2 text-center">Tendance</th>
                   </tr>
                 </thead>
@@ -925,9 +1079,25 @@ export default function FinancePage() {
       {/* -------------------- TAB: BUDGET VARIANCE -------------------- */}
       {activeTab === 'budget' && (
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
-          <div className="border-b border-slate-100 pb-3">
-            <h3 className="font-bold text-slate-800 text-black">Analyse des Écarts Budgétaires 2026</h3>
-            <p className="text-xs text-slate-500">Comparaison entre prévisions budgétaires et dépenses/revenus réels</p>
+          <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+            <div>
+              <h3 className="font-bold text-slate-800 text-black">Analyse des Écarts Budgétaires</h3>
+              <p className="text-xs text-slate-500">Comparaison entre prévisions budgétaires et dépenses/revenus réels</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowAddBudgetModal(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors"
+              >
+                + Ajouter une ligne
+              </button>
+              <button
+                onClick={() => setShowBudgetReportModal(true)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors"
+              >
+                📊 Rapport d'écart
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -940,18 +1110,55 @@ export default function FinancePage() {
                   <th className="px-4 py-3 text-right">Réalisé Réel</th>
                   <th className="px-4 py-3 text-right">Écart (FCFA)</th>
                   <th className="px-4 py-3 text-center">Statut</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-black font-medium">
                 {budgetVariances.map((item, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/30">
-                    <td className="px-4 py-3 font-semibold">{item.poste}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.categorie === 'Revenu' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                        {item.categorie}
-                      </span>
+                    <td className="px-4 py-3 font-semibold">
+                      {editingBudgetIndex === idx ? (
+                        <input
+                          type="text"
+                          value={editBudgetPoste}
+                          onChange={(e) => setEditBudgetPoste(e.target.value)}
+                          className="px-2 py-1 border border-indigo-200 rounded text-sm text-black w-full focus:outline-none"
+                          required
+                        />
+                      ) : (
+                        item.poste
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{formatMoney(item.budgetPrevu)}</td>
+                    <td className="px-4 py-3">
+                      {editingBudgetIndex === idx ? (
+                        <select
+                          value={editBudgetCategorie}
+                          onChange={(e) => setEditBudgetCategorie(e.target.value as any)}
+                          className="px-2 py-1 border border-indigo-200 rounded text-sm text-black bg-white focus:outline-none"
+                        >
+                          <option value="Revenu">Revenu</option>
+                          <option value="Charge">Charge</option>
+                        </select>
+                      ) : (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.categorie === 'Revenu' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                          {item.categorie}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {editingBudgetIndex === idx ? (
+                        <input
+                          type="number"
+                          value={editBudgetPrevu}
+                          onChange={(e) => setEditBudgetPrevu(e.target.value)}
+                          className="px-2 py-1 border border-indigo-200 rounded text-sm text-black w-28 text-right font-mono focus:outline-none"
+                          required
+                          min="0"
+                        />
+                      ) : (
+                        formatMoney(item.budgetPrevu)
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right font-mono">{formatMoney(item.realise)}</td>
                     <td className={`px-4 py-3 text-right font-mono font-bold ${item.isFavorable ? 'text-emerald-500' : 'text-rose-500'}`}>
                       {item.diff > 0 ? '+' : ''}{formatMoney(item.diff)} ({item.pct.toFixed(1)}%)
@@ -960,6 +1167,39 @@ export default function FinancePage() {
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.isFavorable ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                         {item.isFavorable ? 'Favorable' : 'Défavorable'}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {editingBudgetIndex === idx ? (
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={handleSaveBudgetLine}
+                            className="text-emerald-600 hover:text-emerald-700 font-bold text-xs"
+                          >
+                            Sauver
+                          </button>
+                          <button
+                            onClick={() => setEditingBudgetIndex(null)}
+                            className="text-slate-400 hover:text-slate-600 text-xs"
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => handleEditBudgetLine(idx)}
+                            className="text-indigo-600 hover:text-indigo-800 text-xs font-semibold"
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            onClick={() => handleDeleteBudgetLine(idx)}
+                            className="text-rose-600 hover:text-rose-800 text-xs font-semibold"
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1202,6 +1442,170 @@ export default function FinancePage() {
           </div>
         </div>
       )}
+      {/* -------------------- MODAL: AJOUTER LIGNE BUDGETAIRE -------------------- */}
+      {showAddBudgetModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative">
+            <button onClick={() => setShowAddBudgetModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold">✕</button>
+            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 text-black">Ajouter un Poste Budgétaire</h3>
+            <form onSubmit={handleAddBudgetLine} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Poste Budgétaire / Intitulé</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Achat fournitures de bureau"
+                  value={newBudgetPoste}
+                  onChange={(e) => setNewBudgetPoste(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Catégorie</label>
+                <select
+                  value={newBudgetCategorie}
+                  onChange={(e) => setNewBudgetCategorie(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                >
+                  <option value="Charge">Charge (Dépense)</option>
+                  <option value="Revenu">Revenu (Recette)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Montant Budgétisé (FCFA)</label>
+                <input
+                  type="number"
+                  placeholder="Ex: 1500000"
+                  value={newBudgetPrevu}
+                  onChange={(e) => setNewBudgetPrevu(e.target.value)}
+                  required
+                  min="0"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+              <div className="pt-4 flex justify-end gap-3">
+                <button type="button" onClick={() => setShowAddBudgetModal(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold">Annuler</button>
+                <button type="submit" className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-md">Enregistrer</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- MODAL: RAPPORT D'ANALYSE DES ECARTS -------------------- */}
+      {showBudgetReportModal && (() => {
+        const variances = getBudgetVariance();
+        const totRevenuPrevu = variances.filter(v => v.categorie === 'Revenu').reduce((sum, v) => sum + v.budgetPrevu, 0);
+        const totRevenuRealise = variances.filter(v => v.categorie === 'Revenu').reduce((sum, v) => sum + v.realise, 0);
+        const diffRevenu = totRevenuRealise - totRevenuPrevu;
+
+        const totChargePrevu = variances.filter(v => v.categorie === 'Charge').reduce((sum, v) => sum + v.budgetPrevu, 0);
+        const totChargeRealise = variances.filter(v => v.categorie === 'Charge').reduce((sum, v) => sum + v.realise, 0);
+        const diffCharge = totChargePrevu - totChargeRealise; // Positive if spent less than budgeted
+
+        const profitPrevu = totRevenuPrevu - totChargePrevu;
+        const profitRealise = totRevenuRealise - totChargeRealise;
+        const diffProfit = profitRealise - profitPrevu;
+
+        const favorableLines = variances.filter(v => v.isFavorable);
+        const unfavorableLines = variances.filter(v => !v.isFavorable);
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-2xl w-full max-w-2xl border border-slate-100 shadow-2xl p-6 relative max-h-[90vh] overflow-y-auto">
+              <button onClick={() => setShowBudgetReportModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold">✕</button>
+              
+              <div className="border-b border-slate-100 pb-3 mb-6">
+                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider animate-pulse">Génération Automatique</span>
+                <h3 className="text-xl font-bold text-slate-800 text-black mt-2">Rapport d'Analyse des Écarts Budgétaires</h3>
+                <p className="text-xs text-slate-400">Date d'analyse : {new Date().toLocaleDateString('fr-FR')} • Année Académique Active : 2025/2026</p>
+              </div>
+
+              <div className="space-y-6 text-sm text-slate-700">
+                {/* Executive Summary Cards */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Écart Recettes</span>
+                    <span className={`text-lg font-black block mt-1 ${diffRevenu >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {diffRevenu > 0 ? '+' : ''}{formatMoney(diffRevenu)}
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-semibold block mt-0.5">Budget réalisé à {totRevenuPrevu > 0 ? ((totRevenuRealise/totRevenuPrevu)*100).toFixed(0) : 0}%</span>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Écart Dépenses</span>
+                    <span className={`text-lg font-black block mt-1 ${diffCharge >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {diffCharge >= 0 ? 'Sous-consommé' : 'Sur-consommé'}
+                    </span>
+                    <span className={`text-[9px] font-semibold block mt-0.5 ${diffCharge >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatMoney(Math.abs(totChargeRealise - totChargePrevu))}</span>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Écart Résultat Net</span>
+                    <span className={`text-lg font-black block mt-1 ${diffProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {diffProfit > 0 ? '+' : ''}{formatMoney(diffProfit)}
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-semibold block mt-0.5">Performance globale</span>
+                  </div>
+                </div>
+
+                {/* Analysis section */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-slate-800 text-black text-base">Faits Marquants & Éléments Favorables</h4>
+                  <ul className="list-disc pl-5 space-y-1.5 text-xs">
+                    {favorableLines.length > 0 ? (
+                      favorableLines.map((line, idx) => (
+                        <li key={idx}>
+                          <span className="font-semibold text-slate-800 text-black">{line.poste}</span> : 
+                          Écart positif de <span className="text-emerald-600 font-bold">+{formatMoney(Math.abs(line.diff))}</span>. Le réalisé ({formatMoney(line.realise)}) s'établit de manière favorable par rapport aux prévisions budgétaires ({formatMoney(line.budgetPrevu)}).
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-slate-400 italic">Aucun écart favorable constaté sur cette période.</li>
+                    )}
+                  </ul>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="font-bold text-slate-800 text-black text-base">Points de Vigilance (Écarts Défavorables)</h4>
+                  <ul className="list-disc pl-5 space-y-1.5 text-xs">
+                    {unfavorableLines.length > 0 ? (
+                      unfavorableLines.map((line, idx) => (
+                        <li key={idx}>
+                          <span className="font-semibold text-slate-800 text-black">{line.poste}</span> : 
+                          Écart négatif de <span className="text-rose-600 font-bold">{formatMoney(line.diff)}</span>. Le réalisé ({formatMoney(line.realise)}) dépasse ou n'atteint pas l'objectif budgétaire initial ({formatMoney(line.budgetPrevu)}).
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-slate-400 italic">Excellent! Aucun point de vigilance ou écart négatif constaté.</li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* Strategic Advice */}
+                <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 space-y-2">
+                  <h4 className="font-bold text-indigo-900 text-sm flex items-center gap-1.5">
+                    💡 Recommandations Stratégiques
+                  </h4>
+                  <p className="text-xs text-indigo-700 leading-relaxed">
+                    {diffProfit >= 0 
+                      ? "La situation financière globale est satisfaisante. Le résultat net est supérieur aux prévisions. Il est recommandé de maintenir la discipline sur les charges fixes d'exploitation et de flécher l'excédent vers l'investissement dans les infrastructures numériques scolaires."
+                      : "Un écart négatif global est observé sur le résultat net. Il convient de revoir en priorité les postes ayant subi des surconsommations (vérifier les charges de fluides et loyers) et d'intensifier le recouvrement des tranches de scolarité restantes auprès des familles d'élèves pour rétablir la balance."
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-slate-100 mt-6 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowBudgetReportModal(false)}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

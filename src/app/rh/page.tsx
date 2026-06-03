@@ -45,7 +45,7 @@ export default function RHPage() {
   const [newEmail, setNewEmail] = useState('');
   const [newTel, setNewTel] = useState('');
   const [newSexe, setNewSexe] = useState<'M' | 'F'>('M');
-  const [newCategorie, setNewCategorie] = useState<'Administration' | 'Enseignant' | 'Personnel d\'appui' | 'Technique'>('Enseignant');
+  const [newCategorie, setNewCategorie] = useState<'Administration' | 'Enseignant' | 'Personnel d\'appui' | 'Technique'>('Administration');
   const [newContrat, setNewContrat] = useState<'CDI' | 'CDD' | 'Intérimaire' | 'Stagiaire'>('CDI');
   const [newSalaire, setNewSalaire] = useState('');
   const [newDateEmbauche, setNewDateEmbauche] = useState(new Date().toISOString().split('T')[0]);
@@ -57,6 +57,32 @@ export default function RHPage() {
 
   // Toast notification
   const [toast, setToast] = useState<string | null>(null);
+
+  // States for Employee Profile Sheet Modal
+  const [selectedEmployee, setSelectedEmployee] = useState<MembrePersonnel | null>(null);
+  const [profileModalTab, setProfileModalTab] = useState<'profile' | 'absences' | 'mouvements'>('profile');
+
+  // Edit employee profile states
+  const [editEmpNom, setEditEmpNom] = useState('');
+  const [editEmpPrenom, setEditEmpPrenom] = useState('');
+  const [editEmpEmail, setEditEmpEmail] = useState('');
+  const [editEmpTel, setEditEmpTel] = useState('');
+  const [editEmpSexe, setEditEmpSexe] = useState<'M' | 'F'>('M');
+  const [editEmpCategorie, setEditEmpCategorie] = useState<'Administration' | 'Enseignant' | 'Personnel d\'appui' | 'Technique'>('Administration');
+  const [editEmpContrat, setEditEmpContrat] = useState<'CDI' | 'CDD' | 'Intérimaire' | 'Stagiaire'>('CDI');
+  const [editEmpSalaire, setEditEmpSalaire] = useState(0);
+  const [editEmpDateEmbauche, setEditEmpDateEmbauche] = useState('');
+  const [editEmpStatut, setEditEmpStatut] = useState<'actif' | 'suspendu' | 'quitte'>('actif');
+
+  // Add absence form states
+  const [newAbsDateDebut, setNewAbsDateDebut] = useState(new Date().toISOString().split('T')[0]);
+  const [newAbsDateFin, setNewAbsDateFin] = useState(new Date().toISOString().split('T')[0]);
+  const [newAbsMotif, setNewAbsMotif] = useState<'Maladie' | 'Maternité' | 'Congé' | 'Injustifié' | 'Autre'>('Congé');
+
+  // Add movement form states
+  const [newMouvType, setNewMouvType] = useState<'depart_volontaire' | 'mutation' | 'licenciement'>('depart_volontaire');
+  const [newMouvDate, setNewMouvDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newMouvDetails, setNewMouvDetails] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -75,8 +101,32 @@ export default function RHPage() {
 
       // Load histories
       setMasseHistorique(mockMasseSalarialeHistorique);
-      setAbsences(mockAbsences);
-      setMouvements(mockMouvements);
+
+      // Load or initialize absences
+      const storedAbs = localStorage.getItem('mboaschool_rh_absences');
+      let loadedAbs = mockAbsences;
+      if (storedAbs) {
+        try {
+          const parsed = JSON.parse(storedAbs);
+          if (Array.isArray(parsed)) loadedAbs = parsed;
+        } catch (e) { }
+      } else {
+        localStorage.setItem('mboaschool_rh_absences', JSON.stringify(mockAbsences));
+      }
+      setAbsences((loadedAbs || []).filter(Boolean));
+
+      const storedMouv = localStorage.getItem('mboaschool_rh_mouvements');
+      let loadedMouv = mockMouvements;
+      if (storedMouv) {
+        try {
+          const parsed = JSON.parse(storedMouv);
+          if (Array.isArray(parsed)) loadedMouv = parsed;
+        } catch (e) { }
+      } else {
+        localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify(mockMouvements));
+      }
+      setMouvements((loadedMouv || []).filter(Boolean));
+
       setEvaluations(mockEvaluationsRH);
       setFormations(mockFormations);
     }
@@ -85,6 +135,139 @@ export default function RHPage() {
   const triggerToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleOpenProfile = (emp: MembrePersonnel) => {
+    setSelectedEmployee(emp);
+    setProfileModalTab('profile');
+    setEditEmpNom(emp.nom);
+    setEditEmpPrenom(emp.prenom);
+    setEditEmpEmail(emp.email);
+    setEditEmpTel(emp.telephone);
+    setEditEmpSexe(emp.sexe);
+    setEditEmpCategorie(emp.categorie);
+    setEditEmpContrat(emp.typeContrat);
+    setEditEmpSalaire(emp.salaireDeBase);
+    setEditEmpDateEmbauche(emp.dateEmbauche);
+    setEditEmpStatut(emp.statut);
+  };
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEmployee) return;
+
+    const updatedEmp: MembrePersonnel = {
+      ...selectedEmployee,
+      nom: editEmpNom,
+      prenom: editEmpPrenom,
+      email: editEmpEmail,
+      telephone: editEmpTel,
+      sexe: editEmpSexe,
+      categorie: editEmpCategorie,
+      typeContrat: editEmpContrat,
+      salaireDeBase: Number(editEmpSalaire) || 0,
+      dateEmbauche: editEmpDateEmbauche,
+      statut: editEmpStatut,
+    };
+
+    const updatedList = personnelList.map(p => p.id === selectedEmployee.id ? updatedEmp : p);
+    setPersonnelList(updatedList);
+    localStorage.setItem('mboaschool_rh_personnel', JSON.stringify(updatedList));
+    setSelectedEmployee(updatedEmp);
+    triggerToast(`Fiche de ${updatedEmp.prenom} ${updatedEmp.nom} mise à jour !`);
+  };
+
+  const calculateDays = (start: string, end: string) => {
+    const s = new Date(start);
+    const e = new Date(end);
+    const diffTime = e.getTime() - s.getTime();
+    if (diffTime < 0) return 0;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return diffDays;
+  };
+
+  const handleAddAbsence = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEmployee) return;
+
+    const duration = calculateDays(newAbsDateDebut, newAbsDateFin);
+    if (duration <= 0) {
+      triggerToast("La date de fin doit être après ou égale à la date de début.");
+      return;
+    }
+
+    const newAbs: AbsenceRecord = {
+      id: `abs-${Date.now()}`,
+      personnelId: selectedEmployee.id,
+      nomPersonnel: `${selectedEmployee.nom} ${selectedEmployee.prenom}`,
+      dateDebut: newAbsDateDebut,
+      dateFin: newAbsDateFin,
+      motif: newAbsMotif,
+      dureeJours: duration,
+    };
+
+    const updatedAbs = [newAbs, ...absences];
+    setAbsences(updatedAbs);
+    localStorage.setItem('mboaschool_rh_absences', JSON.stringify(updatedAbs));
+
+    setNewAbsDateDebut(new Date().toISOString().split('T')[0]);
+    setNewAbsDateFin(new Date().toISOString().split('T')[0]);
+    setNewAbsMotif('Congé');
+    triggerToast("Absence enregistrée avec succès !");
+  };
+
+  const handleAddMouvement = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEmployee) return;
+
+    if (!newMouvDetails) {
+      triggerToast("Veuillez saisir les détails du mouvement.");
+      return;
+    }
+
+    const newMouv: MouvementPersonnel = {
+      id: `mov-${Date.now()}`,
+      personnelId: selectedEmployee.id,
+      nomPersonnel: `${selectedEmployee.nom} ${selectedEmployee.prenom}`,
+      type: newMouvType,
+      date: newMouvDate,
+      details: newMouvDetails,
+    };
+
+    let updatedStatut = editEmpStatut;
+    if (newMouvType === 'depart_volontaire' || newMouvType === 'licenciement') {
+      updatedStatut = 'quitte';
+      setEditEmpStatut('quitte');
+    }
+
+    const updatedEmp: MembrePersonnel = {
+      ...selectedEmployee,
+      statut: updatedStatut,
+      nom: editEmpNom,
+      prenom: editEmpPrenom,
+      email: editEmpEmail,
+      telephone: editEmpTel,
+      sexe: editEmpSexe,
+      categorie: editEmpCategorie,
+      typeContrat: editEmpContrat,
+      salaireDeBase: Number(editEmpSalaire) || 0,
+      dateEmbauche: editEmpDateEmbauche,
+    };
+
+    setSelectedEmployee(updatedEmp);
+
+    const updatedPersonnelList = personnelList.map(p => p.id === selectedEmployee.id ? updatedEmp : p);
+    setPersonnelList(updatedPersonnelList);
+    localStorage.setItem('mboaschool_rh_personnel', JSON.stringify(updatedPersonnelList));
+
+    const updatedMouv = [newMouv, ...mouvements];
+    setMouvements(updatedMouv);
+    localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify(updatedMouv));
+
+    setNewMouvType('depart_volontaire');
+    setNewMouvDate(new Date().toISOString().split('T')[0]);
+    setNewMouvDetails('');
+    triggerToast(`Mouvement ${newMouvType} enregistré. Le statut de l'employé a été mis à jour.`);
   };
 
   // Add a personnel
@@ -124,6 +307,7 @@ export default function RHPage() {
     };
     const updatedMouvements = [newMouv, ...mouvements];
     setMouvements(updatedMouvements);
+    localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify(updatedMouvements));
 
     // Reset fields
     setNewNom('');
@@ -131,7 +315,7 @@ export default function RHPage() {
     setNewEmail('');
     setNewTel('');
     setNewSexe('M');
-    setNewCategorie('Enseignant');
+    setNewCategorie('Administration');
     setNewContrat('CDI');
     setNewSalaire('');
     setNewDateEmbauche(new Date().toISOString().split('T')[0]);
@@ -628,6 +812,7 @@ export default function RHPage() {
                   <th className="px-6 py-4">Date d'embauche</th>
                   <th className="px-6 py-4 text-right">Salaire de Base</th>
                   <th className="px-6 py-4 text-center">Statut</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -650,13 +835,26 @@ export default function RHPage() {
                     <td className="px-6 py-4 text-slate-500 font-mono text-xs">{new Date(emp.dateEmbauche).toLocaleDateString('fr-FR')}</td>
                     <td className="px-6 py-4 text-right font-mono font-bold text-black">{formatMoney(emp.salaireDeBase)}</td>
                     <td className="px-6 py-4 text-center">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow shadow-emerald-500/20"></span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                        emp.statut === 'actif' ? 'bg-emerald-50 text-emerald-700' :
+                        emp.statut === 'quitte' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {emp.statut === 'actif' ? 'Actif' : emp.statut === 'quitte' ? 'Quitté' : emp.statut || 'Suspendu'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => handleOpenProfile(emp)}
+                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors"
+                      >
+                        Fiche Employé
+                      </button>
                     </td>
                   </tr>
                 ))}
                 {filteredPersonnel.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">Aucun membre de personnel ne correspond aux critères.</td>
+                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">Aucun membre de personnel ne correspond aux critères.</td>
                   </tr>
                 )}
               </tbody>
@@ -1063,7 +1261,6 @@ export default function RHPage() {
                     onChange={(e) => setNewCategorie(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
                   >
-                    <option value="Enseignant">Enseignant</option>
                     <option value="Administration">Administration</option>
                     <option value="Technique">Technique</option>
                     <option value="Personnel d'appui">Personnel d'appui</option>
@@ -1125,6 +1322,367 @@ export default function RHPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- EMPLOYEE PROFILE SHEET MODAL ("FICHE EMPLOYÉ") -------------------- */}
+      {selectedEmployee && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-4xl border border-slate-100 shadow-2xl p-6 relative flex flex-col max-h-[90vh]">
+            <button
+              onClick={() => setSelectedEmployee(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold"
+            >
+              ✕
+            </button>
+            
+            <div className="border-b border-slate-100 pb-3 mb-4">
+              <h3 className="text-xl font-extrabold text-slate-800 text-black">
+                Fiche Employé : {selectedEmployee.prenom} {selectedEmployee.nom}
+              </h3>
+              <p className="text-xs text-slate-400 font-medium">Consulter et modifier les informations de l'employé, ses absences et ses mouvements de carrière.</p>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="flex gap-2 border-b border-slate-100 pb-3 mb-4">
+              <button
+                onClick={() => setProfileModalTab('profile')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  profileModalTab === 'profile' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                Informations Profil
+              </button>
+              <button
+                onClick={() => setProfileModalTab('absences')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  profileModalTab === 'absences' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                Suivi des Absences ({absences.filter(a => a.personnelId === selectedEmployee.id).length})
+              </button>
+              <button
+                onClick={() => setProfileModalTab('mouvements')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  profileModalTab === 'mouvements' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                Mouvements & Carrière ({mouvements.filter(m => m.personnelId === selectedEmployee.id).length})
+              </button>
+            </div>
+
+            {/* Modal Scrollable Content Container */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+              
+              {/* TAB CONTENT: PROFILE */}
+              {profileModalTab === 'profile' && (
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Nom *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editEmpNom}
+                        onChange={(e) => setEditEmpNom(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Prénom *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editEmpPrenom}
+                        onChange={(e) => setEditEmpPrenom(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Sexe *</label>
+                      <select
+                        value={editEmpSexe}
+                        onChange={(e) => setEditEmpSexe(e.target.value as any)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                      >
+                        <option value="M">Masculin</option>
+                        <option value="F">Féminin</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Téléphone</label>
+                      <input
+                        type="text"
+                        value={editEmpTel}
+                        onChange={(e) => setEditEmpTel(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Adresse Email *</label>
+                    <input
+                      type="email"
+                      required
+                      value={editEmpEmail}
+                      onChange={(e) => setEditEmpEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Catégorie Métier *</label>
+                      <select
+                        value={editEmpCategorie}
+                        onChange={(e) => setEditEmpCategorie(e.target.value as any)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                      >
+                        <option value="Administration">Administration</option>
+                        <option value="Enseignant">Enseignant</option>
+                        <option value="Technique">Technique</option>
+                        <option value="Personnel d'appui">Personnel d'appui</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Type de Contrat *</label>
+                      <select
+                        value={editEmpContrat}
+                        onChange={(e) => setEditEmpContrat(e.target.value as any)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                      >
+                        <option value="CDI">CDI</option>
+                        <option value="CDD">CDD</option>
+                        <option value="Intérimaire">Intérimaire</option>
+                        <option value="Stagiaire">Stagiaire</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Salaire Mensuel Brut (FCFA) *</label>
+                      <input
+                        type="number"
+                        required
+                        min="1"
+                        value={editEmpSalaire}
+                        onChange={(e) => setEditEmpSalaire(Number(e.target.value) || 0)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date de Prise d'Effet *</label>
+                      <input
+                        type="date"
+                        required
+                        value={editEmpDateEmbauche}
+                        onChange={(e) => setEditEmpDateEmbauche(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Statut *</label>
+                      <select
+                        value={editEmpStatut}
+                        onChange={(e) => setEditEmpStatut(e.target.value as any)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                      >
+                        <option value="actif">Actif</option>
+                        <option value="suspendu">Suspendu</option>
+                        <option value="quitte">Quitté</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 flex justify-end">
+                    <button
+                      type="submit"
+                      className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors"
+                    >
+                      Enregistrer les Modifications
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* TAB CONTENT: ABSENCES */}
+              {profileModalTab === 'absences' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                  {/* List of absences */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Absences enregistrées</h4>
+                    <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                      {absences.filter(a => a.personnelId === selectedEmployee.id).map(a => (
+                        <div key={a.id} className="flex justify-between items-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                          <div>
+                            <span className="text-xs font-bold text-slate-800 text-black block">Motif: {a.motif}</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Du {new Date(a.dateDebut).toLocaleDateString('fr-FR')} au {new Date(a.dateFin).toLocaleDateString('fr-FR')}</span>
+                          </div>
+                          <span className="text-xs font-black bg-rose-50 text-rose-600 px-2 py-1 rounded-lg font-mono">
+                            {a.dureeJours} jour(s)
+                          </span>
+                        </div>
+                      ))}
+                      {absences.filter(a => a.personnelId === selectedEmployee.id).length === 0 && (
+                        <p className="text-sm text-slate-400 text-center py-8">Aucune absence enregistrée pour cet employé.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Form to add absence */}
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase">Déclarer une absence</h4>
+                    <form onSubmit={handleAddAbsence} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Motif *</label>
+                        <select
+                          value={newAbsMotif}
+                          onChange={(e) => setNewAbsMotif(e.target.value as any)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                        >
+                          <option value="Congé">Congé</option>
+                          <option value="Maladie">Maladie</option>
+                          <option value="Maternité">Maternité</option>
+                          <option value="Injustifié">Injustifié</option>
+                          <option value="Autre">Autre</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date début *</label>
+                          <input
+                            type="date"
+                            required
+                            value={newAbsDateDebut}
+                            onChange={(e) => setNewAbsDateDebut(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date fin *</label>
+                          <input
+                            type="date"
+                            required
+                            value={newAbsDateFin}
+                            onChange={(e) => setNewAbsDateFin(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          type="submit"
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors"
+                        >
+                          Valider l'Absence
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB CONTENT: MOVEMENTS */}
+              {profileModalTab === 'mouvements' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                  {/* List of movements */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Historique de mouvements</h4>
+                    <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1 pl-2 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
+                      {mouvements.filter(m => m.personnelId === selectedEmployee.id).map(m => {
+                        const isEmbauche = m.type === 'embauche';
+                        const isDepart = m.type === 'depart_volontaire';
+                        const isLicenciement = m.type === 'licenciement';
+
+                        return (
+                          <div key={m.id} className="relative pl-8">
+                            <span className={`absolute left-2 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white flex items-center justify-center -translate-x-1/2 ${
+                              isEmbauche ? 'bg-emerald-500 shadow shadow-emerald-500/20' :
+                              isDepart ? 'bg-amber-500 shadow shadow-amber-500/20' :
+                              isLicenciement ? 'bg-rose-500 shadow shadow-rose-500/20' : 'bg-blue-500 shadow shadow-blue-500/20'
+                            }`}></span>
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-mono font-bold block">{new Date(m.date).toLocaleDateString('fr-FR')}</span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                                isEmbauche ? 'bg-emerald-50 text-emerald-700' :
+                                isDepart ? 'bg-amber-50 text-amber-700' :
+                                isLicenciement ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'
+                              }`}>
+                                {m.type.toUpperCase().replace('_', ' ')}
+                              </span>
+                              <p className="text-xs font-medium text-slate-600 mt-1 italic">"{m.details}"</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {mouvements.filter(m => m.personnelId === selectedEmployee.id).length === 0 && (
+                        <p className="text-sm text-slate-400 text-center py-8 before:hidden pl-0">Aucun mouvement enregistré pour cet employé.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Form to add movement */}
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase">Enregistrer un mouvement de carrière</h4>
+                    <form onSubmit={handleAddMouvement} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Type de Mouvement *</label>
+                        <select
+                          value={newMouvType}
+                          onChange={(e) => setNewMouvType(e.target.value as any)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                        >
+                          <option value="depart_volontaire">Départ volontaire (Statut → Quitté)</option>
+                          <option value="mutation">Mutation / Changement de rôle</option>
+                          <option value="licenciement">Licenciement (Statut → Quitté)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date d'effet *</label>
+                        <input
+                          type="date"
+                          required
+                          value={newMouvDate}
+                          onChange={(e) => setNewMouvDate(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Détails / Justification *</label>
+                        <textarea
+                          required
+                          rows={3}
+                          value={newMouvDetails}
+                          onChange={(e) => setNewMouvDetails(e.target.value)}
+                          placeholder="Saisissez les détails (ex: motif de rupture, nouveau département, etc.)"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          type="submit"
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors"
+                        >
+                          Enregistrer le Mouvement
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+            </div>
           </div>
         </div>
       )}
