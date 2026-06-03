@@ -46,10 +46,14 @@ export default function EvaluationsClassePage({ params }: PageProps) {
       const storedStudents = localStorage.getItem('mboaschool_students');
       let allStudents: Eleve[] = mockStudents;
       if (storedStudents) {
-        try { allStudents = JSON.parse(storedStudents); } catch (e) { }
+        try {
+          const parsed = JSON.parse(storedStudents);
+          if (Array.isArray(parsed)) allStudents = parsed;
+        } catch (e) { }
       }
       
-      const filtered = allStudents.filter(s => 
+      const cleanStudents = (allStudents || []).filter(Boolean);
+      const filtered = cleanStudents.filter(s => 
         cls && (s.classeId === cls.id || s.classeId === cls.nom || s.classeId === cls.niveauId)
       );
       setStudentsList(filtered);
@@ -122,15 +126,19 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     const storedStudents = localStorage.getItem('mboaschool_students');
     let allStudents: Eleve[] = mockStudents;
     if (storedStudents) {
-      try { allStudents = JSON.parse(storedStudents); } catch (e) { }
+      try {
+        const parsed = JSON.parse(storedStudents);
+        if (Array.isArray(parsed)) allStudents = parsed;
+      } catch (e) { }
     }
+    const cleanAllStudents = (allStudents || []).filter(Boolean);
 
     // 2. Update the grades
     const isMaternelle = classInfo?.niveauId?.toLowerCase().includes('maternelle');
 
-    const updatedStudentsList = allStudents.map(student => {
+    const updatedStudentsList = cleanAllStudents.map(student => {
       // Is this student in our current filtered class?
-      if (!studentsList.find(s => s.id === student.id)) return student;
+      if (!student || !studentsList.find(s => s && s.id === student.id)) return student;
 
       const bufferVal = gradesBuffer[student.id];
       if (bufferVal === '' || bufferVal === undefined) return student; // No change
@@ -165,7 +173,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
 
     // 3. Save back
     localStorage.setItem('mboaschool_students', JSON.stringify(updatedStudentsList));
-    setStudentsList(updatedStudentsList.filter(s => studentsList.find(sl => sl.id === s.id)));
+    setStudentsList(updatedStudentsList.filter(s => s && studentsList.find(sl => sl && sl.id === s.id)));
     triggerToast(`Les notes de ${selectedSubject} ont été sauvegardées avec succès.`);
   };
 

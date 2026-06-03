@@ -57,13 +57,27 @@ export default function FinancePage() {
 
       // 2. Students
       const storedStudents = localStorage.getItem('mboaschool_students');
-      const loadedStudents = storedStudents ? JSON.parse(storedStudents) : mockStudents;
-      setStudents(loadedStudents);
+      let loadedStudents = mockStudents;
+      if (storedStudents) {
+        try {
+          const parsed = JSON.parse(storedStudents);
+          if (Array.isArray(parsed)) loadedStudents = parsed;
+        } catch (e) {}
+      }
+      const cleanStudents = (loadedStudents || []).filter(Boolean);
+      setStudents(cleanStudents);
 
       // 3. Personnel
       const storedPers = localStorage.getItem('mboaschool_rh_personnel');
-      const loadedPers = storedPers ? JSON.parse(storedPers) : mockPersonnel;
-      setPersonnel(loadedPers);
+      let loadedPers = mockPersonnel;
+      if (storedPers) {
+        try {
+          const parsed = JSON.parse(storedPers);
+          if (Array.isArray(parsed)) loadedPers = parsed;
+        } catch (e) {}
+      }
+      const cleanPers = (loadedPers || []).filter(Boolean);
+      setPersonnel(cleanPers);
 
       // 4. Formations
       setFormations(mockFormations);
@@ -74,7 +88,8 @@ export default function FinancePage() {
       
       // Auto-generate entries from student payments dynamically
       const paymentEcritures: EcritureComptable[] = [];
-      loadedStudents.forEach((student: Eleve) => {
+      cleanStudents.forEach((student: Eleve) => {
+        if (!student) return;
         const paiements = student.paiements || [];
         const totalScolarite = paiements.reduce((sum, p) => sum + p.montant, 0);
         

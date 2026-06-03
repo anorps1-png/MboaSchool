@@ -19,31 +19,40 @@ export default function Dashboard() {
       const storedStudents = localStorage.getItem('mboaschool_students');
       let currentStudents = mockStudents;
       if (storedStudents) {
-        try { currentStudents = JSON.parse(storedStudents); } catch (e) {}
+        try {
+          const parsed = JSON.parse(storedStudents);
+          if (Array.isArray(parsed)) currentStudents = parsed;
+        } catch (e) {}
       } else {
         localStorage.setItem('mboaschool_students', JSON.stringify(mockStudents));
       }
-      setStudents(currentStudents);
+      setStudents((currentStudents || []).filter(Boolean));
 
       // Teachers
       const storedTeachers = localStorage.getItem('mboaschool_teachers');
       let currentTeachers = mockTeachers;
       if (storedTeachers) {
-        try { currentTeachers = JSON.parse(storedTeachers); } catch (e) {}
+        try {
+          const parsed = JSON.parse(storedTeachers);
+          if (Array.isArray(parsed)) currentTeachers = parsed;
+        } catch (e) {}
       } else {
         localStorage.setItem('mboaschool_teachers', JSON.stringify(mockTeachers));
       }
-      setTeachers(currentTeachers);
+      setTeachers((currentTeachers || []).filter(Boolean));
 
       // Transactions
       const storedTx = localStorage.getItem('mboaschool_transactions');
       let currentTx = mockTransactions;
       if (storedTx) {
-        try { currentTx = JSON.parse(storedTx); } catch (e) {}
+        try {
+          const parsed = JSON.parse(storedTx);
+          if (Array.isArray(parsed)) currentTx = parsed;
+        } catch (e) {}
       } else {
         localStorage.setItem('mboaschool_transactions', JSON.stringify(mockTransactions));
       }
-      setTransactions(currentTx);
+      setTransactions((currentTx || []).filter(Boolean));
 
       setIsLoaded(true);
     }

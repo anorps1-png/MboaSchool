@@ -64,13 +64,14 @@ export default function ElevesPage() {
       const stored = localStorage.getItem('mboaschool_students');
       if (stored) {
         try {
-          setStudents(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          setStudents((Array.isArray(parsed) ? parsed : mockStudents).filter(Boolean));
         } catch (e) {
-          setStudents(mockStudents);
+          setStudents(mockStudents.filter(Boolean));
         }
       } else {
         localStorage.setItem('mboaschool_students', JSON.stringify(mockStudents));
-        setStudents(mockStudents);
+        setStudents(mockStudents.filter(Boolean));
       }
       setIsLoaded(true);
     }
@@ -357,12 +358,12 @@ export default function ElevesPage() {
                       {/* Name */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center border shadow-inner ${
+                           <div className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center border shadow-inner ${
                             student.sexe === 'F' 
                               ? 'bg-rose-50 text-rose-600 border-rose-100'
                               : 'bg-blue-50 text-blue-600 border-blue-100'
                           }`}>
-                            {student.prenom[0]}{student.nom[0]}
+                            {(student.prenom || '')[0] || ''}{(student.nom || '')[0] || ''}
                           </div>
                           <div>
                             <span className="font-semibold text-slate-800 block hover:text-indigo-600 cursor-pointer text-black">

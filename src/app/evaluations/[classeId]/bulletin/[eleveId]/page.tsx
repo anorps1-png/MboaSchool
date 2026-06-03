@@ -34,15 +34,19 @@ export default function BulletinImpressionPage({ params }: PageProps) {
       const storedStudents = localStorage.getItem('mboaschool_students');
       let students: Eleve[] = mockStudents;
       if (storedStudents) {
-        try { students = JSON.parse(storedStudents); } catch (e) { }
+        try {
+          const parsed = JSON.parse(storedStudents);
+          if (Array.isArray(parsed)) students = parsed;
+        } catch (e) { }
       }
+      const cleanStudents = (students || []).filter(Boolean);
 
-      const filteredClass = students.filter(s => 
+      const filteredClass = cleanStudents.filter(s => 
         cls && (s.classeId === cls.id || s.classeId === cls.nom || s.classeId === cls.niveauId)
       );
       setAllStudents(filteredClass);
 
-      const stud = students.find(s => s.id === decodeURIComponent(resolvedParams.eleveId));
+      const stud = cleanStudents.find(s => s.id === decodeURIComponent(resolvedParams.eleveId));
       if (stud) setStudent(stud);
 
       setIsLoaded(true);

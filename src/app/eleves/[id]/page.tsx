@@ -31,15 +31,17 @@ export default function FicheElevePage({ params }: PageProps) {
       let currentStudents = mockStudents;
       if (stored) {
         try {
-          currentStudents = JSON.parse(stored);
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) currentStudents = parsed;
         } catch (e) {
           // ignore
         }
       } else {
         localStorage.setItem('mboaschool_students', JSON.stringify(mockStudents));
       }
-      setStudents(currentStudents);
-      const found = currentStudents.find((s: Eleve) => s.id === studentId);
+      const cleanStudents = (currentStudents || []).filter(Boolean);
+      setStudents(cleanStudents);
+      const found = cleanStudents.find((s: Eleve) => s.id === studentId);
       setStudent(found);
       setIsLoaded(true);
     }
@@ -253,7 +255,7 @@ export default function FicheElevePage({ params }: PageProps) {
               ? 'bg-rose-50 text-rose-600 border-rose-100'
               : 'bg-blue-50 text-blue-600 border-blue-100'
           }`}>
-            {student.prenom[0]}{student.nom[0]}
+            {(student.prenom || '')[0] || ''}{(student.nom || '')[0] || ''}
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-800 text-black">{student.nom} {student.prenom}</h2>

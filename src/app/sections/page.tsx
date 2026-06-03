@@ -20,9 +20,14 @@ export default function SectionsPage() {
 
       const storedStudents = localStorage.getItem('mboaschool_students');
       if (storedStudents) {
-        setStudentsList(JSON.parse(storedStudents));
+        try {
+          const parsed = JSON.parse(storedStudents);
+          setStudentsList((Array.isArray(parsed) ? parsed : mockStudents).filter(Boolean));
+        } catch (e) {
+          setStudentsList(mockStudents.filter(Boolean));
+        }
       } else {
-        setStudentsList(mockStudents);
+        setStudentsList(mockStudents.filter(Boolean));
       }
     }
   }, []);
@@ -40,12 +45,13 @@ export default function SectionsPage() {
           
           // Trouver tous les élèves dans ces classes
           const sectionStudents = studentsList.filter(s => 
-            sectionClasses.some(c => s.classeId === c.id || s.classeId === c.nom || s.classeId === c.niveauId)
+            s && sectionClasses.some(c => s.classeId === c.id || s.classeId === c.nom || s.classeId === c.niveauId)
           );
           
           let sumAvg = 0;
           let countAvg = 0;
           sectionStudents.forEach(student => {
+            if (!student) return;
             const numericGrades = (student.notes || []).filter(g => g.note !== undefined);
             if (numericGrades.length > 0) {
               const totalPoints = numericGrades.reduce((sum, g) => sum + ((g.note || 0) * 1), 0);

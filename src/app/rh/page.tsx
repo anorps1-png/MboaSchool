@@ -62,12 +62,16 @@ export default function RHPage() {
     if (typeof window !== 'undefined') {
       // Load or initialize personnel
       const storedPers = localStorage.getItem('mboaschool_rh_personnel');
+      let loadedPers = mockPersonnel;
       if (storedPers) {
-        setPersonnelList(JSON.parse(storedPers));
+        try {
+          const parsed = JSON.parse(storedPers);
+          if (Array.isArray(parsed)) loadedPers = parsed;
+        } catch (e) { }
       } else {
-        setPersonnelList(mockPersonnel);
         localStorage.setItem('mboaschool_rh_personnel', JSON.stringify(mockPersonnel));
       }
+      setPersonnelList((loadedPers || []).filter(Boolean));
 
       // Load histories
       setMasseHistorique(mockMasseSalarialeHistorique);

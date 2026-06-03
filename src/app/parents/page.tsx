@@ -30,13 +30,18 @@ export default function ParentsPage() {
       const storedStudents = localStorage.getItem('mboaschool_students');
       let allStudents: Eleve[] = mockStudents;
       if (storedStudents) {
-        try { allStudents = JSON.parse(storedStudents); } catch (e) { }
+        try {
+          const parsed = JSON.parse(storedStudents);
+          if (Array.isArray(parsed)) allStudents = parsed;
+        } catch (e) { }
       }
+      const cleanStudents = (allStudents || []).filter(Boolean);
 
       // Extract and deduplicate parents
       const parentsMap = new Map<string, ParentProfile>();
 
-      allStudents.forEach(student => {
+      cleanStudents.forEach(student => {
+        if (!student) return;
         // Use phone as primary identifier, or email, or a fallback
         const parentId = student.telephoneParent?.trim() || student.emailParent?.trim() || `parent-of-${student.id}`;
         

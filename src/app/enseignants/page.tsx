@@ -30,13 +30,14 @@ export default function EnseignantsPage() {
       const stored = localStorage.getItem('mboaschool_teachers');
       if (stored) {
         try {
-          setTeachers(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          setTeachers((Array.isArray(parsed) ? parsed : mockTeachers).filter(Boolean));
         } catch (e) {
-          setTeachers(mockTeachers);
+          setTeachers(mockTeachers.filter(Boolean));
         }
       } else {
         localStorage.setItem('mboaschool_teachers', JSON.stringify(mockTeachers));
-        setTeachers(mockTeachers);
+        setTeachers(mockTeachers.filter(Boolean));
       }
       setIsLoaded(true);
     }
@@ -154,7 +155,7 @@ export default function EnseignantsPage() {
 
       {/* Grid of Teachers Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {teachers.map((teacher) => (
+        {teachers.filter(Boolean).map((teacher) => (
           <div key={teacher.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative">
             
             {/* Top Row with Status and Avatar */}
@@ -165,7 +166,7 @@ export default function EnseignantsPage() {
                     ? 'bg-rose-50 text-rose-600 border-rose-100'
                     : 'bg-blue-50 text-blue-600 border-blue-100'
                 }`}>
-                  {teacher.prenom[0]}{teacher.nom[0]}
+                  {(teacher.prenom || '')[0] || ''}{(teacher.nom || '')[0] || ''}
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-800 text-base leading-tight text-black">
