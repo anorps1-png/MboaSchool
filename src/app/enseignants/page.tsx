@@ -194,7 +194,7 @@ export default function EnseignantsPage() {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Matières</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {teacher.matieresId.map((sub) => (
+                  {(teacher.matieresId || []).map((sub) => (
                     <span key={sub} className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold px-2 py-0.5 rounded">
                       {sub}
                     </span>
@@ -204,7 +204,7 @@ export default function EnseignantsPage() {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Classes Affectées</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {teacher.classesId.map((cls) => (
+                  {(teacher.classesId || []).map((cls) => (
                     <span key={cls} className="bg-slate-100 border border-slate-200 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded">
                       {cls}
                     </span>
