@@ -78,6 +78,7 @@ export default function ElevesPage() {
 
   // Helper: Get student payment stats
   const getStudentPaymentStats = (student: Eleve) => {
+    if (!student) return { totalDue: 0, totalPaid: 0, status: 'unpaid' as const };
     const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
     const totalDue = classFeeConfig ? classFeeConfig.total : 0;
     const totalPaid = (student.paiements || [])
@@ -98,9 +99,10 @@ export default function ElevesPage() {
   const filteredStudents = useMemo(() => {
     if (!isLoaded) return [];
     return students.filter(student => {
+      if (!student) return false;
       // 1. Search term (Name or Matricule)
-      const fullName = `${student.nom} ${student.prenom}`.toLowerCase();
-      const matriculeVal = student.matricule.toLowerCase();
+      const fullName = `${student.nom || ''} ${student.prenom || ''}`.toLowerCase();
+      const matriculeVal = (student.matricule || '').toLowerCase();
       const matchesSearch = fullName.includes(searchTerm.toLowerCase()) || matriculeVal.includes(searchTerm.toLowerCase());
 
       // 2. Class
@@ -125,6 +127,7 @@ export default function ElevesPage() {
     let unpaidCount = 0;
 
     students.forEach(s => {
+      if (!s) return;
       const { status } = getStudentPaymentStats(s);
       if (status === 'paid') paidCount++;
       else if (status === 'partial') partialCount++;

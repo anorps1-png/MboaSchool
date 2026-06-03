@@ -64,9 +64,10 @@ export default function FraisPage() {
   // Filtered transactions
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
-      const nameMatch = t.nomEleve.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        t.matriculeEleve.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        t.reference.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!t) return false;
+      const nameMatch = (t.nomEleve || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        (t.matriculeEleve || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        (t.reference || '').toLowerCase().includes(searchTerm.toLowerCase());
       const typeMatch = selectedType === 'All' || t.typeFrais === selectedType;
       const methodMatch = selectedMethod === 'All' || t.modePaiement === selectedMethod;
       return nameMatch && typeMatch && methodMatch;
