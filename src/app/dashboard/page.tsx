@@ -1,71 +1,100 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { mockStudents } from '@/mock/students';
 import { mockTeachers } from '@/mock/teachers';
-import { mockClassFees, mockTransactions } from '@/mock/fees';
 import Link from 'next/link';
-import { Eleve, Enseignant, TransactionPaiement } from '@/types/domain';
+import { Eleve, Classe, TransactionPaiement } from '@/types/domain';
+import { createClient } from '@/lib/supabase/client';
+import { downloadExcel } from '@/lib/excel';
+import { DownloadIcon } from '@/components/icons';
 
 export default function Dashboard() {
   const [students, setStudents] = useState<Eleve[]>([]);
-  const [teachers, setTeachers] = useState<Enseignant[]>([]);
-  const [transactions, setTransactions] = useState<TransactionPaiement[]>([]);
+  const [classesList, setClassesList] = useState<Classe[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Students
-      const storedStudents = localStorage.getItem('mboaschool_students');
-      let currentStudents = mockStudents;
-      if (storedStudents) {
-        try {
-          const parsed = JSON.parse(storedStudents);
-          if (Array.isArray(parsed)) currentStudents = parsed;
-        } catch (e) {}
-      } else {
-        localStorage.setItem('mboaschool_students', JSON.stringify(mockStudents));
-      }
-      setStudents((currentStudents || []).filter(Boolean));
+      const fetchData = async () => {
+        const supabase = createClient();
+        
+        // Fetch classes
+        const { data: classesData } = await supabase.from('classes').select('*');
+        if (classesData) {
+          setClassesList(classesData);
+        }
 
-      // Teachers
-      const storedTeachers = localStorage.getItem('mboaschool_teachers');
-      let currentTeachers = mockTeachers;
-      if (storedTeachers) {
-        try {
-          const parsed = JSON.parse(storedTeachers);
-          if (Array.isArray(parsed)) currentTeachers = parsed;
-        } catch (e) {}
-      } else {
-        localStorage.setItem('mboaschool_teachers', JSON.stringify(mockTeachers));
-      }
-      setTeachers((currentTeachers || []).filter(Boolean));
+        // Fetch students and their payments and notes
+        const { data: studentsData } = await supabase.from('eleves').select('*, paiements(*), notes(*)');
+        if (studentsData) {
+          const mappedStudents = studentsData.map(d => ({
+            id: d.id,
+            matricule: d.matricule,
+            nom: d.nom,
+            prenom: d.prenom,
+            sexe: d.sexe,
+            classeId: d.classe_id,
+            statut: d.statut,
+            paiements: d.paiements?.map((p: any) => ({
+              id: p.id,
+              eleveId: p.eleve_id,
+              montant: Number(p.montant),
+              date: p.date,
+              typeFrais: p.type_frais,
+              statut: p.statut,
+              reference: p.reference,
+              modePaiement: p.mode_paiement
+            })) || [],
+            notes: d.notes?.map((n: any) => ({
+              id: n.id,
+              note: Number(n.note)
+            })) || []
+          }));
+          setStudents(mappedStudents as any);
 
-      // Transactions
-      const storedTx = localStorage.getItem('mboaschool_transactions');
-      let currentTx = mockTransactions;
-      if (storedTx) {
-        try {
-          const parsed = JSON.parse(storedTx);
-          if (Array.isArray(parsed)) currentTx = parsed;
-        } catch (e) {}
-      } else {
-        localStorage.setItem('mboaschool_transactions', JSON.stringify(mockTransactions));
-      }
-      setTransactions((currentTx || []).filter(Boolean));
+          // Build transactions list from all payments
+          const allTx: any[] = [];
+          studentsData.forEach(student => {
+            if (student.paiements) {
+              student.paiements.forEach((p: any) => {
+                const classeObj = classesData?.find(c => c.id === student.classe_id);
+                allTx.push({
+                  id: p.id,
+                  eleveId: student.id,
+                  nomEleve: `${student.nom} ${student.prenom}`,
+                  matriculeEleve: student.matricule,
+                  classeId: student.classe_id,
+                  classeNom: classeObj?.nom || student.classe_id,
+                  montant: Number(p.montant),
+                  date: p.date,
+                  typeFrais: p.type_frais,
+                  modePaiement: p.mode_paiement,
+                  statut: p.statut,
+                  reference: p.reference
+                });
+              });
+            }
+          });
+          setTransactions(allTx.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        }
 
-      setIsLoaded(true);
+        setIsLoaded(true);
+      };
+
+      fetchData();
     }
   }, []);
 
   // 1. Calculations
   const totalStudents = students.length;
   const activeStudents = students.filter(s => s.statut === 'actif').length;
-  const totalTeachers = teachers.length;
-  const activeTeachers = teachers.filter(t => t.statut === 'active').length;
+  // Teachers (Mocked until HR module)
+  const totalTeachers = mockTeachers.length;
+  const activeTeachers = mockTeachers.filter(t => t.statut === 'active').length;
 
   // Calcul du Taux de Réussite Global
-  const studentsWithGrades = mockStudents.filter(s => s.notes && (s.notes || []).length > 0);
+  const studentsWithGrades = students.filter(s => s.notes && (s.notes || []).length > 0);
   const studentsPassed = studentsWithGrades.filter(s => {
     const grades = (s.notes || []).filter(g => ((g.note || 0) || 0) !== undefined);
     if(grades.length === 0) return false;
@@ -84,8 +113,8 @@ export default function Dashboard() {
 
   // Total expected
   const totalExpected = students.reduce((sum, student) => {
-    const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
-    return sum + (classFeeConfig ? classFeeConfig.total : 0);
+    const classObj = classesList.find(c => c.id === student.classeId);
+    return sum + (classObj?.prix || 0);
   }, 0);
 
   const totalPending = totalExpected - totalPaid;
@@ -97,16 +126,16 @@ export default function Dashboard() {
   };
 
   // Group by class for charts
-  const classStats = mockClassFees.map(cf => {
-    const studentsInClass = students.filter(s => s.classeId === cf.niveauId);
+  const classStats = classesList.map(c => {
+    const studentsInClass = students.filter(s => s.classeId === c.id);
     const count = studentsInClass.length;
-    const expected = count * cf.total;
+    const expected = count * (c.prix || 0);
     const paid = studentsInClass.reduce((sum, s) => {
       return sum + (((s.paiements || []) || []) || [])?.filter(p => p.statut === 'paid').reduce((ps, p) => ps + p.montant, 0);
     }, 0);
     const pending = expected - paid;
     return {
-      classeName: cf.niveauId,
+      classeName: c.nom,
       studentCount: count,
       expected,
       paid,
@@ -115,14 +144,27 @@ export default function Dashboard() {
     };
   });
 
-  const recentTransactions = [...transactions]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5);
+  const recentTransactions = transactions.slice(0, 5);
+
+  const handleExportTransactions = () => {
+    const dataToExport = transactions.map(tx => ({
+      Référence: tx.reference,
+      Date: tx.date,
+      'Élève': tx.nomEleve,
+      Matricule: tx.matriculeEleve,
+      Classe: tx.classeNom,
+      'Type de Frais': tx.typeFrais,
+      'Montant (FCFA)': tx.montant,
+      'Mode de Paiement': tx.modePaiement,
+      Statut: tx.statut === 'paid' ? 'Payé' : tx.statut === 'pending' ? 'En attente' : 'Échoué'
+    }));
+    downloadExcel(dataToExport, 'Liste_Transactions');
+  };
 
   if (!isLoaded) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-sm font-semibold text-slate-400">Chargement du tableau de bord...</p>
+        <p className="text-sm font-semibold text-slate-400">Chargement du tableau de bord depuis Supabase...</p>
       </div>
     );
   }
@@ -138,8 +180,8 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-          <span>Données locales de démonstration</span>
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>Connecté à Supabase en direct</span>
         </div>
       </div>
 
@@ -163,7 +205,7 @@ export default function Dashboard() {
                 <span>• {totalStudents - activeStudents} suspendus</span>
               </span>
               <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded inline-flex w-fit mt-1">
-                Taux de réussite : {globalSuccessRate}%
+                Taux de réussite : {globalSuccessRate !== '--' ? `${globalSuccessRate}%` : '--'}
               </span>
             </p>
           </div>
@@ -258,7 +300,7 @@ export default function Dashboard() {
           {/* SVG Custom Bar Chart */}
           <div className="h-64 flex flex-col justify-between">
             <div className="flex-1 flex items-end justify-around gap-4 pb-2 border-b border-slate-100">
-              {classStats.map((stat) => {
+              {classStats.length > 0 ? classStats.map((stat) => {
                 // Normalize heights (max is the largest expected amount)
                 const maxExpected = Math.max(...classStats.map(s => s.expected));
                 const expectedHeightPct = maxExpected > 0 ? (stat.expected / maxExpected) * 100 : 0;
@@ -290,7 +332,9 @@ export default function Dashboard() {
                     </div>
                   </div>
                 );
-              })}
+              }) : (
+                <div className="text-sm text-slate-400 self-center">Aucune donnée à afficher</div>
+              )}
             </div>
             {/* X Axis Labels */}
             <div className="flex justify-around pt-2 text-xs font-semibold text-slate-500">
@@ -311,7 +355,7 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-4">
-            {classStats.map((stat) => {
+            {classStats.length > 0 ? classStats.map((stat) => {
               const maxStudents = Math.max(...classStats.map(s => s.studentCount));
               const pct = maxStudents > 0 ? (stat.studentCount / totalStudents) * 100 : 0;
               return (
@@ -328,15 +372,17 @@ export default function Dashboard() {
                   </div>
                 </div>
               );
-            })}
+            }) : (
+                <div className="text-sm text-slate-400 text-center py-8">Aucun élève inscrit</div>
+            )}
           </div>
 
           <div className="border-t border-slate-100 pt-4 mt-6 flex justify-between text-[11px] text-slate-500">
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Filles ({((mockStudents.filter(s => s.sexe === 'F').length / totalStudents) * 100).toFixed(0)}%)
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Filles ({totalStudents > 0 ? ((students.filter(s => s.sexe === 'F').length / totalStudents) * 100).toFixed(0) : 0}%)
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Garçons ({((mockStudents.filter(s => s.sexe === 'M').length / totalStudents) * 100).toFixed(0)}%)
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Garçons ({totalStudents > 0 ? ((students.filter(s => s.sexe === 'M').length / totalStudents) * 100).toFixed(0) : 0}%)
             </span>
           </div>
         </div>
@@ -349,15 +395,24 @@ export default function Dashboard() {
             <h3 className="text-base font-bold text-slate-800 text-black">Transactions Récentes</h3>
             <p className="text-xs text-slate-400">Derniers versements enregistrés dans l&apos;établissement</p>
           </div>
-          <Link
-            href="/eleves"
-            className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 transition-all"
-          >
-            Voir tous les élèves
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleExportTransactions}
+              className="text-xs font-semibold text-slate-600 hover:text-indigo-600 flex items-center gap-1.5 transition-colors bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg"
+            >
+              <DownloadIcon size={14} />
+              Exporter
+            </button>
+            <Link
+              href="/eleves"
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 transition-all"
+            >
+              Voir tous les élèves
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -374,7 +429,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
-              {recentTransactions.map((tx) => (
+              {recentTransactions.length > 0 ? recentTransactions.map((tx) => (
                 <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <span className="font-semibold text-slate-800 text-black">{tx.nomEleve}</span>
@@ -392,13 +447,23 @@ export default function Dashboard() {
                   <td className="px-6 py-4 text-slate-500 text-xs">{tx.modePaiement}</td>
                   <td className="px-6 py-4 text-slate-500 text-xs">{tx.date}</td>
                   <td className="px-6 py-4">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      Payé
+                    <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
+                      tx.statut === 'paid' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-amber-600 bg-amber-50 border-amber-100'
+                    } px-2 py-0.5 rounded-full border`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        tx.statut === 'paid' ? 'bg-emerald-500' : 'bg-amber-500'
+                      }`}></span>
+                      {tx.statut === 'paid' ? 'Payé' : 'En attente'}
                     </span>
                   </td>
                 </tr>
-              ))}
+              )) : (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 text-sm">
+                    Aucune transaction récente enregistrée.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

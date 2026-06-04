@@ -5,8 +5,11 @@ import { mockStudents } from '@/mock/students';
 import { mockClassFees } from '@/mock/fees';
 import { mockClasses } from '@/mock/classes';
 import Link from 'next/link';
-import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@/components/icons';
+import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, DownloadIcon } from '@/components/icons';
 import { Eleve, Classe } from '@/types/domain';
+import { createClient } from '@/lib/supabase/client';
+import { downloadExcel } from '@/lib/excel';
+import SyncManager from '@/lib/syncManager';
 
 export default function ElevesPage() {
   const [students, setStudents] = useState<Eleve[]>([]);
@@ -18,7 +21,7 @@ export default function ElevesPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [gender, setGender] = useState<'M' | 'F'>('M');
-  const [className, setClassName] = useState('Terminale D');
+  const [className, setClassName] = useState(''); // This will store the UUID of the class
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [parentEmail, setParentEmail] = useState('');
@@ -47,34 +50,64 @@ export default function ElevesPage() {
     }, 4000);
   };
 
-  // Load from localStorage
+  // Load from Supabase
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const storedClasses = localStorage.getItem('mboaschool_classes');
-      if (storedClasses) {
-        try {
-          setClassesList(JSON.parse(storedClasses));
-        } catch (e) {
-          setClassesList(mockClasses);
+      const fetchClasses = async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase.from('classes').select('*').order('niveau', { ascending: true }).order('nom', { ascending: true });
+        if (data) {
+          setClassesList(data);
+          if (data.length > 0) {
+            setClassName(data[0].id);
+          }
+        } else {
+          setClassesList([]);
         }
-      } else {
-        localStorage.setItem('mboaschool_classes', JSON.stringify(mockClasses));
-        setClassesList(mockClasses);
-      }
+      };
 
-      const stored = localStorage.getItem('mboaschool_students');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setStudents((Array.isArray(parsed) ? parsed : mockStudents).filter(Boolean));
-        } catch (e) {
-          setStudents(mockStudents.filter(Boolean));
+      fetchClasses();
+
+      const fetchEleves = async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase.from('eleves').select('*, paiements(*)').order('created_at', { ascending: false });
+        
+        if (data) {
+          const mapped = data.map(d => ({
+            id: d.id,
+            matricule: d.matricule,
+            nom: d.nom,
+            prenom: d.prenom,
+            sexe: d.sexe,
+            classeId: d.classe_id,
+            anneeScolaireId: d.annee_scolaire_id,
+            telephoneParent: d.telephone_parent,
+            nomParent: d.nom_parent,
+            emailParent: d.email_parent,
+            dateNaissance: d.date_naissance,
+            lieuNaissance: d.lieu_naissance,
+            dateInscription: d.date_inscription,
+            statut: d.statut,
+            paiements: d.paiements?.map((p: any) => ({
+              id: p.id,
+              eleveId: p.eleve_id,
+              montant: Number(p.montant),
+              date: p.date,
+              typeFrais: p.type_frais,
+              statut: p.statut,
+              reference: p.reference,
+              modePaiement: p.mode_paiement
+            })) || [],
+            notes: []
+          }));
+          setStudents(mapped as any);
+        } else {
+          setStudents([]);
         }
-      } else {
-        localStorage.setItem('mboaschool_students', JSON.stringify(mockStudents));
-        setStudents(mockStudents.filter(Boolean));
-      }
-      setIsLoaded(true);
+        setIsLoaded(true);
+      };
+
+      fetchEleves();
     }
   }, []);
 
@@ -156,57 +189,136 @@ export default function ElevesPage() {
     }
   };
 
-  const handleAddStudent = (e: React.FormEvent) => {
+  const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName || !lastName || !parentName || !parentPhone) {
       alert("Veuillez remplir tous les champs obligatoires.");
       return;
     }
 
-    // Auto-generate matricule if empty
     const generatedMatricule = matricule.trim() || `26YAE${Math.floor(100 + Math.random() * 900)}`;
+    const supabase = createClient();
 
-    const newStudentId = `stud-${Date.now()}`;
-    const initialPaid = Number(initialPayment) || 0;
-    const initialPaiements = initialPaid > 0 ? [{
-      id: `pay-${Date.now()}`,
-      eleveId: newStudentId,
-      montant: initialPaid,
-      date: new Date().toISOString().split('T')[0],
-      modePaiement: 'Espèces' as const,
-      typeFrais: 'Scolarité' as const,
-      statut: 'paid' as const,
-      reference: `REG-${Date.now().toString().slice(-6)}`
-    }] : [];
-
-    const newStudent: Eleve = {
-      id: newStudentId,
+    const studentData = {
       matricule: generatedMatricule,
+      nom: lastName.toUpperCase(),
       prenom: firstName,
-      nom: lastName,
       sexe: gender,
-      classeId: className,
-      nomParent: parentName,
-      telephoneParent: parentPhone,
-      emailParent: parentEmail || 'N/A',
-      dateNaissance: dateOfBirth || '2012-01-01',
-      lieuNaissance: birthPlace || 'Yaoundé',
-      dateInscription: new Date().toISOString().split('T')[0],
-      anneeScolaireId: 'as-2025',
-      statut: 'actif',
-      paiements: initialPaiements,
-      notes: []    // starts with empty grades
+      classe_id: className,
+      annee_scolaire_id: '2025/2026',
+      nom_parent: parentName,
+      telephone_parent: parentPhone,
+      email_parent: parentEmail,
+      date_naissance: dateOfBirth,
+      lieu_naissance: birthPlace,
+      statut: 'actif'
     };
 
-    const updatedList = [newStudent, ...students];
-    setStudents(updatedList);
-    localStorage.setItem('mboaschool_students', JSON.stringify(updatedList));
+    if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+      await SyncManager.addToQueue('eleves', 'insert', studentData);
+      
+      const localStudent = {
+        id: `temp_${Date.now()}`,
+        ...studentData,
+        classeId: studentData.classe_id,
+        anneeScolaireId: studentData.annee_scolaire_id,
+        dateNaissance: studentData.date_naissance,
+        lieuNaissance: studentData.lieu_naissance,
+        nomParent: studentData.nom_parent,
+        telephoneParent: studentData.telephone_parent,
+        emailParent: studentData.email_parent,
+        paiements: [],
+        notes: []
+      };
+      
+      setStudents([localStudent as any, ...students]);
+      setShowAddModal(false);
+      triggerToast(`Hors-ligne : L'élève ${lastName} a été mis en file d'attente de synchronisation.`);
+      return;
+    }
 
-    // Reset fields
+    const { data, error } = await supabase.from('eleves').insert([studentData]).select();
+
+    if (error) {
+      alert("Erreur lors de l'insertion Supabase : " + error.message);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      const d = data[0];
+      
+      let newPaymentObj = null;
+      const initialPayVal = Number(initialPayment);
+      if (initialPayVal > 0) {
+        const reference = `REC-INS-${Date.now()}`;
+        const paymentData = {
+          eleve_id: d.id,
+          montant: initialPayVal,
+          date: new Date().toISOString().split('T')[0],
+          type_frais: 'Scolarité',
+          mode_paiement: 'Espèces',
+          statut: 'paid',
+          reference: reference
+        };
+
+        if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+           await SyncManager.addToQueue('paiements', 'insert', paymentData);
+           newPaymentObj = {
+             id: `temp_pay_${Date.now()}`,
+             ...paymentData,
+             eleveId: d.id,
+             typeFrais: 'Scolarité',
+             modePaiement: 'Espèces'
+           };
+        } else {
+          const { data: payData, error: payError } = await supabase.from('paiements').insert([paymentData]).select();
+          
+          if (payError) {
+            console.error("Payment insert error:", payError);
+            alert("Erreur lors de l'enregistrement du paiement initial: " + payError.message);
+          } else if (payData && payData.length > 0) {
+            const pd = payData[0];
+            newPaymentObj = {
+              id: pd.id,
+              eleveId: pd.eleve_id,
+              montant: Number(pd.montant),
+              date: pd.date,
+              typeFrais: pd.type_frais,
+              statut: pd.statut,
+              reference: pd.reference,
+              modePaiement: pd.mode_paiement
+            };
+          }
+        }
+      }
+
+      const newStudent: any = {
+        id: d.id,
+        matricule: d.matricule,
+        prenom: d.prenom,
+        nom: d.nom,
+        sexe: d.sexe,
+        classeId: className,
+        nomParent: d.nom_parent,
+        telephoneParent: d.telephone_parent,
+        emailParent: d.email_parent || 'N/A',
+        dateNaissance: d.date_naissance || '2012-01-01',
+        lieuNaissance: d.lieu_naissance || 'Yaoundé',
+        dateInscription: d.date_inscription,
+        anneeScolaireId: d.annee_scolaire_id,
+        statut: d.statut,
+        paiements: newPaymentObj ? [newPaymentObj] : [],
+        notes: []
+      };
+
+      setStudents([newStudent, ...students]);
+    }
+
     setFirstName('');
     setLastName('');
     setGender('M');
-    setClassName('Terminale D');
+    if (classesList.length > 0) setClassName(classesList[0].id);
+    else setClassName('');
     setParentName('');
     setParentPhone('');
     setParentEmail('');
@@ -216,7 +328,27 @@ export default function ElevesPage() {
     setInitialPayment('');
 
     setShowAddModal(false);
-    triggerToast(`L'élève ${lastName} ${firstName} a été inscrit avec succès.`);
+    triggerToast(`L'élève ${lastName} ${firstName} a été inscrit avec succès dans Supabase.`);
+  };
+
+  const handleExportExcel = () => {
+    const dataToExport = filteredStudents.map(s => {
+      const { totalDue, totalPaid, status } = getStudentPaymentStats(s);
+      return {
+        Matricule: s.matricule,
+        Nom: s.nom,
+        Prénom: s.prenom,
+        Genre: s.sexe,
+        Classe: classesList.find(c => c.id === s.classeId)?.nom || s.classeId,
+        'Parent / Tuteur': s.nomParent,
+        Téléphone: s.telephoneParent,
+        'Scolarité (FCFA)': totalDue,
+        'Montant Payé': totalPaid,
+        Statut: status === 'paid' ? 'Payé' : status === 'partial' ? 'Partiel' : 'Non Payé'
+      };
+    });
+    downloadExcel(dataToExport, 'Liste_Eleves');
+    triggerToast('Export Excel généré avec succès !');
   };
 
   const formatFCFA = (amount: number) => {
@@ -241,13 +373,22 @@ export default function ElevesPage() {
             Gérez les fiches des élèves, filtrez par statut de scolarité ou niveau académique.
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md shadow-indigo-600/10 transition-colors cursor-pointer self-start sm:self-auto"
-        >
-          <PlusIcon size={16} />
-          Inscrire un élève
-        </button>
+        <div className="flex items-center gap-3 self-start sm:self-auto">
+          <button
+            onClick={handleExportExcel}
+            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-lg transition-colors cursor-pointer"
+          >
+            <DownloadIcon size={16} />
+            Exporter
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md shadow-indigo-600/10 transition-colors cursor-pointer"
+          >
+            <PlusIcon size={16} />
+            Inscrire un élève
+          </button>
+        </div>
       </div>
 
       {/* Stats Quick Cards */}
@@ -305,7 +446,7 @@ export default function ElevesPage() {
               >
                 <option value="All">Toutes les classes</option>
                 {classesList.map(c => (
-                  <option key={c.id} value={c.nom}>{c.nom}</option>
+                  <option key={c.id} value={c.id}>{c.nom}</option>
                 ))}
               </select>
             </div>
@@ -397,7 +538,7 @@ export default function ElevesPage() {
 
                       {/* Class */}
                       <td className="px-6 py-4 text-slate-600 font-medium">
-                        {student.classeId}
+                        {classesList.find(c => c.id === student.classeId)?.nom || student.classeId}
                       </td>
 
                       {/* Gender Badge */}
@@ -596,8 +737,9 @@ export default function ElevesPage() {
                     onChange={(e) => setClassName(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
                   >
+                    {classesList.length === 0 && <option value="">Aucune classe disponible</option>}
                     {classesList.map(c => (
-                      <option key={c.id} value={c.nom}>{c.nom}</option>
+                      <option key={c.id} value={c.id}>{c.nom}</option>
                     ))}
                   </select>
                 </div>

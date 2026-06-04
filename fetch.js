@@ -1,0 +1,1 @@
+fetch('https://api.github.com/repos/anorps1-png/apon-backend', { headers: { Authorization: 'Bearer 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', 'User-Agent': 'node' } }).then(r => r.json()).then(console.log).catch(console.error);

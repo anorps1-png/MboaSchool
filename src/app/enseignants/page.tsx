@@ -1,486 +1,342 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { mockTeachers } from '@/mock/teachers';
-import { mockClasses } from '@/mock/classes';
-import { PhoneIcon, MailIcon, PlusIcon } from '@/components/icons';
-import { Enseignant, Classe, MembrePersonnel, MouvementPersonnel } from '@/types/domain';
-import { mockPersonnel, mockMouvements } from '@/mock/rh';
+import { SearchIcon, PlusIcon, DownloadIcon } from '@/components/icons';
+import { createClient } from '@/lib/supabase/client';
+import { downloadExcel } from '@/lib/excel';
+import SyncManager from '@/lib/syncManager';
+
+interface EnseignantDB {
+  id: string;
+  matricule: string;
+  nom: string;
+  prenom: string;
+  sexe: 'M' | 'F';
+  telephone: string;
+  email: string;
+  matiere_principale: string;
+  salaire_mensuel: number;
+  date_embauche: string;
+  statut: 'actif' | 'en_conge' | 'quitte';
+}
 
 export default function EnseignantsPage() {
-  const [teachers, setTeachers] = useState<Enseignant[]>([]);
-  const [classesList, setClassesList] = useState<Classe[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [enseignants, setEnseignants] = useState<EnseignantDB[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  
+  // Nouveaux champs pour formulaire
+  const [newEns, setNewEns] = useState<Partial<EnseignantDB>>({
+    sexe: 'M',
+    statut: 'actif',
+    salaire_mensuel: 0
+  });
+
+  const supabase = createClient();
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedClasses = localStorage.getItem('mboaschool_classes');
-      if (storedClasses) {
-        try {
-          setClassesList(JSON.parse(storedClasses));
-        } catch (e) {
-          setClassesList(mockClasses);
-        }
-      } else {
-        localStorage.setItem('mboaschool_classes', JSON.stringify(mockClasses));
-        setClassesList(mockClasses);
-      }
-
-      const stored = localStorage.getItem('mboaschool_teachers');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setTeachers((Array.isArray(parsed) ? parsed : mockTeachers).filter(Boolean));
-        } catch (e) {
-          setTeachers(mockTeachers.filter(Boolean));
-        }
-      } else {
-        localStorage.setItem('mboaschool_teachers', JSON.stringify(mockTeachers));
-        setTeachers(mockTeachers.filter(Boolean));
-      }
-      setIsLoaded(true);
-    }
+    fetchEnseignants();
   }, []);
 
-  // Form fields states
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [gender, setGender] = useState<'M' | 'F'>('M');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [subjectsStr, setSubjectsStr] = useState('');
-  const [selectedClassesIds, setSelectedClassesIds] = useState<string[]>([]);
-  const [status, setStatus] = useState<'active' | 'inactive'>('active');
-  const [salary, setSalary] = useState('');
-  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
-
+  const fetchEnseignants = async () => {
+    const { data, error } = await supabase.from('enseignants').select('*').order('nom');
+    if (data) {
+      setEnseignants(data as EnseignantDB[]);
+    }
+    setIsLoaded(true);
+  };
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 4000);
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleAddTeacher = (e: React.FormEvent) => {
+  const handleAddEnseignant = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName || !lastName || !email || !phone || !salary || !effectiveDate) {
-      alert("Veuillez remplir tous les champs obligatoires.");
+    const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+    
+    const enseignantData = {
+      matricule,
+      nom: newEns.nom,
+      prenom: newEns.prenom,
+      sexe: newEns.sexe,
+      telephone: newEns.telephone,
+      email: newEns.email,
+      matiere_principale: newEns.matiere_principale,
+      salaire_mensuel: newEns.salaire_mensuel || 0,
+      statut: newEns.statut || 'actif'
+    };
+
+    if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+      await SyncManager.addToQueue('enseignants', 'insert', enseignantData);
+      const localEns = {
+        id: `temp_${Date.now()}`,
+        ...enseignantData
+      };
+      setEnseignants([localEns as EnseignantDB, ...enseignants]);
+      setShowAddModal(false);
+      setNewEns({ sexe: 'M', statut: 'actif', salaire_mensuel: 0 });
+      triggerToast(`Hors-ligne : L'enseignant ${newEns.nom} a été mis en file d'attente de synchronisation.`);
       return;
     }
 
-    const newTeacherId = `teach-${Date.now()}`;
+    const { data, error } = await supabase.from('enseignants').insert([enseignantData]).select();
 
-    const newTeacher: Enseignant = {
-      id: newTeacherId,
-      prenom: firstName,
-      nom: lastName,
-      email,
-      telephone: phone,
-      genre: gender,
-      matieresId: subjectsStr ? subjectsStr.split(',').map(s => s.trim()) : [],
-      classesId: selectedClassesIds,
-      statut: status,
-      dateRecrutement: effectiveDate
-    };
-
-    const updatedList = [newTeacher, ...teachers];
-    setTeachers(updatedList);
-    localStorage.setItem('mboaschool_teachers', JSON.stringify(updatedList));
-
-    // Link to RH module:
-    if (typeof window !== 'undefined') {
-      // 1. MembrePersonnel
-      const storedPers = localStorage.getItem('mboaschool_rh_personnel');
-      let loadedPers: MembrePersonnel[] = mockPersonnel;
-      if (storedPers) {
-        try {
-          const parsed = JSON.parse(storedPers);
-          if (Array.isArray(parsed)) {
-            loadedPers = parsed.filter(Boolean);
-          }
-        } catch (e) { }
-      }
-      const newPersonnel: MembrePersonnel = {
-        id: newTeacherId,
-        nom: lastName,
-        prenom: firstName,
-        email,
-        telephone: phone,
-        sexe: gender,
-        categorie: 'Enseignant',
-        typeContrat: 'CDI',
-        salaireDeBase: Number(salary) || 0,
-        dateEmbauche: effectiveDate,
-        statut: 'actif'
-      };
-      localStorage.setItem('mboaschool_rh_personnel', JSON.stringify([...loadedPers, newPersonnel]));
-
-      // 2. MouvementPersonnel
-      const storedMouv = localStorage.getItem('mboaschool_rh_mouvements');
-      let loadedMouv: MouvementPersonnel[] = mockMouvements;
-      if (storedMouv) {
-        try {
-          const parsed = JSON.parse(storedMouv);
-          if (Array.isArray(parsed)) {
-            loadedMouv = parsed.filter(Boolean);
-          }
-        } catch (e) { }
-      }
-      const newMouvement: MouvementPersonnel = {
-        id: `mov-${Date.now()}`,
-        personnelId: newTeacherId,
-        nomPersonnel: `${lastName} ${firstName}`,
-        type: 'embauche',
-        date: effectiveDate,
-        details: `Embauche de l'enseignant en CDI`
-      };
-      localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify([newMouvement, ...loadedMouv]));
+    if (error) {
+      alert("Erreur lors de l'ajout : " + error.message);
+      return;
     }
 
-    // Reset fields
-    setFirstName('');
-    setLastName('');
-    setGender('M');
-    setEmail('');
-    setPhone('');
-    setSubjectsStr('');
-    setSelectedClassesIds([]);
-    setStatus('active');
-    setSalary('');
-    setEffectiveDate(new Date().toISOString().split('T')[0]);
-    
-    setShowAddModal(false);
-    triggerToast(`L'enseignant ${lastName} ${firstName} a été ajouté avec succès.`);
+    if (data && data.length > 0) {
+      setEnseignants([data[0] as EnseignantDB, ...enseignants]);
+      setShowAddModal(false);
+      setNewEns({ sexe: 'M', statut: 'actif', salaire_mensuel: 0 });
+      triggerToast(`L'enseignant ${data[0].nom} a été ajouté avec succès.`);
+    }
+  };
+
+  const handleExportExcel = () => {
+    const dataToExport = enseignants.map(e => ({
+      Matricule: e.matricule,
+      Nom: e.nom,
+      Prénom: e.prenom,
+      Sexe: e.sexe,
+      Matière: e.matiere_principale,
+      Téléphone: e.telephone,
+      Email: e.email,
+      Salaire: e.salaire_mensuel,
+      Statut: e.statut
+    }));
+    downloadExcel(dataToExport, 'Liste_Enseignants');
+    triggerToast('Export Excel généré avec succès !');
+  };
+
+  const filteredEnseignants = enseignants.filter(e => 
+    `${e.nom} ${e.prenom} ${e.matricule} ${e.matiere_principale}`.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const formatFCFA = (amount: number) => {
+    return new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
   };
 
   if (!isLoaded) {
     return (
-      <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl shadow-sm">
-        <p className="text-slate-500">Chargement de la liste des enseignants...</p>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-sm font-semibold text-slate-400">Chargement de la liste des enseignants...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 relative animate-in fade-in duration-300">
-      {/* Toast Notification Alert */}
+    <div className="space-y-6 animate-in fade-in duration-300">
+      {/* Toast */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 border border-slate-800 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3 animate-in slide-in-from-bottom-6 duration-300">
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
           <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
 
-      {/* Header section */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 tracking-tight text-black font-black">Corps Enseignant</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 tracking-tight text-black">Gestion des Enseignants</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Gérez la liste des enseignants et affectez-les aux différentes classes de l&apos;établissement.
+            Gérez le personnel enseignant, les matières principales et les salaires.
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md shadow-indigo-600/10 transition-colors cursor-pointer self-start sm:self-auto"
-        >
-          <PlusIcon size={16} />
-          Ajouter un enseignant
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportExcel}
+            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-lg transition-colors cursor-pointer"
+          >
+            <DownloadIcon size={16} />
+            Exporter
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md transition-colors cursor-pointer"
+          >
+            <PlusIcon size={16} />
+            Ajouter un enseignant
+          </button>
+        </div>
       </div>
 
-      {/* Quick stats banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      {/* Stats Quick Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Enseignants</span>
-          <span className="text-xl font-extrabold text-slate-800 mt-1 block text-black">{teachers.length}</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Effectif Total</span>
+          <span className="text-2xl font-extrabold text-slate-800 mt-1 block text-black">{enseignants.length}</span>
         </div>
         <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Actifs en classe</span>
-          <span className="text-xl font-extrabold text-emerald-600 mt-1 block">
-            {teachers.filter(t => t.statut === 'active').length}
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Actifs</span>
+          <span className="text-2xl font-extrabold text-emerald-600 mt-1 block">{enseignants.filter(e => e.statut === 'actif').length}</span>
+        </div>
+        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Masse Salariale Mensuelle</span>
+          <span className="text-2xl font-extrabold text-indigo-600 mt-1 block">
+            {formatFCFA(enseignants.filter(e => e.statut === 'actif').reduce((sum, e) => sum + Number(e.salaire_mensuel), 0))}
           </span>
         </div>
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">En congé/Inactifs</span>
-          <span className="text-xl font-extrabold text-slate-400 mt-1 block">
-            {teachers.filter(t => t.statut === 'inactive').length}
-          </span>
+      </div>
+
+      {/* Search Bar */}
+      <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm flex items-center">
+        <div className="relative w-full max-w-md">
+          <SearchIcon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Rechercher par nom, prénom, matière..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-black"
+          />
         </div>
       </div>
 
-      {/* Grid of Teachers Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {teachers.filter(Boolean).map((teacher) => (
-          <div key={teacher.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative">
-            
-            {/* Top Row with Status and Avatar */}
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-full font-extrabold text-base flex items-center justify-center border shadow-inner ${
-                  teacher.genre === 'F' 
-                    ? 'bg-rose-50 text-rose-600 border-rose-100'
-                    : 'bg-blue-50 text-blue-600 border-blue-100'
-                }`}>
-                  {(teacher.prenom || '')[0] || ''}{(teacher.nom || '')[0] || ''}
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-base leading-tight text-black">
-                    {teacher.nom} {teacher.prenom}
-                  </h3>
-                  <span className="text-xs text-slate-400 font-medium">Recruté le {teacher.dateRecrutement}</span>
-                </div>
-              </div>
-
-              {/* Status Badge */}
-              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                teacher.statut === 'active'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                  : 'bg-slate-100 text-slate-500 border-slate-200'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${
-                  teacher.statut === 'active' ? 'bg-emerald-500' : 'bg-slate-400'
-                }`}></span>
-                {teacher.statut === 'active' ? 'Actif' : 'Inactif'}
-              </span>
-            </div>
-
-            {/* Center Section: Subjects and Classes */}
-            <div className="my-5 space-y-3.5 border-t border-b border-slate-100 py-4">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Matières</span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {(teacher.matieresId || []).map((sub) => (
-                    <span key={sub} className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold px-2 py-0.5 rounded">
-                      {sub}
+      {/* Table */}
+      <div className="bg-white border border-slate-100 rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                <th className="px-6 py-3">Enseignant</th>
+                <th className="px-6 py-3">Contact</th>
+                <th className="px-6 py-3">Matière Principale</th>
+                <th className="px-6 py-3">Salaire Mensuel</th>
+                <th className="px-6 py-3">Statut</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              {filteredEnseignants.map((e) => (
+                <tr key={e.id} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                        {e.prenom[0]}{e.nom[0]}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-800 text-black">{e.nom} {e.prenom}</div>
+                        <div className="text-[10px] text-slate-400 font-medium">{e.matricule}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-slate-600">{e.telephone || 'N/A'}</div>
+                    <div className="text-[10px] text-slate-400">{e.email || 'N/A'}</div>
+                  </td>
+                  <td className="px-6 py-4 font-medium text-slate-700">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                      {e.matiere_principale || 'Général'}
                     </span>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Classes Affectées</span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {(teacher.classesId || []).map((cls) => (
-                    <span key={cls} className="bg-slate-100 border border-slate-200 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded">
-                      {cls}
+                  </td>
+                  <td className="px-6 py-4 font-semibold text-slate-800 text-black">
+                    {formatFCFA(e.salaire_mensuel)}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold border ${
+                      e.statut === 'actif' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
+                      e.statut === 'en_conge' ? 'bg-amber-50 text-amber-700 border-amber-100' : 
+                      'bg-slate-50 text-slate-600 border-slate-200'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        e.statut === 'actif' ? 'bg-emerald-500' : 
+                        e.statut === 'en_conge' ? 'bg-amber-500' : 
+                        'bg-slate-400'
+                      }`}></span>
+                      {e.statut === 'actif' ? 'Actif' : e.statut === 'en_conge' ? 'En congé' : 'Quitté'}
                     </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Footer Section: Contacts */}
-            <div className="flex flex-col gap-2.5 text-xs text-slate-600">
-              <div className="flex items-center gap-2">
-                <PhoneIcon size={12} className="text-slate-400" />
-                <a href={`tel:${teacher.telephone}`} className="hover:text-indigo-600 transition-colors font-medium">
-                  {teacher.telephone}
-                </a>
-              </div>
-              <div className="flex items-center gap-2">
-                <MailIcon size={12} className="text-slate-400" />
-                <a href={`mailto:${teacher.email}`} className="hover:text-indigo-600 transition-colors font-medium truncate">
-                  {teacher.email}
-                </a>
-              </div>
-            </div>
-          </div>
-        ))}
+                  </td>
+                </tr>
+              ))}
+              {filteredEnseignants.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <p className="text-sm font-medium text-slate-400">Aucun enseignant trouvé.</p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Add Teacher Modal Dialog */}
+      {/* Add Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-lg border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="text-lg font-bold text-slate-800 text-black">Ajouter un enseignant</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer p-1">
+                ✕
+              </button>
+            </div>
             
-            <button
-              onClick={() => setShowAddModal(false)}
-              className="absolute right-4 top-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <div className="p-6 overflow-y-auto">
+              <form id="add-ens-form" onSubmit={handleAddEnseignant} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Identité */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Identité</h4>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Nom <span className="text-red-500">*</span></label>
+                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                        value={newEns.nom || ''} onChange={e => setNewEns({...newEns, nom: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Prénom <span className="text-red-500">*</span></label>
+                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                        value={newEns.prenom || ''} onChange={e => setNewEns({...newEns, prenom: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Genre</label>
+                      <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black"
+                        value={newEns.sexe} onChange={e => setNewEns({...newEns, sexe: e.target.value as 'M'|'F'})}>
+                        <option value="M">Masculin</option>
+                        <option value="F">Féminin</option>
+                      </select>
+                    </div>
+                  </div>
 
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 text-black">
-              Ajouter un Enseignant
-            </h3>
-
-            <form onSubmit={handleAddTeacher} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Nom *
-                  </label>
-                  <input
-                    type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                    placeholder="ex: Atangana"
-                    required
-                  />
+                  {/* Professionnel */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Professionnel & Contact</h4>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Matière principale</label>
+                      <input type="text" placeholder="ex: Mathématiques" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                        value={newEns.matiere_principale || ''} onChange={e => setNewEns({...newEns, matiere_principale: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Salaire Mensuel (FCFA)</label>
+                      <input type="number" min="0" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                        value={newEns.salaire_mensuel || 0} onChange={e => setNewEns({...newEns, salaire_mensuel: Number(e.target.value)})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone</label>
+                      <input type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                        value={newEns.telephone || ''} onChange={e => setNewEns({...newEns, telephone: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Email</label>
+                      <input type="email" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                        value={newEns.email || ''} onChange={e => setNewEns({...newEns, email: e.target.value})} />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Prénom *
-                  </label>
-                  <input
-                    type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                    placeholder="ex: Dieudonné"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Genre
-                  </label>
-                  <select
-                    value={gender}
-                    onChange={(e) => setGender(e.target.value as 'M' | 'F')}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                  >
-                    <option value="M">Masculin</option>
-                    <option value="F">Féminin</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Statut
-                  </label>
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value as 'active' | 'inactive')}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                  >
-                    <option value="active">Actif</option>
-                    <option value="inactive">Inactif (Congé)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                  placeholder="ex: d.atangana@ecole.cm"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Téléphone *
-                </label>
-                <input
-                  type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                  placeholder="ex: +237 677 12 34 56"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Salaire Mensuel Brut (FCFA) *
-                  </label>
-                  <input
-                    type="number"
-                    value={salary}
-                    onChange={(e) => setSalary(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black font-mono"
-                    placeholder="ex: 250000"
-                    required
-                    min="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Date de prise d'effet *
-                  </label>
-                  <input
-                    type="date"
-                    value={effectiveDate}
-                    onChange={(e) => setEffectiveDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Matières (séparées par une virgule)
-                </label>
-                <input
-                  type="text"
-                  value={subjectsStr}
-                  onChange={(e) => setSubjectsStr(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
-                  placeholder="ex: Mathématiques, Algèbre, Géométrie"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Classes affectées
-                </label>
-                <div className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 text-black max-h-40 overflow-y-auto space-y-2">
-                  {classesList.map(cls => (
-                    <label key={cls.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedClassesIds.includes(cls.nom)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedClassesIds([...selectedClassesIds, cls.nom]);
-                          } else {
-                            setSelectedClassesIds(selectedClassesIds.filter(id => id !== cls.nom));
-                          }
-                        }}
-                        className="rounded text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>{cls.nom}</span>
-                    </label>
-                  ))}
-                  {classesList.length === 0 && (
-                    <span className="text-slate-400 italic">Aucune classe disponible. Créez-en d&apos;abord.</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-700 transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
-                >
-                  Enregistrer
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
+            
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3">
+              <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer">
+                Annuler
+              </button>
+              <button type="submit" form="add-ens-form" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md transition-colors cursor-pointer">
+                Enregistrer l'enseignant
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import SyncManager from '@/lib/syncManager';
 import {
   DashboardIcon,
   StudentsIcon,
@@ -27,13 +28,60 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [academicYear, setAcademicYear] = useState('2025/2026');
   const selectedSchool = 'Collège Vogt - Yaoundé';
   const [showNotifications, setShowNotifications] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [forceOffline, setForceOffline] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const handleOnline = () => {
+        if (!forceOffline) {
+          setIsOnline(true);
+          SyncManager.syncAll();
+        }
+      };
+      const handleOffline = () => setIsOnline(false);
+
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+
+      // Check initial state
+      if (!forceOffline) {
+        setIsOnline(navigator.onLine);
+        if (navigator.onLine) {
+          SyncManager.syncAll();
+        }
+      } else {
+        setIsOnline(false);
+      }
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+  }, [forceOffline]);
+
+  // Intercept the global navigator.onLine for our components
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Pour les tests, on injecte une variable globale que les autres pages peuvent lire
+      (window as any).__forceOffline = forceOffline;
+    }
+  }, [forceOffline]);
+
+  // BYPASS POUR LA LANDING PAGE
+  if (pathname === '/') {
+    return <>{children}</>;
+  }
+
 
   const menuItems = [
+    { name: '🌐 Voir la Landing Page', href: '/', icon: DashboardIcon },
     { name: 'Tableau de bord', href: '/dashboard', icon: DashboardIcon },
     { name: 'Sections', href: '/sections', icon: DashboardIcon },
     { name: 'Classes', href: '/classes', icon: StudentsIcon },
     { name: 'Élèves', href: '/eleves', icon: StudentsIcon },
-    { name: 'Parents & Messages', href: '/parents', icon: UsersIcon },
+    { name: 'Communauté & QHSE', href: '/parents', icon: UsersIcon },
     { name: 'Enseignants', href: '/enseignants', icon: TeachersIcon },
     { name: 'Évaluations', href: '/evaluations', icon: AcademicIcon },
     { name: 'Finance', href: '/finance', icon: ChartIcon },
@@ -48,6 +96,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="bg-red-500 text-white text-xs font-bold text-center py-1.5 px-4 shadow-md z-50">
+          ⚠️ Mode Hors-ligne : Aucune connexion internet. Vos actions seront enregistrées et synchronisées automatiquement à la reconnexion.
+        </div>
+      )}
+
       {/* Mobile Top Bar */}
       <header className="lg:hidden bg-indigo-900 text-white flex items-center justify-between px-4 py-3 shadow-md sticky top-0 z-40">
         <div className="flex items-center gap-2">
@@ -135,7 +190,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <p className="text-xs font-semibold text-white truncate">M. Marc Mvogo</p>
               <p className="text-[10px] text-slate-500 truncate">Intendant Principal</p>
             </div>
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-slate-400 cursor-pointer flex items-center gap-1" title="Simuler le mode hors-ligne">
+                <input 
+                  type="checkbox" 
+                  checked={forceOffline} 
+                  onChange={(e) => setForceOffline(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-800"
+                />
+                Offline
+              </label>
+              <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
+            </div>
           </div>
         </aside>
 

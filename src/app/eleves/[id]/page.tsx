@@ -10,8 +10,8 @@ import {
   PhoneIcon,
   MailIcon
 } from '@/components/icons';
-import { Eleve, Paiement, NoteMatiere, TransactionPaiement, Classe } from '@/types/domain';
-import { mockClasses } from '@/mock/classes';
+import { Eleve, Paiement, NoteMatiere, TransactionPaiement, Classe, DisciplineIncident } from '@/types/domain';
+import { createClient } from '@/lib/supabase/client';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -25,36 +25,95 @@ export default function FicheElevePage({ params }: PageProps) {
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [student, setStudent] = useState<Eleve | undefined>(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState<'info' | 'finance' | 'grades'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'finance' | 'grades' | 'discipline'>('info');
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedClasses = localStorage.getItem('mboaschool_classes');
-      let loadedClasses = mockClasses;
-      if (storedClasses) {
-        try {
-          loadedClasses = JSON.parse(storedClasses);
-        } catch (e) {}
-      }
-      setClassesList(loadedClasses);
+    const fetchData = async () => {
+      const supabase = createClient();
+      
+      // Fetch classes
+      const { data: classesData } = await supabase.from('classes').select('*');
+      if (classesData) setClassesList(classesData);
 
-      const stored = localStorage.getItem('mboaschool_students');
-      let currentStudents = mockStudents;
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) currentStudents = parsed;
-        } catch (e) {
-          // ignore
+      // Fetch student with payments, notes, and discipline
+      const { data: studentData } = await supabase
+        .from('eleves')
+        .select('*, paiements(*), notes(*), discipline(*)')
+        .eq('id', studentId)
+        .single();
+
+      if (studentData) {
+        // Fetch all students in the same class to calculate rank
+        const { data: classmatesData } = await supabase
+          .from('eleves')
+          .select('id, notes(*)')
+          .eq('classe_id', studentData.classe_id);
+          
+        if (classmatesData) {
+          // Transform notes if needed to match interface
+          const mappedClassmates = classmatesData.map(c => ({
+            id: c.id,
+            classeId: studentData.classe_id,
+            notes: c.notes?.map((n: any) => ({
+              id: n.id,
+              note: Number(n.note),
+              trimestre: n.trimestre,
+              matiereId: n.matiere || n.matiere_id,
+              evaluationMaternelle: n.evaluation_maternelle
+            })) || []
+          }));
+          setStudents(mappedClassmates as any);
         }
-      } else {
-        localStorage.setItem('mboaschool_students', JSON.stringify(mockStudents));
+
+        const mappedStudent = {
+          id: studentData.id,
+          matricule: studentData.matricule,
+          nom: studentData.nom,
+          prenom: studentData.prenom,
+          sexe: studentData.sexe,
+          classeId: studentData.classe_id,
+          nomParent: studentData.nom_parent,
+          telephoneParent: studentData.telephone_parent,
+          emailParent: studentData.email_parent || 'N/A',
+          dateNaissance: studentData.date_naissance || '2012-01-01',
+          lieuNaissance: studentData.lieu_naissance || 'Yaoundé',
+          dateInscription: studentData.date_inscription,
+          statut: studentData.statut,
+          paiements: studentData.paiements?.map((p: any) => ({
+            id: p.id,
+            eleveId: p.eleve_id,
+            montant: Number(p.montant),
+            date: p.date,
+            typeFrais: p.type_frais,
+            statut: p.statut,
+            reference: p.reference,
+            modePaiement: p.mode_paiement
+          })) || [],
+          notes: studentData.notes?.map((n: any) => ({
+            id: n.id,
+            note: Number(n.note),
+            trimestre: n.trimestre,
+            matiereId: n.matiere || n.matiere_id,
+            evaluationMaternelle: n.evaluation_maternelle,
+            enseignantId: n.enseignant_id
+          })) || [],
+          discipline: studentData.discipline?.map((d: any) => ({
+            id: d.id,
+            eleveId: d.eleve_id,
+            dateIncident: d.date_incident,
+            typeIncident: d.type_incident,
+            motif: d.motif,
+            sanction: d.sanction,
+            statut: d.statut
+          })) || []
+        };
+        setStudent(mappedStudent as any);
       }
-      const cleanStudents = (currentStudents || []).filter(Boolean);
-      setStudents(cleanStudents);
-      const found = cleanStudents.find((s: Eleve) => s.id === studentId);
-      setStudent(found);
       setIsLoaded(true);
+    };
+
+    if (typeof window !== 'undefined') {
+      fetchData();
     }
   }, [studentId]);
 
@@ -64,22 +123,38 @@ export default function FicheElevePage({ params }: PageProps) {
   const [payMethod, setPayMethod] = useState('Orange Money');
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
 
-  // Form states for editing grades
+  // Form states for editing/adding grades
+  const [showAddGradeModal, setShowAddGradeModal] = useState(false);
+  const [newGradeMatiere, setNewGradeMatiere] = useState('');
+  const [newGradeValue, setNewGradeValue] = useState('');
+  const [newGradeCoef, setNewGradeCoef] = useState('1');
+  const [newGradeType, setNewGradeType] = useState('Classique'); // Classique ou Maternelle
   const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
   const [editingGradeValue, setEditingGradeValue] = useState<number | string>('');
 
-  const handleSaveGrade = (gradeId: string, isMaternelle: boolean) => {
+  // Form states for adding discipline
+  const [showAddDisciplineModal, setShowAddDisciplineModal] = useState(false);
+  const [newDisciplineType, setNewDisciplineType] = useState('Absence');
+  const [newDisciplineMotif, setNewDisciplineMotif] = useState('');
+  const [newDisciplineSanction, setNewDisciplineSanction] = useState('');
+  const [newDisciplineStatut, setNewDisciplineStatut] = useState('Non notifié');
+
+  const handleSaveGrade = async (gradeId: string, isMaternelle: boolean) => {
     if (!student) return;
 
     const updatedNotes = [...(student.notes || [])];
     const gradeIndex = updatedNotes.findIndex(g => g.id === gradeId);
     
     if (gradeIndex !== -1) {
+      let updatePayload: any = {};
+
       if (isMaternelle) {
+        updatePayload.evaluation_maternelle = editingGradeValue;
         updatedNotes[gradeIndex] = { ...updatedNotes[gradeIndex], evaluationMaternelle: editingGradeValue as any };
       } else {
         const numVal = Number(editingGradeValue);
         if (numVal >= 0 && numVal <= 20) {
+          updatePayload.note = numVal;
           updatedNotes[gradeIndex] = { ...updatedNotes[gradeIndex], note: numVal };
         } else {
           alert('La note doit être comprise entre 0 et 20.');
@@ -87,12 +162,16 @@ export default function FicheElevePage({ params }: PageProps) {
         }
       }
       
-      const updatedStudent = { ...student, notes: updatedNotes };
-      const updatedStudentsList = students.map(s => s.id === student.id ? updatedStudent : s);
+      const supabase = createClient();
+      const { error } = await supabase.from('notes').update(updatePayload).eq('id', gradeId);
       
+      if (error) {
+        alert("Erreur lors de la mise à jour de la note : " + error.message);
+        return;
+      }
+
+      const updatedStudent = { ...student, notes: updatedNotes };
       setStudent(updatedStudent);
-      setStudents(updatedStudentsList);
-      localStorage.setItem('mboaschool_students', JSON.stringify(updatedStudentsList));
       triggerToast("Note mise à jour avec succès");
     }
     setEditingGradeId(null);
@@ -168,58 +247,54 @@ export default function FicheElevePage({ params }: PageProps) {
     triggerToast("Génération du bulletin scolaire... Fonctionnalité bientôt disponible !");
   };
 
-  // Handle adding payment (Simulated)
-  const handleAddPayment = (e: React.FormEvent) => {
+  // Handle adding payment
+  const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!student) return;
+
     const amountVal = Number(payAmount);
     if (!amountVal || amountVal <= 0) {
       alert("Veuillez saisir un montant valide.");
       return;
     }
 
-    // 1. Create a new payment object
-    const newPayment: Paiement = {
-      id: `pay-${Date.now()}`,
-      eleveId: student.id,
+    const reference = `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const supabase = createClient();
+    const { data: payData, error } = await supabase.from('paiements').insert([{
+      eleve_id: student.id,
       montant: amountVal,
       date: new Date().toISOString().split('T')[0],
-      typeFrais: payType,
+      type_frais: payType,
       statut: 'paid',
-      reference: `REC-2026-${Math.floor(100 + Math.random() * 900)}`,
-      modePaiement: payMethod as any
-    };
+      reference: reference,
+      mode_paiement: payMethod
+    }]).select();
 
-    // 2. Update current student in students list
-    const updatedStudent: Eleve = {
-      ...student,
-      paiements: [newPayment, ...(((student.paiements || []) || []) || [])]
-    };
-
-    const updatedStudentsList = students.map(s => s.id === student.id ? updatedStudent : s);
-    setStudents(updatedStudentsList);
-    setStudent(updatedStudent);
-    localStorage.setItem('mboaschool_students', JSON.stringify(updatedStudentsList));
-
-    // Append transaction to global mboaschool_transactions in localStorage
-    const storedTx = localStorage.getItem('mboaschool_transactions');
-    let txList: TransactionPaiement[] = mockTransactions;
-    if (storedTx) {
-      try {
-        txList = JSON.parse(storedTx);
-      } catch (err) {
-        // ignore
-      }
+    if (error) {
+      alert("Erreur lors de l'enregistrement du paiement: " + error.message);
+      return;
     }
 
-    const newTx: TransactionPaiement = {
-      ...newPayment,
-      nomEleve: `${student.nom} ${student.prenom}`,
-      matriculeEleve: student.matricule,
-      classeNom: student.classeId
-    };
+    if (payData && payData.length > 0) {
+      const p = payData[0];
+      const newPaymentObj: Paiement = {
+        id: p.id,
+        eleveId: p.eleve_id,
+        montant: Number(p.montant),
+        date: p.date,
+        typeFrais: p.type_frais as any,
+        statut: p.statut as any,
+        reference: p.reference,
+        modePaiement: p.mode_paiement as any
+      };
 
-    const updatedTxList = [newTx, ...txList];
-    localStorage.setItem('mboaschool_transactions', JSON.stringify(updatedTxList));
+      const updatedStudent: Eleve = {
+        ...student,
+        paiements: [newPaymentObj, ...(student.paiements || [])]
+      };
+      setStudent(updatedStudent);
+    }
 
     // Cleanup form and close modal
     setPayAmount('');
@@ -227,9 +302,124 @@ export default function FicheElevePage({ params }: PageProps) {
     triggerToast(`Paiement de ${new Intl.NumberFormat('fr-FR').format(amountVal)} FCFA validé.`);
   };
 
+  // Handle adding grade
+  const handleAddGrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!student) return;
+
+    if (!newGradeMatiere.trim()) {
+      alert("Veuillez saisir le nom de la matière.");
+      return;
+    }
+
+    const supabase = createClient();
+    const payload: any = {
+      eleve_id: student.id,
+      matiere: newGradeMatiere, // Necessite ALTER TABLE notes RENAME COLUMN matiere_id TO matiere; ALTER TABLE notes ALTER COLUMN matiere TYPE TEXT;
+      trimestre: 'Trimestre 1',
+      coefficient: Number(newGradeCoef) || 1
+    };
+
+    if (newGradeType === 'Maternelle') {
+      payload.evaluation_maternelle = newGradeValue;
+    } else {
+      const n = Number(newGradeValue);
+      if (n < 0 || n > 20) {
+        alert("La note doit être entre 0 et 20");
+        return;
+      }
+      payload.note = n;
+    }
+
+    const { data: gradeData, error } = await supabase.from('notes').insert([payload]).select();
+
+    if (error) {
+      alert("Erreur lors de l'ajout de la note: " + error.message);
+      return;
+    }
+
+    if (gradeData && gradeData.length > 0) {
+      const g = gradeData[0];
+      const newGradeObj = {
+        id: g.id,
+        note: Number(g.note),
+        trimestre: g.trimestre,
+        matiereId: g.matiere || g.matiere_id,
+        evaluationMaternelle: g.evaluation_maternelle,
+        enseignantId: g.enseignant_id
+      };
+
+      const updatedStudent = {
+        ...student,
+        notes: [...(student.notes || []), newGradeObj]
+      };
+      setStudent(updatedStudent as any);
+    }
+
+    setNewGradeMatiere('');
+    setNewGradeValue('');
+    setShowAddGradeModal(false);
+    triggerToast(`Note ajoutée avec succès !`);
+  };
+
+  // Handle adding discipline incident
+  const handleAddDiscipline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!student) return;
+
+    if (!newDisciplineMotif.trim()) {
+      alert("Veuillez saisir un motif.");
+      return;
+    }
+
+    const supabase = createClient();
+    const payload = {
+      eleve_id: student.id,
+      date_incident: new Date().toISOString().split('T')[0],
+      type_incident: newDisciplineType,
+      motif: newDisciplineMotif,
+      sanction: newDisciplineSanction,
+      statut: newDisciplineStatut
+    };
+
+    const { data: discData, error } = await supabase.from('discipline').insert([payload]).select();
+
+    if (error) {
+      alert("Erreur lors de l'ajout de l'incident: " + error.message);
+      return;
+    }
+
+    if (discData && discData.length > 0) {
+      const d = discData[0];
+      const newDiscObj: DisciplineIncident = {
+        id: d.id,
+        eleveId: d.eleve_id,
+        dateIncident: d.date_incident,
+        typeIncident: d.type_incident,
+        motif: d.motif,
+        sanction: d.sanction,
+        statut: d.statut
+      };
+
+      const updatedStudent = {
+        ...student,
+        discipline: [newDiscObj, ...(student.discipline || [])]
+      };
+      setStudent(updatedStudent as any);
+    }
+
+    setNewDisciplineMotif('');
+    setNewDisciplineSanction('');
+    setNewDisciplineStatut('Non notifié');
+    setShowAddDisciplineModal(false);
+    triggerToast(`Incident ajouté avec succès !`);
+  };
+
   const formatFCFA = (amount: number) => {
     return new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
   };
+
+  const displayClasse = classesList.find(c => c.id === student.classeId)?.nom || student.classeId;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -254,7 +444,7 @@ export default function FicheElevePage({ params }: PageProps) {
             Fiche Élève : {student.nom} {student.prenom}
           </h1>
           <p className="text-xs text-slate-500">
-            Matricule : <span className="font-mono font-semibold">{student.matricule}</span> • Classe : <span className="font-semibold">{student.classeId}</span>
+            Matricule : <span className="font-mono font-semibold">{student.matricule}</span> • Classe : <span className="font-semibold">{displayClasse}</span>
           </p>
         </div>
       </div>
@@ -330,6 +520,16 @@ export default function FicheElevePage({ params }: PageProps) {
         >
           Notes & Bulletins
         </button>
+        <button
+          onClick={() => setActiveTab('discipline')}
+          className={`px-5 py-3.5 text-sm font-bold border-b-2 transition-all -mb-px ${
+            activeTab === 'discipline'
+              ? 'border-rose-600 text-rose-600'
+              : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+          }`}
+        >
+          Discipline & Absences
+        </button>
       </div>
 
       {/* Tab Panels */}
@@ -358,7 +558,7 @@ export default function FicheElevePage({ params }: PageProps) {
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold block uppercase">Classe</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.classeId}</span>
+                  <span className="font-semibold text-slate-800 text-black">{displayClasse}</span>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 font-bold block uppercase">Date de naissance</span>
@@ -413,7 +613,7 @@ export default function FicheElevePage({ params }: PageProps) {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Frais Totaux Annuel</span>
                 <span className="text-xl font-extrabold text-slate-800 block mt-1 text-black">{formatFCFA(totalDue)}</span>
-                <span className="text-[10px] text-slate-400 mt-1 block">Classe : {student.classeId}</span>
+                <span className="text-[10px] text-slate-400 mt-1 block">Classe : {displayClasse}</span>
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Montant Payé</span>
@@ -522,7 +722,7 @@ export default function FicheElevePage({ params }: PageProps) {
                   <span className="text-3xl font-extrabold block text-slate-800 text-black">
                     {myRank} <span className="text-sm text-slate-500 font-semibold">/ {classmates.length}</span>
                   </span>
-                  <span className="text-xs font-bold text-slate-500 mt-1 block">Dans la classe {student.classeId}</span>
+                  <span className="text-xs font-bold text-slate-500 mt-1 block">Dans la classe {displayClasse}</span>
                 </div>
 
                 <div className="border-l border-slate-100 pl-8">
@@ -545,7 +745,15 @@ export default function FicheElevePage({ params }: PageProps) {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block text-black">Détails des notes par matière</span>
-                <span className="text-xs font-semibold text-slate-400">Trimestre 1</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-slate-400">Trimestre 1</span>
+                  <button
+                    onClick={() => setShowAddGradeModal(true)}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-xs font-bold rounded-lg transition-colors"
+                  >
+                    + Ajouter une note
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -652,6 +860,97 @@ export default function FicheElevePage({ params }: PageProps) {
             </div>
           </div>
         )}
+
+        {/* Tab 4: Discipline Panel */}
+        {activeTab === 'discipline' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Summary cards */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Absences</span>
+                <span className="text-2xl font-extrabold text-amber-500 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Absence').length}</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Retards</span>
+                <span className="text-2xl font-extrabold text-amber-500 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Retard').length}</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Avertissements</span>
+                <span className="text-2xl font-extrabold text-rose-500 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Avertissement').length}</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Exclusions</span>
+                <span className="text-2xl font-extrabold text-rose-700 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Exclusion').length}</span>
+              </div>
+            </div>
+
+            {/* Discipline History List */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block text-black">Historique Disciplinaire</span>
+                <button
+                  onClick={() => setShowAddDisciplineModal(true)}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold rounded-lg transition-colors"
+                >
+                  + Signaler un incident
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+                      <th className="px-6 py-3">Date</th>
+                      <th className="px-6 py-3">Type</th>
+                      <th className="px-6 py-3">Motif détaillé</th>
+                      <th className="px-6 py-3">Sanction</th>
+                      <th className="px-6 py-3">Statut Parent</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm divide-y divide-slate-100">
+                    {student.discipline && student.discipline.length > 0 ? (
+                      student.discipline.map((disc, idx) => (
+                        <tr key={disc.id || idx} className="hover:bg-slate-50/40 transition-colors">
+                          <td className="px-6 py-4 text-slate-600 font-medium whitespace-nowrap">{disc.dateIncident}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              ['Avertissement', 'Blâme', 'Exclusion'].includes(disc.typeIncident) ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
+                            }`}>
+                              {disc.typeIncident}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-800 text-black font-medium">{disc.motif}</td>
+                          <td className="px-6 py-4 text-slate-500 italic">{disc.sanction || '-'}</td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
+                              disc.statut === 'Notifié au parent' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 
+                              disc.statut === 'Convoqué' ? 'text-rose-600 bg-rose-50 border-rose-100' : 
+                              disc.statut === 'Clos' ? 'text-slate-600 bg-slate-50 border-slate-200' : 
+                              'text-amber-600 bg-amber-50 border-amber-100'
+                            } px-2 py-0.5 rounded-full border`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${
+                                disc.statut === 'Notifié au parent' ? 'bg-emerald-500' : 
+                                disc.statut === 'Convoqué' ? 'bg-rose-500' : 
+                                disc.statut === 'Clos' ? 'bg-slate-500' : 
+                                'bg-amber-500'
+                              }`}></span>
+                              {disc.statut}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm">
+                          Aucun incident disciplinaire ni absence à signaler.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Simulated Add Payment Modal */}
@@ -728,6 +1027,219 @@ export default function FicheElevePage({ params }: PageProps) {
                 <button
                   type="submit"
                   className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
+                >
+                  Enregistrer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Grade Modal */}
+      {showAddGradeModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setShowAddGradeModal(false)}
+              className="absolute right-4 top-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 text-black">
+              Ajouter une note (Trimestre 1)
+            </h3>
+
+            <form onSubmit={handleAddGrade} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Matière
+                </label>
+                <input
+                  type="text"
+                  placeholder="ex: Mathématiques"
+                  value={newGradeMatiere}
+                  onChange={(e) => setNewGradeMatiere(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Type d'évaluation
+                </label>
+                <select
+                  value={newGradeType}
+                  onChange={(e) => {
+                    setNewGradeType(e.target.value);
+                    setNewGradeValue('');
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                >
+                  <option value="Classique">Note sur 20 (Classique)</option>
+                  <option value="Maternelle">Compétence (Maternelle)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Évaluation / Note
+                </label>
+                {newGradeType === 'Maternelle' ? (
+                  <select
+                    value={newGradeValue}
+                    onChange={(e) => setNewGradeValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    required
+                  >
+                    <option value="">Sélectionnez...</option>
+                    <option value="Acquis">Acquis</option>
+                    <option value="En cours">En cours de cycle</option>
+                    <option value="Non acquis">Non acquis</option>
+                  </select>
+                ) : (
+                  <input
+                    type="number"
+                    min="0" max="20" step="0.25"
+                    placeholder="Note sur 20"
+                    value={newGradeValue}
+                    onChange={(e) => setNewGradeValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    required
+                  />
+                )}
+              </div>
+
+              {newGradeType === 'Classique' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Coefficient
+                  </label>
+                  <input
+                    type="number"
+                    min="1" max="10"
+                    value={newGradeCoef}
+                    onChange={(e) => setNewGradeCoef(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    required
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddGradeModal(false)}
+                  className="flex-1 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-700 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
+                >
+                  Ajouter la note
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Discipline Modal */}
+      {showAddDisciplineModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setShowAddDisciplineModal(false)}
+              className="absolute right-4 top-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <h3 className="text-lg font-bold text-rose-700 border-b border-slate-100 pb-3 mb-4">
+              Signaler un incident / Absence
+            </h3>
+
+            <form onSubmit={handleAddDiscipline} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Type d'incident *
+                </label>
+                <select
+                  value={newDisciplineType}
+                  onChange={(e) => setNewDisciplineType(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black"
+                >
+                  <option value="Absence">Absence</option>
+                  <option value="Retard">Retard</option>
+                  <option value="Avertissement">Avertissement</option>
+                  <option value="Blâme">Blâme</option>
+                  <option value="Exclusion">Exclusion temporaire</option>
+                  <option value="Autre">Autre incident</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Motif détaillé *
+                </label>
+                <textarea
+                  placeholder="Expliquez la situation..."
+                  value={newDisciplineMotif}
+                  onChange={(e) => setNewDisciplineMotif(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black resize-none"
+                  rows={3}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Sanction (Optionnelle)
+                </label>
+                <input
+                  type="text"
+                  placeholder="ex: 2h de colle, Mise à pied de 2 jours..."
+                  value={newDisciplineSanction}
+                  onChange={(e) => setNewDisciplineSanction(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Statut vis-à-vis des parents
+                </label>
+                <select
+                  value={newDisciplineStatut}
+                  onChange={(e) => setNewDisciplineStatut(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black"
+                >
+                  <option value="Non notifié">Non notifié au parent</option>
+                  <option value="Notifié au parent">Notifié (SMS/Email/Carnet)</option>
+                  <option value="Convoqué">Parent convoqué</option>
+                  <option value="Clos">Dossier clos</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddDisciplineModal(false)}
+                  className="flex-1 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-700 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-md shadow-rose-600/10 transition-colors"
                 >
                   Enregistrer
                 </button>

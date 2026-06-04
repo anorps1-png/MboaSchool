@@ -89,6 +89,7 @@ export interface Eleve {
   paiements?: Paiement[];
   notes?: NoteMatiere[];
   bulletins?: Bulletin[];
+  discipline?: DisciplineIncident[];
 }
 
 export interface Enseignant {
@@ -144,6 +145,16 @@ export interface ConfigurationFrais {
   fraisScolarite: number;
   fraisExamen: number;
   total: number;
+}
+
+export interface DisciplineIncident {
+  id: string;
+  eleveId: string;
+  dateIncident: string;
+  typeIncident: 'Absence' | 'Retard' | 'Avertissement' | 'Blâme' | 'Exclusion' | 'Autre' | string;
+  motif: string;
+  sanction?: string;
+  statut: 'Non notifié' | 'Notifié au parent' | 'Convoqué' | 'Clos' | string;
 }
 
 // Représente l'objet d'une transaction de paiement aplati avec jointure de l'élève
