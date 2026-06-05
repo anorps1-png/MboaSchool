@@ -1,15 +1,14 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { mockStudents } from '@/mock/students';
 import { mockClassFees } from '@/mock/fees';
-import { mockClasses } from '@/mock/classes';
 import Link from 'next/link';
 import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, DownloadIcon } from '@/components/icons';
 import { Eleve, Classe } from '@/types/domain';
-import { createClient } from '@/lib/supabase/client';
 import { downloadExcel } from '@/lib/excel';
 import SyncManager from '@/lib/syncManager';
+import { getStudents, createStudent, addPayment } from '@/lib/queries/eleves';
+import { getClasses } from '@/lib/queries/classes';
 
 export default function ElevesPage() {
   const [students, setStudents] = useState<Eleve[]>([]);
@@ -54,14 +53,14 @@ export default function ElevesPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const fetchClasses = async () => {
-        const supabase = createClient();
-        const { data, error } = await supabase.from('classes').select('*').order('niveau', { ascending: true }).order('nom', { ascending: true });
-        if (data) {
+        try {
+          const data = await getClasses();
           setClassesList(data);
           if (data.length > 0) {
             setClassName(data[0].id);
           }
-        } else {
+        } catch (error) {
+          console.error("Error fetching classes:", error);
           setClassesList([]);
         }
       };
@@ -69,10 +68,8 @@ export default function ElevesPage() {
       fetchClasses();
 
       const fetchEleves = async () => {
-        const supabase = createClient();
-        const { data, error } = await supabase.from('eleves').select('*, paiements(*)').order('created_at', { ascending: false });
-        
-        if (data) {
+        try {
+          const data = await getStudents();
           const mapped = data.map(d => ({
             id: d.id,
             matricule: d.matricule,
@@ -101,10 +98,12 @@ export default function ElevesPage() {
             notes: []
           }));
           setStudents(mapped as any);
-        } else {
+        } catch (error) {
+          console.error("Error fetching students:", error);
           setStudents([]);
+        } finally {
+          setIsLoaded(true);
         }
-        setIsLoaded(true);
       };
 
       fetchEleves();
@@ -197,7 +196,6 @@ export default function ElevesPage() {
     }
 
     const generatedMatricule = matricule.trim() || `26YAE${Math.floor(100 + Math.random() * 900)}`;
-    const supabase = createClient();
 
     const studentData = {
       matricule: generatedMatricule,
@@ -237,81 +235,78 @@ export default function ElevesPage() {
       return;
     }
 
-    const { data, error } = await supabase.from('eleves').insert([studentData]).select();
+    try {
+      const data = await createStudent(studentData);
 
-    if (error) {
-      alert("Erreur lors de l'insertion Supabase : " + error.message);
-      return;
-    }
+      if (data && data.length > 0) {
+        const d = data[0];
+        
+        let newPaymentObj = null;
+        const initialPayVal = Number(initialPayment);
+        if (initialPayVal > 0) {
+          const reference = `REC-INS-${Date.now()}`;
+          const paymentData = {
+            eleve_id: d.id,
+            montant: initialPayVal,
+            date: new Date().toISOString().split('T')[0],
+            type_frais: 'Scolarité',
+            mode_paiement: 'Espèces',
+            statut: 'paid',
+            reference: reference
+          };
 
-    if (data && data.length > 0) {
-      const d = data[0];
-      
-      let newPaymentObj = null;
-      const initialPayVal = Number(initialPayment);
-      if (initialPayVal > 0) {
-        const reference = `REC-INS-${Date.now()}`;
-        const paymentData = {
-          eleve_id: d.id,
-          montant: initialPayVal,
-          date: new Date().toISOString().split('T')[0],
-          type_frais: 'Scolarité',
-          mode_paiement: 'Espèces',
-          statut: 'paid',
-          reference: reference
-        };
-
-        if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
-           await SyncManager.addToQueue('paiements', 'insert', paymentData);
-           newPaymentObj = {
-             id: `temp_pay_${Date.now()}`,
-             ...paymentData,
-             eleveId: d.id,
-             typeFrais: 'Scolarité',
-             modePaiement: 'Espèces'
-           };
-        } else {
-          const { data: payData, error: payError } = await supabase.from('paiements').insert([paymentData]).select();
-          
-          if (payError) {
-            console.error("Payment insert error:", payError);
-            alert("Erreur lors de l'enregistrement du paiement initial: " + payError.message);
-          } else if (payData && payData.length > 0) {
-            const pd = payData[0];
-            newPaymentObj = {
-              id: pd.id,
-              eleveId: pd.eleve_id,
-              montant: Number(pd.montant),
-              date: pd.date,
-              typeFrais: pd.type_frais,
-              statut: pd.statut,
-              reference: pd.reference,
-              modePaiement: pd.mode_paiement
-            };
+          if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+             await SyncManager.addToQueue('paiements', 'insert', paymentData);
+             newPaymentObj = {
+               id: `temp_pay_${Date.now()}`,
+               ...paymentData,
+               eleveId: d.id,
+               typeFrais: 'Scolarité',
+               modePaiement: 'Espèces'
+             };
+          } else {
+            const payData = await addPayment(paymentData);
+            
+            if (payData && payData.length > 0) {
+              const pd = payData[0];
+              newPaymentObj = {
+                id: pd.id,
+                eleveId: pd.eleve_id,
+                montant: Number(pd.montant),
+                date: pd.date,
+                typeFrais: pd.type_frais,
+                statut: pd.statut,
+                reference: pd.reference,
+                modePaiement: pd.mode_paiement
+              };
+            }
           }
         }
+
+        const newStudent: any = {
+          id: d.id,
+          matricule: d.matricule,
+          prenom: d.prenom,
+          nom: d.nom,
+          sexe: d.sexe,
+          classeId: className,
+          nomParent: d.nom_parent,
+          telephoneParent: d.telephone_parent,
+          emailParent: d.email_parent || 'N/A',
+          dateNaissance: d.date_naissance || '2012-01-01',
+          lieuNaissance: d.lieu_naissance || 'Yaoundé',
+          dateInscription: d.date_inscription,
+          anneeScolaireId: d.annee_scolaire_id,
+          statut: d.statut,
+          paiements: newPaymentObj ? [newPaymentObj] : [],
+          notes: []
+        };
+
+        setStudents([newStudent, ...students]);
       }
-
-      const newStudent: any = {
-        id: d.id,
-        matricule: d.matricule,
-        prenom: d.prenom,
-        nom: d.nom,
-        sexe: d.sexe,
-        classeId: className,
-        nomParent: d.nom_parent,
-        telephoneParent: d.telephone_parent,
-        emailParent: d.email_parent || 'N/A',
-        dateNaissance: d.date_naissance || '2012-01-01',
-        lieuNaissance: d.lieu_naissance || 'Yaoundé',
-        dateInscription: d.date_inscription,
-        anneeScolaireId: d.annee_scolaire_id,
-        statut: d.statut,
-        paiements: newPaymentObj ? [newPaymentObj] : [],
-        notes: []
-      };
-
-      setStudents([newStudent, ...students]);
+    } catch (error: any) {
+      alert("Erreur lors de la création de l'élève : " + error.message);
+      return;
     }
 
     setFirstName('');

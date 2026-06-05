@@ -2,9 +2,8 @@
 
 import React, { useState, useEffect, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { Eleve, Classe, NoteMatiere } from '@/types/domain';
-import { mockStudents } from '@/mock/students';
-import { mockClasses } from '@/mock/classes';
 import Link from 'next/link';
 
 interface PageProps {
@@ -19,62 +18,103 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   const searchParams = useSearchParams();
   const term = searchParams.get('term') || 'Trimestre 1';
   
-  const [studentsList, setStudentsList] = useState<Eleve[]>([]);
-  const [classInfo, setClassInfo] = useState<Classe | null>(null);
+  const [studentsList, setStudentsList] = useState<any[]>([]);
+  const [classInfo, setClassInfo] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'saisie' | 'synthese'>('saisie');
   const [subjectsList, setSubjectsList] = useState<string[]>([]);
   const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedCoef, setSelectedCoef] = useState<number>(1);
   const [newSubjectName, setNewSubjectName] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  
+  const [notesList, setNotesList] = useState<any[]>([]);
 
   // Buffer for currently edited grades in Saisie
   const [gradesBuffer, setGradesBuffer] = useState<Record<string, string | number>>({});
 
+  const supabase = createClient();
+
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // 1. Get classes
-      const storedClasses = localStorage.getItem('mboaschool_classes');
-      let classes: Classe[] = mockClasses;
-      if (storedClasses) {
-        try { classes = JSON.parse(storedClasses); } catch (e) { }
-      }
-      const cls = classes.find(c => c.id === decodeURIComponent(classeId));
-      if (cls) setClassInfo(cls);
+    const loadData = async () => {
+      try {
+        // 1. Get class details
+        const { data: clsData, error: clsErr } = await supabase
+          .from('classes')
+          .select('*')
+          .eq('id', decodeURIComponent(classeId))
+          .single();
 
-      // 2. Get students
-      const storedStudents = localStorage.getItem('mboaschool_students');
-      let allStudents: Eleve[] = mockStudents;
-      if (storedStudents) {
-        try {
-          const parsed = JSON.parse(storedStudents);
-          if (Array.isArray(parsed)) allStudents = parsed;
-        } catch (e) { }
-      }
-      
-      const cleanStudents = (allStudents || []).filter(Boolean);
-      const filtered = cleanStudents.filter(s => 
-        cls && (s.classeId === cls.id || s.classeId === cls.nom || s.classeId === cls.niveauId)
-      );
-      setStudentsList(filtered);
+        if (clsErr) throw clsErr;
+        setClassInfo(clsData);
 
-      // 3. Get Subjects
-      const storedSubjects = localStorage.getItem('mboaschool_subjects');
-      let subjects = defaultSubjects;
-      if (storedSubjects) {
-        try { subjects = JSON.parse(storedSubjects); } catch (e) { }
-      } else {
-        localStorage.setItem('mboaschool_subjects', JSON.stringify(defaultSubjects));
-      }
-      setSubjectsList(subjects);
-      
-      const subjToUse = selectedSubject || subjects[0] || 'Mathématiques';
-      if (!selectedSubject) setSelectedSubject(subjToUse);
+        // 2. Get students in this class along with their notes
+        const { data: studsData, error: studsErr } = await supabase
+          .from('eleves')
+          .select('*, notes(*)')
+          .eq('classe_id', decodeURIComponent(classeId));
 
-      // 4. Initialize buffer for selected subject
-      initBuffer(filtered, subjToUse, term);
-    }
+        if (studsErr) throw studsErr;
+        setStudentsList(studsData || []);
+
+        // 3. Get all notes for these students for the current trimester
+        const studsIds = (studsData || []).map(s => s.id);
+        if (studsIds.length > 0) {
+          const { data: notesData, error: notesErr } = await supabase
+            .from('notes')
+            .select('*')
+            .in('eleve_id', studsIds)
+            .eq('trimestre', term);
+          
+          if (!notesErr && notesData) {
+            setNotesList(notesData);
+          }
+        } else {
+          setNotesList([]);
+        }
+
+        // 4. Subjects
+        const storedSubjects = localStorage.getItem('mboaschool_subjects');
+        let subjects = defaultSubjects;
+        if (storedSubjects) {
+          try { subjects = JSON.parse(storedSubjects); } catch (e) { }
+        } else {
+          localStorage.setItem('mboaschool_subjects', JSON.stringify(defaultSubjects));
+        }
+        setSubjectsList(subjects);
+        
+        const subjToUse = selectedSubject || subjects[0] || 'Mathématiques';
+        if (!selectedSubject) setSelectedSubject(subjToUse);
+
+      } catch (err) {
+        console.error("Error loading evaluations page:", err);
+      }
+    };
+
+    loadData();
   }, [classeId, term, selectedSubject]);
+
+  useEffect(() => {
+    if (studentsList.length > 0) {
+      const buffer: Record<string, string | number> = {};
+      let foundCoef = 1;
+      let hasFoundCoef = false;
+
+      studentsList.forEach(student => {
+        const existingGrade = notesList.find(n => n.eleve_id === student.id && n.matiere === selectedSubject);
+        if (existingGrade) {
+          buffer[student.id] = existingGrade.evaluation_maternelle || (existingGrade.note !== null && existingGrade.note !== undefined ? existingGrade.note : '');
+          if (!hasFoundCoef && existingGrade.coefficient) {
+            foundCoef = existingGrade.coefficient;
+            hasFoundCoef = true;
+          }
+        } else {
+          buffer[student.id] = '';
+        }
+      });
+      setGradesBuffer(buffer);
+      setSelectedCoef(foundCoef);
+    }
+  }, [studentsList, notesList, selectedSubject]);
 
   const handleAddSubject = () => {
     if (!newSubjectName.trim()) return;
@@ -91,27 +131,6 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     triggerToast(`Matière "${newSubj}" ajoutée.`);
   };
 
-  function initBuffer(studs: Eleve[], subject: string, currentTerm: string) {
-    const buffer: Record<string, string | number> = {};
-    let foundCoef = 1;
-    let hasFoundCoef = false;
-
-    studs.forEach(student => {
-      const existingGrade = (student.notes || []).find(n => n.trimestre === currentTerm && n.matiereId === subject);
-      if (existingGrade) {
-        buffer[student.id] = existingGrade.evaluationMaternelle || existingGrade.note || '';
-        if (!hasFoundCoef && existingGrade.coefficient) {
-          foundCoef = existingGrade.coefficient;
-          hasFoundCoef = true;
-        }
-      } else {
-        buffer[student.id] = '';
-      }
-    });
-    setGradesBuffer(buffer);
-    setSelectedCoef(foundCoef);
-  }
-
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
@@ -121,65 +140,63 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     setGradesBuffer(prev => ({ ...prev, [studentId]: val }));
   };
 
-  const saveAllNotes = () => {
-    // 1. Fetch all current students from localStorage to preserve other edits
-    const storedStudents = localStorage.getItem('mboaschool_students');
-    let allStudents: Eleve[] = mockStudents;
-    if (storedStudents) {
-      try {
-        const parsed = JSON.parse(storedStudents);
-        if (Array.isArray(parsed)) allStudents = parsed;
-      } catch (e) { }
-    }
-    const cleanAllStudents = (allStudents || []).filter(Boolean);
+  const saveAllNotes = async () => {
+    const isMaternelle = classInfo?.niveau?.toLowerCase().includes('maternelle') || classInfo?.niveau_id?.toLowerCase().includes('maternelle');
 
-    // 2. Update the grades
-    const isMaternelle = classInfo?.niveauId?.toLowerCase().includes('maternelle');
-
-    const updatedStudentsList = cleanAllStudents.map(student => {
-      // Is this student in our current filtered class?
-      if (!student || !studentsList.find(s => s && s.id === student.id)) return student;
-
+    const upsertData = studentsList.map(student => {
       const bufferVal = gradesBuffer[student.id];
-      if (bufferVal === '' || bufferVal === undefined) return student; // No change
+      const existingNote = notesList.find(n => n.eleve_id === student.id && n.matiere === selectedSubject);
 
-      const notes = [...(student.notes || [])];
-      const existingIndex = notes.findIndex(n => n.trimestre === term && n.matiereId === selectedSubject);
-
-      const newNoteObj: NoteMatiere = {
-        id: existingIndex !== -1 ? notes[existingIndex].id : `note-${Date.now()}-${student.id}`,
-        eleveId: student.id,
-        matiereId: selectedSubject,
-        enseignantId: classInfo?.enseignantPrincipalId || 'ens-1', // Fallback
-        dateSaisie: new Date().toISOString().split('T')[0],
-        trimestre: term as any,
+      const noteObj: any = {
+        eleve_id: student.id,
+        matiere: selectedSubject,
+        trimestre: term,
         coefficient: selectedCoef,
+        date_saisie: new Date().toISOString()
       };
 
+      if (existingNote) {
+        noteObj.id = existingNote.id;
+      }
+
       if (isMaternelle) {
-        newNoteObj.evaluationMaternelle = bufferVal as any;
+        noteObj.evaluation_maternelle = bufferVal || null;
+        noteObj.note = null;
       } else {
-        newNoteObj.note = Number(bufferVal);
+        noteObj.note = bufferVal !== '' ? Number(bufferVal) : null;
+        noteObj.evaluation_maternelle = null;
       }
 
-      if (existingIndex !== -1) {
-        notes[existingIndex] = newNoteObj;
-      } else {
-        notes.push(newNoteObj);
+      return noteObj;
+    }).filter(n => n.note !== null || n.evaluation_maternelle !== null || n.id !== undefined);
+
+    if (upsertData.length === 0) return;
+
+    try {
+      const { error } = await supabase.from('notes').upsert(upsertData);
+      if (error) throw error;
+      
+      triggerToast(`Les notes de ${selectedSubject} ont été sauvegardées avec succès.`);
+      
+      // Reload notes from DB
+      const studsIds = studentsList.map(s => s.id);
+      const { data: notesData } = await supabase
+        .from('notes')
+        .select('*')
+        .in('eleve_id', studsIds)
+        .eq('trimestre', term);
+      
+      if (notesData) {
+        setNotesList(notesData);
       }
-
-      return { ...student, notes };
-    });
-
-    // 3. Save back
-    localStorage.setItem('mboaschool_students', JSON.stringify(updatedStudentsList));
-    setStudentsList(updatedStudentsList.filter(s => s && studentsList.find(sl => sl && sl.id === s.id)));
-    triggerToast(`Les notes de ${selectedSubject} ont été sauvegardées avec succès.`);
+    } catch (err: any) {
+      alert("Erreur lors de la sauvegarde : " + err.message);
+    }
   };
 
   // Helper for Synthese
-  const calculateStudentAvg = (student: Eleve) => {
-    const termNotes = (student.notes || []).filter(n => n.trimestre === term && n.note !== undefined);
+  const calculateStudentAvg = (student: any) => {
+    const termNotes = notesList.filter(n => n.eleve_id === student.id && n.note !== null && n.note !== undefined);
     if (termNotes.length === 0) return 0;
     
     let totalPoints = 0;
@@ -203,7 +220,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     return <div className="p-8 text-center text-slate-500">Chargement...</div>;
   }
 
-  const isMaternelle = classInfo.niveauId.toLowerCase().includes('maternelle');
+  const isMaternelle = classInfo.niveau?.toLowerCase().includes('maternelle') || classInfo.niveau_id?.toLowerCase().includes('maternelle');
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">

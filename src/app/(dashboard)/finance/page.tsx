@@ -12,6 +12,7 @@ import { planComptableOHADA, mockEcrituresInitiales } from '@/mock/comptabilite'
 import { mockStudents } from '@/mock/students';
 import { mockPersonnel, mockFormations } from '@/mock/rh';
 import { mockBSCHistorique, mockBudget2026, BudgetPrevisionnel } from '@/mock/finance';
+import { createClient } from '@/lib/supabase/client';
 
 export default function FinancePage() {
   const [activeTab, setActiveTab] = useState<'bsc' | 'productivity' | 'ratios' | 'cash' | 'budget' | 'accounting'>('bsc');
@@ -67,113 +68,216 @@ export default function FinancePage() {
   const [showBudgetReportModal, setShowBudgetReportModal] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // 1. Plan comptable
-      const storedPlan = localStorage.getItem('mboaschool_plancomptable');
-      const loadedPlan = storedPlan ? JSON.parse(storedPlan) : planComptableOHADA;
-      setPlanComptable(loadedPlan);
-      if (!storedPlan) localStorage.setItem('mboaschool_plancomptable', JSON.stringify(planComptableOHADA));
-
-      // 2. Students
-      const storedStudents = localStorage.getItem('mboaschool_students');
-      let loadedStudents = mockStudents;
-      if (storedStudents) {
-        try {
-          const parsed = JSON.parse(storedStudents);
-          if (Array.isArray(parsed)) loadedStudents = parsed;
-        } catch (e) {}
+    const loadData = async () => {
+      const supabase = createClient();
+      
+      // 1. Fetch Plan Comptable
+      try {
+        const { data: storedPlan, error } = await supabase
+          .from('comptes_ohada')
+          .select('*')
+          .order('numero', { ascending: true });
+        
+        if (!error && storedPlan && storedPlan.length > 0) {
+          setPlanComptable(storedPlan);
+        } else {
+          const stored = localStorage.getItem('mboaschool_plancomptable');
+          setPlanComptable(stored ? JSON.parse(stored) : planComptableOHADA);
+        }
+      } catch (err) {
+        const stored = localStorage.getItem('mboaschool_plancomptable');
+        setPlanComptable(stored ? JSON.parse(stored) : planComptableOHADA);
       }
-      const cleanStudents = (loadedStudents || []).filter(Boolean);
-      setStudents(cleanStudents);
 
-      // 3. Personnel
-      const storedPers = localStorage.getItem('mboaschool_rh_personnel');
-      let loadedPers = mockPersonnel;
-      if (storedPers) {
-        try {
-          const parsed = JSON.parse(storedPers);
-          if (Array.isArray(parsed)) loadedPers = parsed;
-        } catch (e) {}
+      // 2. Fetch Students & Payments from Supabase
+      let loadedStudents: Eleve[] = [];
+      try {
+        const { data: elevesData, error } = await supabase
+          .from('eleves')
+          .select('*, paiements(*)');
+        
+        if (!error && elevesData) {
+          // Map to domain format
+          loadedStudents = elevesData.map((e: any) => ({
+            id: e.id,
+            matricule: e.matricule,
+            nom: e.nom,
+            prenom: e.prenom,
+            sexe: e.sexe,
+            dateNaissance: e.date_naissance,
+            lieuNaissance: e.lieu_naissance,
+            classeId: e.classe_id,
+            anneeScolaireId: e.annee_scolaire_id,
+            telephoneParent: e.telephone_parent,
+            nomParent: e.nom_parent,
+            emailParent: e.email_parent,
+            dateInscription: e.date_inscription,
+            statut: e.statut,
+            paiements: (e.paiements || []).map((p: any) => ({
+              id: p.id,
+              eleveId: p.eleve_id,
+              montant: Number(p.montant),
+              date: p.date,
+              modePaiement: p.mode_paiement,
+              typeFrais: p.type_frais,
+              statut: p.statut,
+              reference: p.reference
+            }))
+          }));
+          setStudents(loadedStudents);
+        } else {
+          const storedStudents = localStorage.getItem('mboaschool_students');
+          loadedStudents = storedStudents ? JSON.parse(storedStudents) : mockStudents;
+          setStudents(loadedStudents);
+        }
+      } catch (err) {
+        const storedStudents = localStorage.getItem('mboaschool_students');
+        loadedStudents = storedStudents ? JSON.parse(storedStudents) : mockStudents;
+        setStudents(loadedStudents);
       }
-      const cleanPers = (loadedPers || []).filter(Boolean);
-      setPersonnel(cleanPers);
+
+      // 3. Fetch Personnel (membres_personnel)
+      try {
+        const { data: persData, error } = await supabase
+          .from('membres_personnel')
+          .select('*');
+        if (!error && persData && persData.length > 0) {
+          const mapped = persData.map((p: any) => ({
+            id: p.id,
+            nom: p.nom,
+            prenom: p.prenom,
+            email: p.email,
+            telephone: p.telephone,
+            sexe: p.sexe,
+            categorie: p.categorie,
+            typeContrat: p.type_contrat,
+            salaireDeBase: Number(p.salaire_de_base),
+            dateEmbauche: p.date_embauche,
+            statut: p.statut
+          }));
+          setPersonnel(mapped);
+        } else {
+          const storedPers = localStorage.getItem('mboaschool_rh_personnel');
+          setPersonnel(storedPers ? JSON.parse(storedPers) : mockPersonnel);
+        }
+      } catch (err) {
+        const storedPers = localStorage.getItem('mboaschool_rh_personnel');
+        setPersonnel(storedPers ? JSON.parse(storedPers) : mockPersonnel);
+      }
 
       // 4. Formations
-      setFormations(mockFormations);
-
-      // 5. General Ledger entries
-      const storedEcritures = localStorage.getItem('mboaschool_ecritures');
-      const customEcritures = storedEcritures ? JSON.parse(storedEcritures) : mockEcrituresInitiales;
-      
-      // Auto-generate entries from student payments dynamically
-      const paymentEcritures: EcritureComptable[] = [];
-      cleanStudents.forEach((student: Eleve) => {
-        if (!student) return;
-        const paiements = student.paiements || [];
-        const totalScolarite = paiements.reduce((sum, p) => sum + p.montant, 0);
-        
-        if (totalScolarite > 0) {
-          // Constatation entry
-          const dateConst = student.dateInscription ? student.dateInscription.split('T')[0] : '2025-09-01';
-          paymentEcritures.push({
-            id: `ecr-const-${student.id}`,
-            date: dateConst,
-            libelle: `Constatation Frais Scolaires - ${student.nom} ${student.prenom}`,
-            reference: `FACT-${student.matricule}`,
-            lignes: [
-              { compteNumero: '411', debit: totalScolarite, credit: 0 },
-              { compteNumero: '706', debit: 0, credit: totalScolarite }
-            ]
-          });
-
-          // Règlements entries
-          paiements.forEach(p => {
-            if (p.statut === 'paid') {
-              const compTres = p.modePaiement === 'Virement Bancaire' ? '521' : '571';
-              paymentEcritures.push({
-                id: `ecr-pay-${p.id}`,
-                date: p.date.split('T')[0],
-                libelle: `Règlement ${p.typeFrais} - ${student.nom} ${student.prenom}`,
-                reference: p.reference,
-                lignes: [
-                  { compteNumero: compTres, debit: p.montant, credit: 0 },
-                  { compteNumero: '411', debit: 0, credit: p.montant }
-                ]
-              });
-            }
-          });
+      try {
+        const { data: formsData, error } = await supabase
+          .from('formations_rh')
+          .select('*');
+        if (!error && formsData && formsData.length > 0) {
+          const mapped = formsData.map((f: any) => ({
+            id: f.id,
+            theme: f.theme,
+            dateDebut: f.date_debut,
+            dateFin: f.date_fin,
+            coutTotal: Number(f.cout_total),
+            organisme: f.organisme,
+            statut: f.statut,
+            beneficiairesIds: []
+          }));
+          setFormations(mapped);
+        } else {
+          setFormations(mockFormations);
         }
-      });
+      } catch (err) {
+        setFormations(mockFormations);
+      }
 
-      const combined = [...customEcritures, ...paymentEcritures].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      );
-      setEcritures(combined);
-      if (!storedEcritures) localStorage.setItem('mboaschool_ecritures', JSON.stringify(customEcritures));
+      // 5. Fetch General Ledger entries
+      try {
+        const { data: ecrData, error } = await supabase
+          .from('ecritures_comptables')
+          .select('*, lignes_ecritures(*)');
+        
+        let customEcritures: EcritureComptable[] = [];
+        if (!error && ecrData && ecrData.length > 0) {
+          customEcritures = ecrData.map((e: any) => ({
+            id: e.id,
+            date: e.date,
+            libelle: e.libelle,
+            reference: e.reference,
+            lignes: (e.lignes_ecritures || []).map((l: any) => ({
+              compteNumero: l.compte_numero,
+              debit: Number(l.debit || 0),
+              credit: Number(l.credit || 0)
+            }))
+          }));
+        } else {
+          const storedEcritures = localStorage.getItem('mboaschool_ecritures');
+          customEcritures = storedEcritures ? JSON.parse(storedEcritures) : mockEcrituresInitiales;
+        }
+
+        // Auto-generate entries from student payments dynamically
+        const paymentEcritures: EcritureComptable[] = [];
+        loadedStudents.forEach((student: Eleve) => {
+          if (!student) return;
+          const paiements = student.paiements || [];
+          const totalScolarite = paiements.reduce((sum, p) => sum + p.montant, 0);
+          
+          if (totalScolarite > 0) {
+            const dateConst = student.dateInscription ? student.dateInscription.split('T')[0] : '2025-09-01';
+            paymentEcritures.push({
+              id: `ecr-const-${student.id}`,
+              date: dateConst,
+              libelle: `Constatation Frais Scolaires - ${student.nom} ${student.prenom}`,
+              reference: `FACT-${student.matricule}`,
+              lignes: [
+                { compteNumero: '411', debit: totalScolarite, credit: 0 },
+                { compteNumero: '706', debit: 0, credit: totalScolarite }
+              ]
+            });
+
+            paiements.forEach(p => {
+              if (p.statut === 'paid') {
+                const compTres = p.modePaiement === 'Virement Bancaire' ? '521' : '571';
+                paymentEcritures.push({
+                  id: `ecr-pay-${p.id}`,
+                  date: p.date.split('T')[0],
+                  libelle: `Règlement ${p.typeFrais} - ${student.nom} ${student.prenom}`,
+                  reference: p.reference,
+                  lignes: [
+                    { compteNumero: compTres, debit: p.montant, credit: 0 },
+                    { compteNumero: '411', debit: 0, credit: p.montant }
+                  ]
+                });
+              }
+            });
+          }
+        });
+
+        const combined = [...customEcritures, ...paymentEcritures].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+        setEcritures(combined);
+
+      } catch (err) {
+        const storedEcritures = localStorage.getItem('mboaschool_ecritures');
+        const customEcritures = storedEcritures ? JSON.parse(storedEcritures) : mockEcrituresInitiales;
+        setEcritures(customEcritures);
+      }
 
       // 6. BSC Years
       const storedBscYears = localStorage.getItem('mboaschool_bsc_years');
       if (storedBscYears) {
-        try {
-          setBscYears(JSON.parse(storedBscYears));
-        } catch (e) {}
-      } else {
-        localStorage.setItem('mboaschool_bsc_years', JSON.stringify({ year1: 2024, year2: 2025, year3: 2026 }));
+        try { setBscYears(JSON.parse(storedBscYears)); } catch (e) {}
       }
 
       // 7. Budget lines
       const storedBudget = localStorage.getItem('mboaschool_budget_lines');
       if (storedBudget) {
-        try {
-          setBudgetLines(JSON.parse(storedBudget));
-        } catch (e) {
-          setBudgetLines(mockBudget2026);
-        }
+        try { setBudgetLines(JSON.parse(storedBudget)); } catch (e) { setBudgetLines(mockBudget2026); }
       } else {
-        localStorage.setItem('mboaschool_budget_lines', JSON.stringify(mockBudget2026));
         setBudgetLines(mockBudget2026);
       }
-    }
+    };
+
+    loadData();
   }, []);
 
   const triggerToast = (msg: string) => {
@@ -390,7 +494,7 @@ export default function FinancePage() {
   const budgetVariances = getBudgetVariance();
 
   // --- Accounting Ledger functions ---
-  const handleSaveExpense = (e: React.FormEvent) => {
+  const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     const ts = Date.now();
     const ref = expReference || `OP-${ts.toString().slice(-6)}`;
@@ -441,6 +545,47 @@ export default function FinancePage() {
 
     if (newEcrituresList.length === 0) return;
 
+    // Save to Supabase (attempt)
+    const supabase = createClient();
+    let savedToSupabase = false;
+
+    try {
+      for (const ecr of newEcrituresList) {
+        // Insert ecriture
+        const { data: ecrData, error: ecrErr } = await supabase
+          .from('ecritures_comptables')
+          .insert([{
+            date: ecr.date,
+            libelle: ecr.libelle,
+            reference: ecr.reference
+          }])
+          .select()
+          .single();
+
+        if (ecrErr) throw ecrErr;
+
+        if (ecrData) {
+          // Insert lines
+          const linesToInsert = ecr.lignes.map(l => ({
+            ecriture_id: ecrData.id,
+            compte_numero: l.compteNumero,
+            debit: l.debit,
+            credit: l.credit
+          }));
+
+          const { error: linesErr } = await supabase
+            .from('lignes_ecritures')
+            .insert(linesToInsert);
+          
+          if (linesErr) throw linesErr;
+        }
+      }
+      savedToSupabase = true;
+    } catch (err) {
+      console.warn("Failed to save transaction in Supabase, falling back to local storage:", err);
+    }
+
+    // Save to local storage (always do as local sync / fallback)
     const stored = localStorage.getItem('mboaschool_ecritures');
     const existing = stored ? JSON.parse(stored) : mockEcrituresInitiales;
     const updated = [...newEcrituresList, ...existing];
@@ -453,10 +598,10 @@ export default function FinancePage() {
     setExpAmount('');
     setExpAmountPaye('');
     setExpTva(false);
-    triggerToast("Opération comptable enregistrée !");
+    triggerToast(savedToSupabase ? "Opération comptable enregistrée dans le cloud !" : "Opération comptable enregistrée !");
   };
 
-  const handleSaveAccount = (e: React.FormEvent) => {
+  const handleSaveAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAccNum || !newAccLibelle) return;
     const newAcc: CompteOHADA = {
@@ -464,13 +609,30 @@ export default function FinancePage() {
       libelle: newAccLibelle,
       classe: Number(newAccClasse) as any
     };
+
+    // Save to Supabase (attempt)
+    const supabase = createClient();
+    let savedToSupabase = false;
+    try {
+      const { error } = await supabase
+        .from('comptes_ohada')
+        .insert([{
+          numero: newAcc.numero,
+          libelle: newAcc.libelle,
+          classe: newAcc.classe
+        }]);
+      if (!error) savedToSupabase = true;
+    } catch (err) {
+      console.warn("Failed to save account in Supabase:", err);
+    }
+
     const updated = [...planComptable, newAcc].sort((a,b) => a.numero.localeCompare(b.numero));
     setPlanComptable(updated);
     localStorage.setItem('mboaschool_plancomptable', JSON.stringify(updated));
     setShowAddAccountModal(false);
     setNewAccNum('');
     setNewAccLibelle('');
-    triggerToast("Compte comptable créé !");
+    triggerToast(savedToSupabase ? "Compte comptable créé dans le cloud !" : "Compte comptable créé !");
   };
 
   const handleAddBudgetLine = (e: React.FormEvent) => {

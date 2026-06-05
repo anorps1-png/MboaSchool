@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { 
   MembrePersonnel, 
   MasseSalarialeHistorique, 
@@ -10,16 +11,19 @@ import {
   FormationRH 
 } from '@/types/domain';
 import { 
-  mockPersonnel, 
-  mockMasseSalarialeHistorique, 
-  mockAbsences, 
-  mockMouvements, 
-  mockEvaluationsRH, 
-  mockFormations 
-} from '@/mock/rh';
+  getPersonnel, 
+  getAbsences, 
+  getMouvements, 
+  getEvaluationsRH, 
+  getFormations,
+  updatePersonnel,
+  insertAbsence,
+  insertMouvement,
+  insertPersonnel
+} from '@/lib/queries/rh';
 
 export default function RHPage() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'personnel' | 'masse' | 'mouvements' | 'evals'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'personnel' | 'masse' | 'mouvements' | 'evals' | 'comptes'>('dashboard');
 
   // State loaded from localStorage or mock
   const [personnelList, setPersonnelList] = useState<MembrePersonnel[]>([]);
@@ -84,51 +88,189 @@ export default function RHPage() {
   const [newMouvDate, setNewMouvDate] = useState(new Date().toISOString().split('T')[0]);
   const [newMouvDetails, setNewMouvDetails] = useState('');
 
+  // States for Staff Accounts Tab
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [newAccEmail, setNewAccEmail] = useState('');
+  const [newAccPassword, setNewAccPassword] = useState('');
+  const [newAccRole, setNewAccRole] = useState<'directeur' | 'enseignant' | 'parent'>('enseignant');
+  const [createAccLoading, setCreateAccLoading] = useState(false);
+
+  const loadProfiles = async () => {
+    setProfilesLoading(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setProfiles(data || []);
+    } catch (err) {
+      console.warn("Failed to fetch profiles from Supabase, loading from localStorage fallback:", err);
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('mboaschool_profiles');
+        if (stored) {
+          setProfiles(JSON.parse(stored));
+        } else {
+          // Initialize mock accounts if empty
+          const initialMock = [
+            { id: 'mock-1', email: 'directeur@mboaschool.com', role: 'directeur', created_at: new Date().toISOString() },
+            { id: 'mock-2', email: 'enseignant.mvogo@mboaschool.com', role: 'enseignant', created_at: new Date().toISOString() },
+            { id: 'mock-3', email: 'parent.fodouop@mboaschool.com', role: 'parent', created_at: new Date().toISOString() }
+          ];
+          localStorage.setItem('mboaschool_profiles', JSON.stringify(initialMock));
+          setProfiles(initialMock);
+        }
+      }
+    } finally {
+      setProfilesLoading(false);
+    }
+  };
+
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAccEmail || !newAccPassword || newAccPassword.length < 6) {
+      triggerToast("Veuillez renseigner un email valide et un mot de passe d'au moins 6 caractères.");
+      return;
+    }
+    setCreateAccLoading(true);
+    try {
+      const supabase = createClient();
+      
+      // Get admin's etablissement_id to link the staff account to the same establishment
+      let adminEtabId = null;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: adminProfile } = await supabase
+            .from('profiles')
+            .select('etablissement_id')
+            .eq('id', user.id)
+            .single();
+          if (adminProfile) {
+            adminEtabId = adminProfile.etablissement_id;
+          }
+        }
+      } catch (err) {
+        console.warn("Could not determine admin establishment id", err);
+      }
+
+      // Create browser client with persistSession: false so it doesn't overwrite admin session
+      const { createBrowserClient } = await import('@supabase/ssr');
+      const tempSupabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          auth: {
+            persistSession: false
+          }
+        }
+      );
+
+      // Sign up the new user
+      const { data: signUpData, error: authError } = await tempSupabase.auth.signUp({
+        email: newAccEmail,
+        password: newAccPassword
+      });
+
+      if (authError) throw authError;
+
+      if (signUpData?.user) {
+        // Create the profile in the profiles table
+        const { data: newProfile, error: profileError } = await supabase
+          .from('profiles')
+          .insert([{
+            id: signUpData.user.id,
+            email: newAccEmail,
+            role: newAccRole,
+            etablissement_id: adminEtabId
+          }])
+          .select()
+          .single();
+
+        if (profileError) throw profileError;
+
+        triggerToast(`Compte créé avec succès pour ${newAccEmail} !`);
+        setProfiles([newProfile, ...profiles]);
+      } else {
+        throw new Error("La création d'utilisateur auth n'a pas retourné de données.");
+      }
+
+      setNewAccEmail('');
+      setNewAccPassword('');
+    } catch (err: any) {
+      console.warn("Supabase account creation failed, falling back to local storage:", err);
+      
+      // Fallback local storage
+      const newMockProfile = {
+        id: `mock-${Date.now()}`,
+        email: newAccEmail,
+        role: newAccRole,
+        created_at: new Date().toISOString()
+      };
+      
+      const stored = localStorage.getItem('mboaschool_profiles');
+      let currentProfiles = [];
+      if (stored) {
+        currentProfiles = JSON.parse(stored);
+      } else {
+        currentProfiles = [
+          { id: 'mock-1', email: 'directeur@mboaschool.com', role: 'directeur', created_at: new Date().toISOString() },
+          { id: 'mock-2', email: 'enseignant.mvogo@mboaschool.com', role: 'enseignant', created_at: new Date().toISOString() },
+          { id: 'mock-3', email: 'parent.fodouop@mboaschool.com', role: 'parent', created_at: new Date().toISOString() }
+        ];
+      }
+      const updatedProfiles = [newMockProfile, ...currentProfiles];
+      localStorage.setItem('mboaschool_profiles', JSON.stringify(updatedProfiles));
+      setProfiles(updatedProfiles);
+      
+      triggerToast(`Compte (Local/Simulé) créé pour ${newAccEmail} !`);
+      setNewAccEmail('');
+      setNewAccPassword('');
+    } finally {
+      setCreateAccLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Load or initialize personnel
-      const storedPers = localStorage.getItem('mboaschool_rh_personnel');
-      let loadedPers = mockPersonnel;
-      if (storedPers) {
+      const loadData = async () => {
         try {
-          const parsed = JSON.parse(storedPers);
-          if (Array.isArray(parsed)) loadedPers = parsed;
-        } catch (e) { }
-      } else {
-        localStorage.setItem('mboaschool_rh_personnel', JSON.stringify(mockPersonnel));
-      }
-      setPersonnelList((loadedPers || []).filter(Boolean));
-
-      // Load histories
-      setMasseHistorique(mockMasseSalarialeHistorique);
-
-      // Load or initialize absences
-      const storedAbs = localStorage.getItem('mboaschool_rh_absences');
-      let loadedAbs = mockAbsences;
-      if (storedAbs) {
-        try {
-          const parsed = JSON.parse(storedAbs);
-          if (Array.isArray(parsed)) loadedAbs = parsed;
-        } catch (e) { }
-      } else {
-        localStorage.setItem('mboaschool_rh_absences', JSON.stringify(mockAbsences));
-      }
-      setAbsences((loadedAbs || []).filter(Boolean));
-
-      const storedMouv = localStorage.getItem('mboaschool_rh_mouvements');
-      let loadedMouv = mockMouvements;
-      if (storedMouv) {
-        try {
-          const parsed = JSON.parse(storedMouv);
-          if (Array.isArray(parsed)) loadedMouv = parsed;
-        } catch (e) { }
-      } else {
-        localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify(mockMouvements));
-      }
-      setMouvements((loadedMouv || []).filter(Boolean));
-
-      setEvaluations(mockEvaluationsRH);
-      setFormations(mockFormations);
+          const pers = await getPersonnel();
+          setPersonnelList(pers);
+          
+          const abs = await getAbsences();
+          setAbsences(abs);
+          
+          const mouvs = await getMouvements();
+          setMouvements(mouvs);
+          
+          const evs = await getEvaluationsRH();
+          setEvaluations(evs);
+          
+          const forms = await getFormations();
+          setFormations(forms);
+          
+          // Load Profiles
+          await loadProfiles();
+          
+          // Mocks for masseHistorique until DB is expanded for payroll charts
+          const mockHist = [
+            { periode: '2026-01', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.5 },
+            { periode: '2026-02', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.0 },
+            { periode: '2026-03', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 200000, tauxCroissance: 0.0 },
+            { periode: '2026-04', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 4.1 },
+            { periode: '2026-05', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 0.0 }
+          ];
+          setMasseHistorique(mockHist);
+        } catch (error) {
+          console.error("Error loading RH data:", error);
+        }
+      };
+      
+      loadData();
     }
   }, []);
 
@@ -152,29 +294,45 @@ export default function RHPage() {
     setEditEmpStatut(emp.statut);
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmployee) return;
 
-    const updatedEmp: MembrePersonnel = {
-      ...selectedEmployee,
+    const updatedEmp = {
       nom: editEmpNom,
       prenom: editEmpPrenom,
       email: editEmpEmail,
       telephone: editEmpTel,
       sexe: editEmpSexe,
       categorie: editEmpCategorie,
-      typeContrat: editEmpContrat,
-      salaireDeBase: Number(editEmpSalaire) || 0,
-      dateEmbauche: editEmpDateEmbauche,
+      type_contrat: editEmpContrat,
+      salaire_de_base: Number(editEmpSalaire) || 0,
+      date_embauche: editEmpDateEmbauche,
       statut: editEmpStatut,
     };
 
-    const updatedList = personnelList.map(p => p.id === selectedEmployee.id ? updatedEmp : p);
-    setPersonnelList(updatedList);
-    localStorage.setItem('mboaschool_rh_personnel', JSON.stringify(updatedList));
-    setSelectedEmployee(updatedEmp);
-    triggerToast(`Fiche de ${updatedEmp.prenom} ${updatedEmp.nom} mise à jour !`);
+    try {
+      const updated = await updatePersonnel(selectedEmployee.id, updatedEmp);
+      const mapped: MembrePersonnel = {
+        id: updated.id,
+        nom: updated.nom,
+        prenom: updated.prenom,
+        email: updated.email,
+        telephone: updated.telephone,
+        sexe: updated.sexe,
+        categorie: updated.categorie,
+        typeContrat: updated.type_contrat,
+        salaireDeBase: Number(updated.salaire_de_base),
+        dateEmbauche: updated.date_embauche,
+        statut: updated.statut
+      };
+      const updatedList = personnelList.map(p => p.id === selectedEmployee.id ? mapped : p);
+      setPersonnelList(updatedList);
+      setSelectedEmployee(mapped);
+      triggerToast(`Fiche de ${mapped.prenom} ${mapped.nom} mise à jour !`);
+    } catch (err: any) {
+      alert("Erreur lors de la mise à jour : " + err.message);
+    }
   };
 
   const calculateDays = (start: string, end: string) => {
@@ -186,7 +344,7 @@ export default function RHPage() {
     return diffDays;
   };
 
-  const handleAddAbsence = (e: React.FormEvent) => {
+  const handleAddAbsence = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmployee) return;
 
@@ -196,27 +354,41 @@ export default function RHPage() {
       return;
     }
 
-    const newAbs: AbsenceRecord = {
-      id: `abs-${Date.now()}`,
-      personnelId: selectedEmployee.id,
-      nomPersonnel: `${selectedEmployee.nom} ${selectedEmployee.prenom}`,
-      dateDebut: newAbsDateDebut,
-      dateFin: newAbsDateFin,
+    const newAbsData = {
+      personnel_id: selectedEmployee.id,
+      nom_personnel: `${selectedEmployee.nom} ${selectedEmployee.prenom}`,
+      date_debut: newAbsDateDebut,
+      date_fin: newAbsDateFin,
       motif: newAbsMotif,
-      dureeJours: duration,
+      duree_jours: duration,
     };
 
-    const updatedAbs = [newAbs, ...absences];
-    setAbsences(updatedAbs);
-    localStorage.setItem('mboaschool_rh_absences', JSON.stringify(updatedAbs));
+    try {
+      const data = await insertAbsence(newAbsData);
+      if (data && data.length > 0) {
+        const a = data[0];
+        const newAbs: AbsenceRecord = {
+          id: a.id,
+          personnelId: a.personnel_id,
+          nomPersonnel: a.nom_personnel,
+          dateDebut: a.date_debut,
+          dateFin: a.date_fin,
+          motif: a.motif,
+          dureeJours: a.duree_jours
+        };
+        setAbsences([newAbs, ...absences]);
+        triggerToast("Absence enregistrée avec succès !");
+      }
+    } catch (err: any) {
+      alert("Erreur lors de l'enregistrement de l'absence : " + err.message);
+    }
 
     setNewAbsDateDebut(new Date().toISOString().split('T')[0]);
     setNewAbsDateFin(new Date().toISOString().split('T')[0]);
     setNewAbsMotif('Congé');
-    triggerToast("Absence enregistrée avec succès !");
   };
 
-  const handleAddMouvement = (e: React.FormEvent) => {
+  const handleAddMouvement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmployee) return;
 
@@ -225,10 +397,9 @@ export default function RHPage() {
       return;
     }
 
-    const newMouv: MouvementPersonnel = {
-      id: `mov-${Date.now()}`,
-      personnelId: selectedEmployee.id,
-      nomPersonnel: `${selectedEmployee.nom} ${selectedEmployee.prenom}`,
+    const newMouvData = {
+      personnel_id: selectedEmployee.id,
+      nom_personnel: `${selectedEmployee.nom} ${selectedEmployee.prenom}`,
       type: newMouvType,
       date: newMouvDate,
       details: newMouvDetails,
@@ -240,88 +411,113 @@ export default function RHPage() {
       setEditEmpStatut('quitte');
     }
 
-    const updatedEmp: MembrePersonnel = {
-      ...selectedEmployee,
-      statut: updatedStatut,
-      nom: editEmpNom,
-      prenom: editEmpPrenom,
-      email: editEmpEmail,
-      telephone: editEmpTel,
-      sexe: editEmpSexe,
-      categorie: editEmpCategorie,
-      typeContrat: editEmpContrat,
-      salaireDeBase: Number(editEmpSalaire) || 0,
-      dateEmbauche: editEmpDateEmbauche,
-    };
-
-    setSelectedEmployee(updatedEmp);
-
-    const updatedPersonnelList = personnelList.map(p => p.id === selectedEmployee.id ? updatedEmp : p);
-    setPersonnelList(updatedPersonnelList);
-    localStorage.setItem('mboaschool_rh_personnel', JSON.stringify(updatedPersonnelList));
-
-    const updatedMouv = [newMouv, ...mouvements];
-    setMouvements(updatedMouv);
-    localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify(updatedMouv));
+    try {
+      // Met à jour le statut du personnel
+      await updatePersonnel(selectedEmployee.id, { statut: updatedStatut });
+      const data = await insertMouvement(newMouvData);
+      
+      if (data && data.length > 0) {
+        const m = data[0];
+        const newMouv: MouvementPersonnel = {
+          id: m.id,
+          personnelId: m.personnel_id,
+          nomPersonnel: m.nom_personnel,
+          type: m.type,
+          date: m.date,
+          details: m.details
+        };
+        setMouvements([newMouv, ...mouvements]);
+        
+        // Mettre à jour la fiche en local
+        const updatedEmp = { ...selectedEmployee, statut: updatedStatut };
+        setSelectedEmployee(updatedEmp);
+        setPersonnelList(personnelList.map(p => p.id === selectedEmployee.id ? updatedEmp : p));
+        triggerToast(`Mouvement ${newMouvType} enregistré.`);
+      }
+    } catch (err: any) {
+      alert("Erreur lors du mouvement : " + err.message);
+    }
 
     setNewMouvType('depart_volontaire');
     setNewMouvDate(new Date().toISOString().split('T')[0]);
     setNewMouvDetails('');
-    triggerToast(`Mouvement ${newMouvType} enregistré. Le statut de l'employé a été mis à jour.`);
   };
 
   // Add a personnel
-  const handleAddPersonnel = (e: React.FormEvent) => {
+  const handleAddPersonnel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNom || !newPrenom || !newEmail || !newSalaire) {
       triggerToast("Veuillez remplir tous les champs obligatoires.");
       return;
     }
 
-    const newEmp: MembrePersonnel = {
-      id: `pers-${Date.now()}`,
+    const newEmpData = {
       nom: newNom,
       prenom: newPrenom,
       email: newEmail,
       telephone: newTel || '+237 600 00 00 00',
       sexe: newSexe,
       categorie: newCategorie,
-      typeContrat: newContrat,
-      salaireDeBase: Number(newSalaire),
-      dateEmbauche: newDateEmbauche,
+      type_contrat: newContrat,
+      salaire_de_base: Number(newSalaire),
+      date_embauche: newDateEmbauche,
       statut: 'actif'
     };
 
-    const updatedList = [...personnelList, newEmp];
-    setPersonnelList(updatedList);
-    localStorage.setItem('mboaschool_rh_personnel', JSON.stringify(updatedList));
+    try {
+      const p = await insertPersonnel(newEmpData);
+      const newEmp: MembrePersonnel = {
+        id: p.id,
+        nom: p.nom,
+        prenom: p.prenom,
+        email: p.email,
+        telephone: p.telephone,
+        sexe: p.sexe,
+        categorie: p.categorie,
+        typeContrat: p.type_contrat,
+        salaireDeBase: Number(p.salaire_de_base),
+        dateEmbauche: p.date_embauche,
+        statut: p.statut
+      };
+      
+      setPersonnelList([...personnelList, newEmp]);
 
-    // Also add an recruitment movement automatically!
-    const newMouv: MouvementPersonnel = {
-      id: `mov-${Date.now()}`,
-      personnelId: newEmp.id,
-      nomPersonnel: `${newEmp.nom} ${newEmp.prenom}`,
-      type: 'embauche',
-      date: newEmp.dateEmbauche,
-      details: `Embauche en contrat ${newEmp.typeContrat} (${newEmp.categorie})`
-    };
-    const updatedMouvements = [newMouv, ...mouvements];
-    setMouvements(updatedMouvements);
-    localStorage.setItem('mboaschool_rh_mouvements', JSON.stringify(updatedMouvements));
+      // Ajouter mouvement de recrutement
+      const newMouvData = {
+        personnel_id: newEmp.id,
+        nom_personnel: `${newEmp.nom} ${newEmp.prenom}`,
+        type: 'embauche',
+        date: newEmp.dateEmbauche,
+        details: `Embauche en contrat ${newEmp.typeContrat} (${newEmp.categorie})`
+      };
+      const dataMouv = await insertMouvement(newMouvData);
+      if (dataMouv && dataMouv.length > 0) {
+        const m = dataMouv[0];
+        const newMouv: MouvementPersonnel = {
+          id: m.id,
+          personnelId: m.personnel_id,
+          nomPersonnel: m.nom_personnel,
+          type: m.type,
+          date: m.date,
+          details: m.details
+        };
+        setMouvements([newMouv, ...mouvements]);
+      }
 
-    // Reset fields
-    setNewNom('');
-    setNewPrenom('');
-    setNewEmail('');
-    setNewTel('');
-    setNewSexe('M');
-    setNewCategorie('Administration');
-    setNewContrat('CDI');
-    setNewSalaire('');
-    setNewDateEmbauche(new Date().toISOString().split('T')[0]);
-    setShowAddModal(false);
-
-    triggerToast(`Personnel ${newPrenom} ${newNom} ajouté avec succès !`);
+      setNewNom('');
+      setNewPrenom('');
+      setNewEmail('');
+      setNewTel('');
+      setNewSexe('M');
+      setNewCategorie('Administration');
+      setNewContrat('CDI');
+      setNewSalaire('');
+      setNewDateEmbauche(new Date().toISOString().split('T')[0]);
+      setShowAddModal(false);
+      triggerToast(`Personnel ${newPrenom} ${newNom} ajouté avec succès !`);
+    } catch (err: any) {
+      alert("Erreur lors du recrutement : " + err.message);
+    }
   };
 
   // Filtered personnel list
@@ -475,7 +671,8 @@ export default function RHPage() {
           { id: 'personnel', label: 'Effectifs & Contrats' },
           { id: 'masse', label: 'Rémunérations & Masse salariale' },
           { id: 'mouvements', label: 'Absences & Mouvements' },
-          { id: 'evals', label: 'Évaluations & Formations' }
+          { id: 'evals', label: 'Évaluations & Formations' },
+          { id: 'comptes', label: 'Comptes & Habilitations' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -1175,6 +1372,120 @@ export default function RHPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- TAB: COMPTES & HABILITATIONS -------------------- */}
+      {activeTab === 'comptes' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Accounts List Pane */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2 space-y-6">
+            <h3 className="font-bold text-slate-800 text-black flex items-center gap-2 border-b border-slate-100 pb-3">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Comptes Utilisateurs & Habilitations
+            </h3>
+
+            {profilesLoading ? (
+              <div className="text-center py-12 text-slate-500 font-semibold">Chargement des comptes...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/30">
+                      <th className="px-4 py-3">Adresse Email</th>
+                      <th className="px-4 py-3">Rôle / Habilitation</th>
+                      <th className="px-4 py-3">Créé le</th>
+                      <th className="px-4 py-3 text-center">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {profiles.map((p) => (
+                      <tr key={p.id} className="hover:bg-slate-50/30">
+                        <td className="px-4 py-3 font-semibold text-slate-800 text-black">{p.email}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
+                            p.role === 'admin' ? 'bg-indigo-50 text-indigo-700' :
+                            p.role === 'directeur' ? 'bg-amber-50 text-amber-700' :
+                            p.role === 'enseignant' ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
+                          }`}>
+                            {p.role}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 font-mono text-xs">
+                          {p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR') : 'N/A'}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700">
+                            Actif
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {profiles.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-12 text-center text-slate-400">Aucun compte trouvé.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Create Staff Account Form */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+            <form onSubmit={handleCreateAccount} className="space-y-6">
+              <div className="border-b border-slate-100 pb-3">
+                <h3 className="font-bold text-slate-800 text-black">Créer un Compte Personnel</h3>
+                <p className="text-xs text-slate-500">Ajouter un accès avec rôle spécifique pour vos collaborateurs</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Adresse Email *</label>
+                <input
+                  type="email"
+                  required
+                  value={newAccEmail}
+                  onChange={(e) => setNewAccEmail(e.target.value)}
+                  placeholder="collaborateur@mboaschool.com"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Mot de passe provisoire *</label>
+                <input
+                  type="password"
+                  required
+                  value={newAccPassword}
+                  onChange={(e) => setNewAccPassword(e.target.value)}
+                  placeholder="Minimum 6 caractères"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Niveau d'habilitation / Rôle *</label>
+                <select
+                  value={newAccRole}
+                  onChange={(e) => setNewAccRole(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black bg-slate-50 font-semibold outline-none"
+                >
+                  <option value="directeur">Directeur</option>
+                  <option value="enseignant">Enseignant</option>
+                  <option value="parent">Parent</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                disabled={createAccLoading}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors flex items-center justify-center disabled:opacity-50"
+              >
+                {createAccLoading ? "Création du compte..." : "Créer le compte"}
+              </button>
+            </form>
           </div>
         </div>
       )}

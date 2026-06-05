@@ -1,0 +1,89 @@
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+
+export async function middleware(request: NextRequest) {
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
+
+  let user = null;
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (supabaseUrl && supabaseKey) {
+      const supabase = createServerClient(supabaseUrl, supabaseKey, {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll().map((cookie) => ({
+              name: cookie.name,
+              value: cookie.value,
+            }));
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              request.cookies.set(name, value)
+            );
+            response = NextResponse.next({
+              request,
+            });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            );
+          },
+        },
+      });
+
+      const {
+        data: { user: supabaseUser },
+      } = await supabase.auth.getUser();
+      user = supabaseUser;
+    }
+  } catch (err) {
+    console.error("Middleware Supabase auth error:", err);
+  }
+
+  const path = request.nextUrl.pathname;
+
+  // Check if there is an active offline/simulated session cookie
+  const offlineSession = request.cookies.get('mboaschool_offline_session');
+  const hasAccess = user || offlineSession;
+
+  // Protected routes check
+  // Allow landing page (/), login (/login), SW/manifests, and static assets
+  const isPublicRoute = 
+    path === '/' || 
+    path === '/login' || 
+    path.startsWith('/_next') || 
+    path.startsWith('/favicon.ico') ||
+    path.includes('.') || // static files with extensions like .png, .json, etc.
+    path.startsWith('/sw') ||
+    path.startsWith('/manifest');
+
+  if (!hasAccess && !isPublicRoute) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  // Redirect to dashboard if already logged in and hitting login page
+  if (hasAccess && path === '/login') {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  return response;
+}
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - all other assets
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
+};

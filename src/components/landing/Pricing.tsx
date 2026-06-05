@@ -33,7 +33,7 @@ export default function Pricing() {
                 <span className="text-indigo-500 font-bold">✓</span> Modules de base
               </li>
             </ul>
-            <Link href="/dashboard" className="block w-full text-center bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors">
+            <Link href="/login?signup=true" className="block w-full text-center bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors">
               Commencer gratuitement
             </Link>
           </div>
@@ -62,7 +62,7 @@ export default function Pricing() {
                 <span className="text-emerald-400 font-bold">✓</span> Support prioritaire
               </li>
             </ul>
-            <Link href="#contact" className="block w-full text-center bg-white text-indigo-900 font-bold py-3 rounded-xl hover:bg-slate-50 transition-colors shadow-md">
+            <Link href="/login?signup=true" className="block w-full text-center bg-white text-indigo-900 font-bold py-3 rounded-xl hover:bg-slate-50 transition-colors shadow-md">
               Essayer ce plan
             </Link>
           </div>
@@ -85,7 +85,7 @@ export default function Pricing() {
                 <span className="text-indigo-500 font-bold">✓</span> Développements sur-mesure
               </li>
             </ul>
-            <Link href="#contact" className="block w-full text-center bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors">
+            <Link href="/login?signup=true" className="block w-full text-center bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors">
               Nous contacter
             </Link>
           </div>

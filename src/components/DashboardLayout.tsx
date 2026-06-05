@@ -26,10 +26,89 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [academicYear, setAcademicYear] = useState('2025/2026');
-  const selectedSchool = 'Collège Vogt - Yaoundé';
+  const [selectedSchool, setSelectedSchool] = useState('Collège Vogt - Yaoundé');
+  const [subscriptionPlan, setSubscriptionPlan] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState('admin@mboaschool.com');
+  const [userRole, setUserRole] = useState('Administrateur');
   const [showNotifications, setShowNotifications] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [forceOffline, setForceOffline] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const loadProfileAndSchool = async () => {
+        try {
+          const { createClient } = await import('@/lib/supabase/client');
+          const supabase = createClient();
+          const { data: { user } } = await supabase.auth.getUser();
+
+          if (user) {
+            setUserEmail(user.email || '');
+            
+            // Get profile details
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('role, etablissement_id')
+              .eq('id', user.id)
+              .single();
+
+            if (profile) {
+              setUserRole(profile.role === 'admin' ? 'Administrateur' : profile.role);
+              
+              // Get establishment details
+              if (profile.etablissement_id) {
+                const { data: etab } = await supabase
+                  .from('etablissements')
+                  .select('nom, annee_scolaire_active_id')
+                  .eq('id', profile.etablissement_id)
+                  .single();
+
+                if (etab) {
+                  setSelectedSchool(etab.nom);
+                  
+                  if (etab.annee_scolaire_active_id) {
+                    const { data: annee } = await supabase
+                      .from('annees_scolaires')
+                      .select('nom')
+                      .eq('id', etab.annee_scolaire_active_id)
+                      .single();
+
+                    if (annee) {
+                      setAcademicYear(annee.nom);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Could not load dynamic user context from Supabase, loading fallbacks", err);
+        }
+
+        // Always check local storage fallbacks
+        const localSchool = localStorage.getItem('mboaschool_current_school');
+        const localYear = localStorage.getItem('mboaschool_current_year');
+        const localSub = localStorage.getItem('mboaschool_subscription');
+        const offlineSession = localStorage.getItem('mboaschool_offline_session');
+
+        if (localSchool) setSelectedSchool(localSchool);
+        if (localYear) setAcademicYear(localYear);
+        if (localSub) setSubscriptionPlan(localSub);
+        
+        if (offlineSession) {
+          try {
+            const parsed = JSON.parse(offlineSession);
+            if (parsed.email) setUserEmail(parsed.email);
+            if (parsed.role) setUserRole(parsed.role === 'admin' ? 'Administrateur' : parsed.role);
+          } catch (e) {
+            console.warn("Failed parsing offline session", e);
+          }
+        }
+      };
+
+      loadProfileAndSchool();
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -76,7 +155,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
 
   const menuItems = [
-    { name: '🌐 Voir la Landing Page', href: '/', icon: DashboardIcon },
     { name: 'Tableau de bord', href: '/dashboard', icon: DashboardIcon },
     { name: 'Sections', href: '/sections', icon: DashboardIcon },
     { name: 'Classes', href: '/classes', icon: StudentsIcon },
@@ -183,12 +261,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
           {/* Sidebar Footer */}
           <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm">
-              MM
+            <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm uppercase">
+              {userEmail ? userEmail.substring(0, 2) : 'AD'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-white truncate">M. Marc Mvogo</p>
-              <p className="text-[10px] text-slate-500 truncate">Intendant Principal</p>
+              <p className="text-xs font-semibold text-white truncate" title={userEmail}>{userEmail}</p>
+              <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider">{userRole}</p>
             </div>
             <div className="flex items-center gap-2">
               <label className="text-[10px] text-slate-400 cursor-pointer flex items-center gap-1" title="Simuler le mode hors-ligne">
@@ -217,7 +295,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
           <header className="hidden lg:flex h-16 bg-white border-b border-slate-200 items-center justify-between px-8 sticky top-0 z-30">
-            {/* Left section: Etablissement & Année */}
+            {/* Left section: Etablissement, Année & Abonnement */}
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-700">
                 <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
@@ -229,11 +307,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   onChange={(e) => setAcademicYear(e.target.value)}
                   className="appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-1.5 rounded-lg text-sm font-medium text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
                 >
-                  <option value="2025/2026">Année 2025/2026</option>
-                  <option value="2024/2025">Année 2024/2025</option>
+                  <option value={academicYear}>Année {academicYear}</option>
+                  {academicYear !== '2025/2026' && <option value="2025/2026">Année 2025/2026</option>}
+                  {academicYear !== '2024/2025' && <option value="2024/2025">Année 2024/2025</option>}
                 </select>
                 <ChevronDownIcon size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
               </div>
+              {subscriptionPlan && (
+                <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                  <span>Forfait {subscriptionPlan}</span>
+                </div>
+              )}
             </div>
 
             {/* Right section: Search, Notify, Profile */}

@@ -23,11 +23,11 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-indigo-600 font-medium hover:text-indigo-700 hidden sm:block">
+            <Link href="/login" className="text-slate-600 font-semibold hover:text-indigo-600 hidden sm:block">
               Se connecter
             </Link>
-            <Link href="#contact" className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm">
-              Démo Gratuite
+            <Link href="/login?signup=true" className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-indigo-700 transition-colors shadow-sm">
+              S'inscrire
             </Link>
           </div>
         </div>

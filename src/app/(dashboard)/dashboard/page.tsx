@@ -1,33 +1,27 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { mockTeachers } from '@/mock/teachers';
 import Link from 'next/link';
-import { Eleve, Classe, TransactionPaiement } from '@/types/domain';
-import { createClient } from '@/lib/supabase/client';
+import { Eleve, Classe } from '@/types/domain';
+import { getDashboardData } from '@/lib/queries/dashboard';
 import { downloadExcel } from '@/lib/excel';
 import { DownloadIcon } from '@/components/icons';
 
 export default function Dashboard() {
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
+  const [teachersList, setTeachersList] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const fetchData = async () => {
-        const supabase = createClient();
-        
-        // Fetch classes
-        const { data: classesData } = await supabase.from('classes').select('*');
-        if (classesData) {
-          setClassesList(classesData);
-        }
+        try {
+          const { classes, students: studentsData, teachers } = await getDashboardData();
+          setClassesList(classes);
+          setTeachersList(teachers);
 
-        // Fetch students and their payments and notes
-        const { data: studentsData } = await supabase.from('eleves').select('*, paiements(*), notes(*)');
-        if (studentsData) {
           const mappedStudents = studentsData.map(d => ({
             id: d.id,
             matricule: d.matricule,
@@ -58,14 +52,14 @@ export default function Dashboard() {
           studentsData.forEach(student => {
             if (student.paiements) {
               student.paiements.forEach((p: any) => {
-                const classeObj = classesData?.find(c => c.id === student.classe_id);
+                const classObj = classes.find(c => c.id === student.classe_id);
                 allTx.push({
                   id: p.id,
                   eleveId: student.id,
                   nomEleve: `${student.nom} ${student.prenom}`,
                   matriculeEleve: student.matricule,
                   classeId: student.classe_id,
-                  classeNom: classeObj?.nom || student.classe_id,
+                  classeNom: classObj?.nom || student.classe_id,
                   montant: Number(p.montant),
                   date: p.date,
                   typeFrais: p.type_frais,
@@ -77,9 +71,11 @@ export default function Dashboard() {
             }
           });
           setTransactions(allTx.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        } catch (error) {
+          console.error("Dashboard fetch error:", error);
+        } finally {
+          setIsLoaded(true);
         }
-
-        setIsLoaded(true);
       };
 
       fetchData();
@@ -89,9 +85,8 @@ export default function Dashboard() {
   // 1. Calculations
   const totalStudents = students.length;
   const activeStudents = students.filter(s => s.statut === 'actif').length;
-  // Teachers (Mocked until HR module)
-  const totalTeachers = mockTeachers.length;
-  const activeTeachers = mockTeachers.filter(t => t.statut === 'active').length;
+  const totalTeachers = teachersList.length;
+  const activeTeachers = teachersList.filter(t => t.statut === 'actif').length;
 
   // Calcul du Taux de Réussite Global
   const studentsWithGrades = students.filter(s => s.notes && (s.notes || []).length > 0);

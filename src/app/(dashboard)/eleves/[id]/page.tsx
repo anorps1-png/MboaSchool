@@ -38,7 +38,7 @@ export default function FicheElevePage({ params }: PageProps) {
       // Fetch student with payments, notes, and discipline
       const { data: studentData } = await supabase
         .from('eleves')
-        .select('*, paiements(*), notes(*), discipline(*)')
+        .select('*, paiements(*), notes(*), discipline_incidents(*)')
         .eq('id', studentId)
         .single();
 
@@ -97,7 +97,7 @@ export default function FicheElevePage({ params }: PageProps) {
             evaluationMaternelle: n.evaluation_maternelle,
             enseignantId: n.enseignant_id
           })) || [],
-          discipline: studentData.discipline?.map((d: any) => ({
+          discipline: studentData.discipline_incidents?.map((d: any) => ({
             id: d.id,
             eleveId: d.eleve_id,
             dateIncident: d.date_incident,
@@ -382,7 +382,7 @@ export default function FicheElevePage({ params }: PageProps) {
       statut: newDisciplineStatut
     };
 
-    const { data: discData, error } = await supabase.from('discipline').insert([payload]).select();
+    const { data: discData, error } = await supabase.from('discipline_incidents').insert([payload]).select();
 
     if (error) {
       alert("Erreur lors de l'ajout de l'incident: " + error.message);

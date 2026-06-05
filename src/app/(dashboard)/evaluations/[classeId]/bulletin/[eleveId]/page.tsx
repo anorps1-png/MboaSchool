@@ -2,9 +2,8 @@
 
 import React, { useState, useEffect, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { Eleve, Classe } from '@/types/domain';
-import { mockStudents } from '@/mock/students';
-import { mockClasses } from '@/mock/classes';
 import Link from 'next/link';
 
 interface PageProps {
@@ -16,60 +15,76 @@ export default function BulletinImpressionPage({ params }: PageProps) {
   const searchParams = useSearchParams();
   const term = searchParams.get('term') || 'Trimestre 1';
   
-  const [student, setStudent] = useState<Eleve | null>(null);
-  const [classInfo, setClassInfo] = useState<Classe | null>(null);
-  const [allStudents, setAllStudents] = useState<Eleve[]>([]);
+  const [student, setStudent] = useState<any | null>(null);
+  const [classInfo, setClassInfo] = useState<any | null>(null);
+  const [allStudents, setAllStudents] = useState<any[]>([]);
+  const [notesList, setNotesList] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  const supabase = createClient();
+
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedClasses = localStorage.getItem('mboaschool_classes');
-      let classes: Classe[] = mockClasses;
-      if (storedClasses) {
-        try { classes = JSON.parse(storedClasses); } catch (e) { }
+    const loadData = async () => {
+      try {
+        const classeId = decodeURIComponent(resolvedParams.classeId);
+        const eleveId = decodeURIComponent(resolvedParams.eleveId);
+
+        // 1. Fetch class details
+        const { data: clsData } = await supabase
+          .from('classes')
+          .select('*')
+          .eq('id', classeId)
+          .single();
+        if (clsData) setClassInfo(clsData);
+
+        // 2. Fetch all students in this class
+        const { data: studsData } = await supabase
+          .from('eleves')
+          .select('*')
+          .eq('classe_id', classeId);
+        
+        if (studsData) {
+          setAllStudents(studsData);
+          const foundStudent = studsData.find(s => s.id === eleveId);
+          if (foundStudent) setStudent(foundStudent);
+        }
+
+        // 3. Fetch notes for all students in this class for the current trimester
+        const studsIds = (studsData || []).map(s => s.id);
+        if (studsIds.length > 0) {
+          const { data: notesData } = await supabase
+            .from('notes')
+            .select('*')
+            .in('eleve_id', studsIds)
+            .eq('trimestre', term);
+          if (notesData) setNotesList(notesData);
+        }
+
+      } catch (err) {
+        console.error("Error fetching bulletin data:", err);
+      } finally {
+        setIsLoaded(true);
+        // Trigger print after a short delay to allow rendering
+        setTimeout(() => {
+          window.print();
+        }, 800);
       }
-      const cls = classes.find(c => c.id === decodeURIComponent(resolvedParams.classeId));
-      if (cls) setClassInfo(cls);
-
-      const storedStudents = localStorage.getItem('mboaschool_students');
-      let students: Eleve[] = mockStudents;
-      if (storedStudents) {
-        try {
-          const parsed = JSON.parse(storedStudents);
-          if (Array.isArray(parsed)) students = parsed;
-        } catch (e) { }
-      }
-      const cleanStudents = (students || []).filter(Boolean);
-
-      const filteredClass = cleanStudents.filter(s => 
-        cls && (s.classeId === cls.id || s.classeId === cls.nom || s.classeId === cls.niveauId)
-      );
-      setAllStudents(filteredClass);
-
-      const stud = cleanStudents.find(s => s.id === decodeURIComponent(resolvedParams.eleveId));
-      if (stud) setStudent(stud);
-
-      setIsLoaded(true);
-
-      // Trigger print after a short delay to allow rendering
-      setTimeout(() => {
-        window.print();
-      }, 800);
-    }
-  }, [resolvedParams.classeId, resolvedParams.eleveId]);
+    };
+    loadData();
+  }, [resolvedParams.classeId, resolvedParams.eleveId, term]);
 
   if (!isLoaded || !student || !classInfo) {
     return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center">Préparation du bulletin...</div>;
   }
 
-  const isMaternelle = classInfo.niveauId.toLowerCase().includes('maternelle');
+  const isMaternelle = classInfo.niveau?.toLowerCase().includes('maternelle') || classInfo.niveau_id?.toLowerCase().includes('maternelle');
 
   // Calculations
-  const termNotes = (student.notes || []).filter(n => n.trimestre === term);
+  const termNotes = notesList.filter(n => n.eleve_id === student.id);
   
   // Calculate Avg for rank
-  const calculateAvg = (stud: Eleve) => {
-    const tNotes = (stud.notes || []).filter(n => n.trimestre === term && n.note !== undefined);
+  const calculateAvg = (stud: any) => {
+    const tNotes = notesList.filter(n => n.eleve_id === stud.id && n.note !== null && n.note !== undefined);
     if (tNotes.length === 0) return 0;
     
     let totalPoints = 0;
@@ -182,14 +197,14 @@ export default function BulletinImpressionPage({ params }: PageProps) {
               const coef = note.coefficient || 1;
               return (
               <tr key={note.id}>
-                <td className="border border-slate-800 px-4 py-3 font-bold uppercase text-xs">{note.matiereId}</td>
+                <td className="border border-slate-800 px-4 py-3 font-bold uppercase text-xs">{note.matiere}</td>
                 <td className="border border-slate-800 px-2 py-3 text-center">{isMaternelle ? '-' : coef}</td>
                 <td className="border border-slate-800 px-4 py-3 text-center font-black">
-                  {isMaternelle ? note.evaluationMaternelle : (note.note !== undefined ? note.note.toFixed(2) : '-')}
+                  {isMaternelle ? note.evaluation_maternelle : (note.note !== null && note.note !== undefined ? note.note.toFixed(2) : '-')}
                 </td>
                 <td className="border border-slate-800 px-4 py-3 text-xs italic">
                   {isMaternelle ? (
-                    note.evaluationMaternelle === 'Acquis' ? 'Excellent' : note.evaluationMaternelle === 'En cours' ? 'Doit poursuivre' : 'Attention requise'
+                    note.evaluation_maternelle === 'Acquis' ? 'Excellent' : note.evaluation_maternelle === 'En cours' ? 'Doit poursuivre' : 'Attention requise'
                   ) : (
                     getMention(note.note || 0)
                   )}

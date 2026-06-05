@@ -1,7 +1,6 @@
 'use client';
 import React, { useState, useEffect, use } from 'react';
-import { mockClasses } from '@/mock/classes';
-import { mockStudents } from '@/mock/students';
+import { createClient } from '@/lib/supabase/client';
 import { Classe, Eleve } from '@/types/domain';
 import Link from 'next/link';
 
@@ -9,29 +8,32 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
   const resolvedParams = use(params);
   const classeId = decodeURIComponent(resolvedParams.id);
   
-  const [classe, setClasse] = useState<Classe | null>(null);
+  const [classe, setClasse] = useState<any | null>(null);
   const [students, setStudents] = useState<Eleve[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  const supabase = createClient();
+
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedClasses = localStorage.getItem('mboaschool_classes');
-      const classesList = storedClasses ? JSON.parse(storedClasses) : mockClasses;
-      const foundClasse = classesList.find((c: Classe) => c.id === classeId);
-      
-      if (foundClasse) {
-        setClasse(foundClasse);
-        
-        const storedStudents = localStorage.getItem('mboaschool_students');
-        const allStudents = storedStudents ? JSON.parse(storedStudents) : mockStudents;
-        
-        const studentsInClass = allStudents.filter((s: Eleve) => 
-          s.classeId === foundClasse.id || s.classeId === foundClasse.nom || s.classeId === foundClasse.niveauId
-        );
-        setStudents(studentsInClass);
+    const fetchData = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('classes')
+          .select('*, eleves(*)')
+          .eq('id', classeId)
+          .single();
+
+        if (data) {
+          setClasse(data);
+          setStudents(data.eleves || []);
+        }
+      } catch (err) {
+        console.error("Error fetching class details:", err);
+      } finally {
+        setIsLoaded(true);
       }
-      setIsLoaded(true);
-    }
+    };
+    fetchData();
   }, [classeId]);
 
   if (!isLoaded) return <div className="p-8 text-center text-slate-500">Chargement...</div>;
@@ -68,15 +70,15 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
       <div className="flex items-end justify-between">
         <h1 className="text-2xl font-bold text-slate-800 text-black">Classe : {classe.nom}</h1>
         <div className="text-sm font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-md">
-          {classe.sectionId === 'sec-en' ? 'Section Anglophone' : 'Section Francophone'}
+          {classe.section === 'Anglophone' ? 'Section Anglophone' : 'Section Francophone'}
         </div>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Équipe Pédagogique</h2>
-          <p className="text-sm text-slate-600"><span className="font-bold text-slate-800">Enseignant Principal:</span> {classe.enseignantPrincipalId}</p>
-          <p className="text-sm text-slate-600 mt-2"><span className="font-bold text-slate-800">Assistant:</span> {classe.enseignantAssistantId || 'Aucun'}</p>
+          <p className="text-sm text-slate-600"><span className="font-bold text-slate-800">Enseignant Principal:</span> {classe.enseignant_principal_id || 'Non assigné'}</p>
+          <p className="text-sm text-slate-600 mt-2"><span className="font-bold text-slate-800">Assistant:</span> {classe.enseignant_assistant_id || 'Aucun'}</p>
         </div>
 
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">

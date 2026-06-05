@@ -28,11 +28,11 @@ export default function Hero() {
         </p>
         
         <div className="flex flex-col sm:flex-row justify-center gap-4 mb-16">
-          <Link href="#demo" className="px-8 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-600/30 transition-all transform hover:-translate-y-1">
-            Demander une démonstration
-          </Link>
-          <Link href="/dashboard" className="px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold text-lg hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
+          <Link href="/login?signup=true" className="px-8 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-600/30 transition-all transform hover:-translate-y-1">
             Essayer gratuitement
+          </Link>
+          <Link href="/login" className="px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold text-lg hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
+            Se connecter
           </Link>
         </div>
 
