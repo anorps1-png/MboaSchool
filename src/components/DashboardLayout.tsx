@@ -276,6 +276,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </div>
       )}
 
+      {/* Configuration Warning Banner */}
+      {(typeof window !== 'undefined' && 
+        (!process.env.NEXT_PUBLIC_SUPABASE_URL || 
+         process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder'))) && (
+        <div className="bg-amber-600 text-white text-xs font-bold text-center py-2.5 px-4 shadow-md z-50 flex items-center justify-center gap-2">
+          <span>⚠️</span>
+          <span>
+            <strong>Configuration incomplète :</strong> Les variables d'environnement Supabase (URL / Clé) ne sont pas configurées sur Vercel. Veuillez ajouter <code>NEXT_PUBLIC_SUPABASE_URL</code> et <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> dans les paramètres d'environnement de votre projet Vercel et redéployer.
+          </span>
+        </div>
+      )}
+
       {/* Mobile Top Bar */}
       <header className="lg:hidden bg-indigo-900 text-white flex items-center justify-between px-4 py-3 shadow-md sticky top-0 z-40">
         <div className="flex items-center gap-2">
