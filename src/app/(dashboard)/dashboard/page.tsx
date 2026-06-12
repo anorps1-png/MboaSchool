@@ -6,8 +6,10 @@ import { Eleve, Classe } from '@/types/domain';
 import { getDashboardData } from '@/lib/queries/dashboard';
 import { downloadExcel } from '@/lib/excel';
 import { DownloadIcon } from '@/components/icons';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function Dashboard() {
+  const { etablissementId } = useEtablissement();
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [teachersList, setTeachersList] = useState<any[]>([]);
@@ -15,10 +17,10 @@ export default function Dashboard() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && etablissementId) {
       const fetchData = async () => {
         try {
-          const { classes, students: studentsData, teachers } = await getDashboardData();
+          const { classes, students: studentsData, teachers } = await getDashboardData(etablissementId);
           setClassesList(classes);
           setTeachersList(teachers);
 
@@ -80,7 +82,7 @@ export default function Dashboard() {
 
       fetchData();
     }
-  }, []);
+  }, [etablissementId]);
 
   // 1. Calculations
   const totalStudents = students.length;

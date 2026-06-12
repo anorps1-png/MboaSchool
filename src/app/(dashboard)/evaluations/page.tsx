@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Classe } from '@/types/domain';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function EvaluationsHome() {
   const router = useRouter();
@@ -12,15 +13,18 @@ export default function EvaluationsHome() {
   const [selectedTerm, setSelectedTerm] = useState('Trimestre 1');
   const [isLoading, setIsLoading] = useState(true);
 
+  const { etablissementId } = useEtablissement();
   const supabase = createClient();
 
   useEffect(() => {
+    if (!etablissementId) return;
     const fetchClasses = async () => {
       setIsLoading(true);
       try {
         const { data, error } = await supabase
           .from('classes')
           .select('*')
+          .eq('etablissement_id', etablissementId)
           .order('nom', { ascending: true });
         
         if (data) {
@@ -36,7 +40,7 @@ export default function EvaluationsHome() {
       }
     };
     fetchClasses();
-  }, []);
+  }, [etablissementId]);
 
   const handleStart = (e: React.FormEvent) => {
     e.preventDefault();

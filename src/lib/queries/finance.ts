@@ -2,31 +2,31 @@ import { createClient } from '../supabase/client';
 
 const supabase = createClient();
 
-export async function getPlanComptable() {
+export async function getPlanComptable(etablissementId: string) {
   const { data, error } = await supabase
     .from('comptes_ohada')
     .select('*')
+    .eq('etablissement_id', etablissementId)
     .order('numero', { ascending: true });
 
   if (error) throw error;
   return data || [];
 }
 
-export async function getEcrituresComptables() {
+export async function getEcrituresComptables(etablissementId: string) {
   const { data, error } = await supabase
     .from('ecritures_comptables')
-    .select('*, lignes_ecritures(*)');
+    .select('*, lignes_ecritures(*)')
+    .eq('etablissement_id', etablissementId);
 
   if (error) throw error;
   return data || [];
 }
 
-export async function addEcritureComptable(ecriture: Record<string, any>, lignes: any[]) {
-  // Commencer une transaction (dans Supabase, on peut utiliser rpc ou insérer en cascade si configuré)
-  // Pour la simplicité, on insère d'abord l'écriture puis les lignes
+export async function addEcritureComptable(ecriture: Record<string, any>, lignes: any[], etablissementId: string) {
   const { data, error } = await supabase
     .from('ecritures_comptables')
-    .insert([ecriture])
+    .insert([{ ...ecriture, etablissement_id: etablissementId }])
     .select()
     .single();
 

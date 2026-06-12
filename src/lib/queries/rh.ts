@@ -2,40 +2,44 @@ import { createClient } from '../supabase/client';
 
 const supabase = createClient();
 
-export async function getPersonnel() {
+export async function getPersonnel(etablissementId: string) {
   const { data, error } = await supabase
     .from('membres_personnel')
     .select('*')
+    .eq('etablissement_id', etablissementId)
     .order('nom', { ascending: true });
 
   if (error) throw error;
   return data || [];
 }
 
-export async function getAbsences() {
+export async function getAbsences(etablissementId: string) {
   const { data, error } = await supabase
     .from('absences_personnel')
     .select('*')
+    .eq('etablissement_id', etablissementId)
     .order('date_debut', { ascending: false });
 
   if (error) throw error;
   return data || [];
 }
 
-export async function getMouvements() {
+export async function getMouvements(etablissementId: string) {
   const { data, error } = await supabase
     .from('mouvements_personnel')
     .select('*')
+    .eq('etablissement_id', etablissementId)
     .order('date', { ascending: false });
 
   if (error) throw error;
   return data || [];
 }
 
-export async function getEvaluationsRH() {
+export async function getEvaluationsRH(etablissementId: string) {
   const { data, error } = await supabase
     .from('evaluations_rh')
     .select('*')
+    .eq('etablissement_id', etablissementId)
     .order('date_evaluation', { ascending: false });
 
   if (error) throw error;
@@ -54,30 +58,30 @@ export async function updatePersonnel(id: string, data: Record<string, any>) {
   return updated;
 }
 
-export async function insertAbsence(data: Record<string, any>) {
+export async function insertAbsence(data: Record<string, any>, etablissementId: string) {
   const { data: inserted, error } = await supabase
     .from('absences_personnel')
-    .insert([data])
+    .insert([{ ...data, etablissement_id: etablissementId }])
     .select();
 
   if (error) throw error;
   return inserted;
 }
 
-export async function insertMouvement(data: Record<string, any>) {
+export async function insertMouvement(data: Record<string, any>, etablissementId: string) {
   const { data: inserted, error } = await supabase
     .from('mouvements_personnel')
-    .insert([data])
+    .insert([{ ...data, etablissement_id: etablissementId }])
     .select();
 
   if (error) throw error;
   return inserted;
 }
 
-export async function insertPersonnel(data: Record<string, any>) {
+export async function insertPersonnel(data: Record<string, any>, etablissementId: string) {
   const { data: inserted, error } = await supabase
     .from('membres_personnel')
-    .insert([data])
+    .insert([{ ...data, etablissement_id: etablissementId }])
     .select()
     .single();
 
@@ -85,11 +89,11 @@ export async function insertPersonnel(data: Record<string, any>) {
   return inserted;
 }
 
-
-export async function getFormations() {
+export async function getFormations(etablissementId: string) {
   const { data, error } = await supabase
     .from('formations_rh')
-    .select('*, formations_beneficiaires(*)');
+    .select('*, formations_beneficiaires(*)')
+    .eq('etablissement_id', etablissementId);
 
   if (error) throw error;
   return data || [];

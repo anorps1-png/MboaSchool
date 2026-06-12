@@ -10,6 +10,7 @@ function LoginContent() {
   
   // Navigation & Wizard State
   const [isSignUp, setIsSignUp] = useState(false);
+  const [signUpSuccess, setSignUpSuccess] = useState(false);
   const [signupStep, setSignupStep] = useState(1); // 1: Credentials, 2: Plan, 3: Payment, 4: School Info
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -60,10 +61,49 @@ function LoginContent() {
       if (data?.user) {
         // Clear offline session cookie if successful Supabase authentication
         document.cookie = "mboaschool_offline_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        // Fetch profile to get etablissement_id
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('etablissement_id, role')
+            .eq('id', data.user.id)
+            .single();
+          if (profile?.etablissement_id) {
+            localStorage.setItem('mboaschool_etablissement_id', profile.etablissement_id);
+            // Also fetch school name
+            const { data: etab } = await supabase
+              .from('etablissements')
+              .select('nom')
+              .eq('id', profile.etablissement_id)
+              .single();
+            if (etab) localStorage.setItem('mboaschool_current_school', etab.nom);
+          }
+        } catch (profileErr) {
+          console.warn('Could not fetch profile on login:', profileErr);
+        }
         router.push('/dashboard');
       }
     } catch (err: any) {
-      console.error("Login error, trying offline fallback:", err);
+      console.error("Login error, checking error type:", err);
+
+      // Check if the error is due to unconfirmed email
+      if (err.message && (err.message.includes('Email not confirmed') || err.message.toLowerCase().includes('confirm'))) {
+        setErrorMsg("Veuillez valider votre adresse email avant de vous connecter. Un email de confirmation vous a été envoyé lors de votre inscription.");
+        setIsLoading(false);
+        return;
+      }
+
+      // If it's a real API auth error from Supabase (status code exists or it's a formal validation/auth error)
+      // and NOT a network/fetch error, display the error instead of falling back to offline mode.
+      if (err.status || err.code || (err.message && !err.message.includes('fetch') && !err.message.includes('network') && !err.message.includes('Failed to fetch'))) {
+        let displayMsg = err.message;
+        if (err.message && err.message.includes('Invalid login credentials')) {
+          displayMsg = "Identifiants de connexion invalides. Veuillez vérifier votre adresse email et votre mot de passe.";
+        }
+        setErrorMsg(displayMsg);
+        setIsLoading(false);
+        return;
+      }
 
       // Check if we have a simulated account session
       const storedOffline = localStorage.getItem('mboaschool_offline_session');
@@ -80,6 +120,40 @@ function LoginContent() {
         }
       }
 
+      // Check in mboaschool_profiles for simulated accounts created by admin
+      const storedProfiles = localStorage.getItem('mboaschool_profiles');
+      if (storedProfiles) {
+        try {
+          const profilesList = JSON.parse(storedProfiles);
+          const matchedProfile = profilesList.find((p: any) => p.email === email);
+          if (matchedProfile) {
+            // Verify password if it is stored in the profile
+            if (matchedProfile.password && matchedProfile.password !== password) {
+              setErrorMsg("Mot de passe incorrect.");
+              setIsLoading(false);
+              return;
+            }
+            localStorage.setItem('mboaschool_offline_session', JSON.stringify({
+              email: matchedProfile.email,
+              role: matchedProfile.role,
+              school: matchedProfile.school || localStorage.getItem('mboaschool_current_school') || 'Mon Établissement'
+            }));
+            if (matchedProfile.school) {
+              localStorage.setItem('mboaschool_current_school', matchedProfile.school);
+            }
+            // Restore etablissement_id from offline profile
+            if (matchedProfile.etablissement_id) {
+              localStorage.setItem('mboaschool_etablissement_id', matchedProfile.etablissement_id);
+            }
+            document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
+            router.push('/dashboard');
+            return;
+          }
+        } catch (e) {
+          console.warn("Failed checking mboaschool_profiles", e);
+        }
+      }
+
       // General fallback demo login
       if (email === 'admin@mboaschool.com' || email === 'directeur@mboaschool.com') {
         document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
@@ -88,6 +162,8 @@ function LoginContent() {
           role: 'admin',
           school: 'Collège Vogt - Yaoundé'
         }));
+        localStorage.setItem('mboaschool_current_school', 'Collège Vogt - Yaoundé');
+        localStorage.setItem('mboaschool_etablissement_id', 'd3b07384-d113-4ee7-a496-c67b8a74e50d');
         router.push('/dashboard');
         return;
       }
@@ -137,94 +213,120 @@ function LoginContent() {
     setErrorMsg(null);
 
     try {
-      // 1. Create client auth user in Supabase
+      // 1. Create client auth user in Supabase with metadata
       const { data: signUpData, error: authError } = await supabase.auth.signUp({
         email,
-        password
+        password,
+        options: {
+          data: {
+            school_name: schoolName,
+            school_year: schoolYear
+          }
+        }
       });
 
       if (authError) throw authError;
 
       if (signUpData?.user) {
+        // Since database trigger handles creating the establishment, year, and profile,
+        // we can fetch the profile to get the created etablissement_id
         let etabId = null;
-        let activeYearId = null;
-
-        // 2. Create etablissement
         try {
-          const { data: etabData, error: etabErr } = await supabase
-            .from('etablissements')
-            .insert([{
-              nom: schoolName,
-              seuil_reussite: 10
-            }])
-            .select()
-            .single();
-
-          if (!etabErr && etabData) {
-            etabId = etabData.id;
-
-            // 3. Create active academic year
-            const { data: anneeData, error: anneeErr } = await supabase
-              .from('annees_scolaires')
-              .insert([{
-                nom: schoolYear,
-                date_debut: `${schoolYear.split('/')[0]}-09-01`,
-                date_fin: `${schoolYear.split('/')[1]}-06-30`
-              }])
-              .select()
-              .single();
-
-            if (!anneeErr && anneeData) {
-              activeYearId = anneeData.id;
-
-              // Link academic year to school
-              await supabase
-                .from('etablissements')
-                .update({ annee_scolaire_active_id: activeYearId })
-                .eq('id', etabId);
-            }
-          }
-        } catch (dbErr) {
-          console.warn("Failed creating DB records, falling back to local configurations:", dbErr);
-        }
-
-        // 4. Create user profile as Admin
-        try {
-          await supabase
+          const { data: profile } = await supabase
             .from('profiles')
-            .insert([{
-              id: signUpData.user.id,
-              email,
-              role: 'admin',
-              etablissement_id: etabId
-            }]);
-        } catch (profileErr) {
-          console.warn("Profile mapping failed:", profileErr);
+            .select('etablissement_id')
+            .eq('id', signUpData.user.id)
+            .single();
+          if (profile) etabId = profile.etablissement_id;
+        } catch (e) {
+          console.warn("Could not fetch newly created profile immediately:", e);
         }
 
         // Always save plan & info to local storage as fallback and for Layout displaying
         localStorage.setItem('mboaschool_current_school', schoolName);
         localStorage.setItem('mboaschool_current_year', schoolYear);
         localStorage.setItem('mboaschool_subscription', selectedPlan);
+        // Persist the etablissement_id for multi-tenant filtering
+        if (etabId) {
+          localStorage.setItem('mboaschool_etablissement_id', etabId);
+        }
 
-        // Save simulated offline session for registration fallback/bypass
-        localStorage.setItem('mboaschool_offline_session', JSON.stringify({
-          email,
-          role: 'admin',
-          school: schoolName
-        }));
-        // Set cookie so middleware lets us access /dashboard
-        document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
+        // Update local profiles list so they can log back in
+        const storedProfiles = localStorage.getItem('mboaschool_profiles');
+        let profilesList = [];
+        if (storedProfiles) {
+          try {
+            profilesList = JSON.parse(storedProfiles);
+          } catch (e) {
+            profilesList = [];
+          }
+        }
+        if (!profilesList.find((p: any) => p.email === email)) {
+          profilesList.push({
+            id: signUpData?.user?.id || `offline-${Date.now()}`,
+            email: email,
+            password: password,
+            role: 'admin',
+            school: schoolName,
+            etablissement_id: etabId,
+            created_at: new Date().toISOString()
+          });
+          localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+        }
 
-        router.push('/dashboard');
+        // Do NOT log the user in immediately. Set signUpSuccess to true so we display the validation message.
+        setSignUpSuccess(true);
       }
     } catch (err: any) {
-      console.warn("Supabase onboarding failed, proceeding in simulated/offline mode:", err);
+      console.warn("Supabase onboarding failed, checking error type:", err);
       
-      // Local Fallback Mode (Prototype success)
+      // If it's a real API auth error from Supabase (rate limit, weak password, duplicate email, invalid domain),
+      // we must show the error instead of falling back to simulated offline mode.
+      if (err.status || err.code || (err.message && !err.message.includes('fetch') && !err.message.includes('network') && !err.message.includes('Failed to fetch'))) {
+        let displayMsg = err.message;
+        if (err.code === 'over_email_send_rate_limit' || (err.message && err.message.toLowerCase().includes('rate limit'))) {
+          displayMsg = "Limite d'envoi d'emails de confirmation dépassée par Supabase. Veuillez réessayer plus tard ou utiliser une autre adresse email.";
+        } else if (err.code === 'user_already_exists' || (err.message && err.message.toLowerCase().includes('already registered'))) {
+          displayMsg = "Cette adresse email est déjà enregistrée. Veuillez utiliser une autre adresse ou vous connecter.";
+        } else if (err.code === 'weak_password') {
+          displayMsg = "Le mot de passe choisi est trop faible. Veuillez choisir un mot de passe plus complexe.";
+        } else if (err.code === 'email_address_invalid') {
+          displayMsg = "L'adresse email saisie est invalide ou non autorisée.";
+        }
+        setErrorMsg(displayMsg);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Local Fallback Mode (only when completely offline or server unreachable)
+      const offlineEtabId = crypto.randomUUID();
       localStorage.setItem('mboaschool_current_school', schoolName);
       localStorage.setItem('mboaschool_current_year', schoolYear);
       localStorage.setItem('mboaschool_subscription', selectedPlan);
+      localStorage.setItem('mboaschool_etablissement_id', offlineEtabId);
+
+      // Update local profiles list so they can log back in
+      const storedProfiles = localStorage.getItem('mboaschool_profiles');
+      let profilesList = [];
+      if (storedProfiles) {
+        try {
+          profilesList = JSON.parse(storedProfiles);
+        } catch (e) {
+          profilesList = [];
+        }
+      }
+      if (!profilesList.find((p: any) => p.email === email)) {
+        profilesList.push({
+          id: `offline-${Date.now()}`,
+          email: email,
+          password: password,
+          role: 'admin',
+          school: schoolName,
+          etablissement_id: offlineEtabId,
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+      }
       
       // Simulate active offline profile session
       localStorage.setItem('mboaschool_offline_session', JSON.stringify({
@@ -322,284 +424,47 @@ function LoginContent() {
             </form>
           )}
 
-          {/* SIGNUP WIZARD VIEW */}
+          {/* SIGNUP VIEW */}
           {isSignUp && (
-            <div>
-              {/* Wizard Steps indicator */}
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
-                <div>
-                  <h3 className="text-xl font-extrabold text-white">Créer mon espace</h3>
-                  <p className="text-xs text-slate-500 mt-1">Étape {signupStep} sur 4</p>
+            signUpSuccess ? (
+              <div className="space-y-6 text-center py-6 animate-in fade-in duration-300">
+                <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full flex items-center justify-center mx-auto text-2xl mb-4">
+                  ✉️
                 </div>
-                <button 
-                  type="button" 
-                  onClick={() => setIsSignUp(false)} 
-                  className="text-xs font-bold text-slate-400 hover:text-white"
+                <h3 className="text-xl font-extrabold text-white">Validation de l'adresse email</h3>
+                <p className="text-sm text-slate-400 leading-relaxed">
+                  Votre espace a été créé avec succès ! Un email de confirmation a été envoyé à l'adresse <strong className="text-indigo-300">{email}</strong>.
+                </p>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Veuillez cliquer sur le lien de confirmation présent dans ce mail pour activer votre compte. Une fois activé, vous pourrez vous connecter.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUp(false);
+                    setSignUpSuccess(false);
+                  }}
+                  className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-bold shadow-md transition-all active:scale-95 mt-4"
                 >
-                  Se connecter
+                  Retour à la connexion
                 </button>
               </div>
-
-              {/* STEP 1: CREDENTIALS */}
-              {signupStep === 1 && (
-                <form onSubmit={handleNextStep} className="space-y-6">
+            ) : (
+              <div>
+                <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Adresse Email</label>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@mboaschool.com"
-                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                    />
+                    <h3 className="text-xl font-extrabold text-white">Créer mon espace</h3>
+                    <p className="text-xs text-slate-500 mt-1">Création de votre compte établissement</p>
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Créer un Mot de passe</label>
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Minimum 6 caractères"
-                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all"
+                  <button 
+                    type="button" 
+                    onClick={() => setIsSignUp(false)} 
+                    className="text-xs font-bold text-slate-400 hover:text-white"
                   >
-                    Suivant : Choisir un forfait →
+                    Se connecter
                   </button>
-                </form>
-              )}
-
-              {/* STEP 2: NETFLIX-STYLE PRICING */}
-              {signupStep === 2 && (
-                <div className="space-y-6">
-                  <p className="text-sm text-slate-400 text-center">
-                    Sélectionnez la formule d'abonnement adaptée aux besoins de votre structure.
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Basic */}
-                    <div 
-                      onClick={() => setSelectedPlan('Basic')}
-                      className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${selectedPlan === 'Basic' ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-slate-950 border-slate-850 hover:border-slate-700'}`}
-                    >
-                      <div>
-                        <span className="text-xs bg-indigo-900/50 text-indigo-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Basic</span>
-                        <h4 className="text-lg font-bold mt-2 text-white">Maternelle / Primaire</h4>
-                      </div>
-                      <div className="mt-6">
-                        <p className="text-xl font-black text-white">25 000 FCFA</p>
-                        <p className="text-[10px] text-slate-500">par mois</p>
-                      </div>
-                    </div>
-
-                    {/* Standard */}
-                    <div 
-                      onClick={() => setSelectedPlan('Standard')}
-                      className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between relative overflow-hidden ${selectedPlan === 'Standard' ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-slate-950 border-slate-850 hover:border-slate-700'}`}
-                    >
-                      <div className="absolute top-0 right-0 bg-emerald-500 text-slate-950 text-[8px] font-black uppercase tracking-wider py-1 px-3 rounded-bl">Populaire</div>
-                      <div>
-                        <span className="text-xs bg-indigo-900/50 text-indigo-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Standard</span>
-                        <h4 className="text-lg font-bold mt-2 text-white">Collège / Lycée</h4>
-                      </div>
-                      <div className="mt-6">
-                        <p className="text-xl font-black text-white">50 000 FCFA</p>
-                        <p className="text-[10px] text-slate-500">par mois</p>
-                      </div>
-                    </div>
-
-                    {/* Premium */}
-                    <div 
-                      onClick={() => setSelectedPlan('Premium')}
-                      className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${selectedPlan === 'Premium' ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-slate-950 border-slate-850 hover:border-slate-700'}`}
-                    >
-                      <div>
-                        <span className="text-xs bg-indigo-900/50 text-indigo-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Premium</span>
-                        <h4 className="text-lg font-bold mt-2 text-white">Multi-sites</h4>
-                      </div>
-                      <div className="mt-6">
-                        <p className="text-xl font-black text-white">100 000 FCFA</p>
-                        <p className="text-[10px] text-slate-500">par mois</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Plan Features checklist */}
-                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 space-y-2.5 text-xs text-slate-400">
-                    <div className="flex items-center gap-2">
-                      <span className="text-emerald-500 font-bold">✓</span>
-                      <span>Accès complet au tableau de bord général</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-emerald-500 font-bold">✓</span>
-                      <span>Édition automatique de bulletins avec coefficients</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-emerald-500 font-bold">✓</span>
-                      <span>Comptabilité OHADA et gestion RH</span>
-                    </div>
-                    {selectedPlan === 'Premium' && (
-                      <div className="flex items-center gap-2 text-indigo-400 font-semibold animate-pulse">
-                        <span className="text-emerald-500 font-bold">✓</span>
-                        <span>Gestion multi-établissements & Support direct VIP 24/7</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setSignupStep(1)}
-                      className="flex-1 py-3 bg-slate-900 border border-slate-800 text-slate-400 rounded-xl text-sm font-bold"
-                    >
-                      Retour
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleNextStep}
-                      className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg"
-                    >
-                      Choisir ce forfait →
-                    </button>
-                  </div>
                 </div>
-              )}
 
-              {/* STEP 3: PAYMENT SIMULATION */}
-              {signupStep === 3 && (
-                <form onSubmit={handleSimulatePayment} className="space-y-6">
-                  <div className="text-center bg-slate-950 p-4 rounded-2xl border border-slate-850">
-                    <span className="text-xs text-slate-400 uppercase font-bold">Total à régler</span>
-                    <h4 className="text-2xl font-black text-white mt-1">{getPlanPrice(selectedPlan)} <span className="text-xs font-normal text-slate-500">/ mois</span></h4>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-3">Moyen de paiement</label>
-                    <div className="flex gap-3">
-                      <div 
-                        onClick={() => setPaymentMethod('momo')}
-                        className={`flex-1 py-3 border rounded-xl flex flex-col items-center justify-center cursor-pointer transition-colors ${paymentMethod === 'momo' ? 'bg-indigo-950/20 border-indigo-500 text-indigo-400' : 'bg-slate-950 border-slate-850 text-slate-500 hover:bg-slate-900'}`}
-                      >
-                        <span className="text-lg">📱</span>
-                        <span className="text-xs font-bold mt-1">MTN MoMo</span>
-                      </div>
-                      <div 
-                        onClick={() => setPaymentMethod('om')}
-                        className={`flex-1 py-3 border rounded-xl flex flex-col items-center justify-center cursor-pointer transition-colors ${paymentMethod === 'om' ? 'bg-indigo-950/20 border-indigo-500 text-indigo-400' : 'bg-slate-950 border-slate-850 text-slate-500 hover:bg-slate-900'}`}
-                      >
-                        <span className="text-lg">🍊</span>
-                        <span className="text-xs font-bold mt-1">Orange Money</span>
-                      </div>
-                      <div 
-                        onClick={() => setPaymentMethod('card')}
-                        className={`flex-1 py-3 border rounded-xl flex flex-col items-center justify-center cursor-pointer transition-colors ${paymentMethod === 'card' ? 'bg-indigo-950/20 border-indigo-500 text-indigo-400' : 'bg-slate-950 border-slate-850 text-slate-500 hover:bg-slate-900'}`}
-                      >
-                        <span className="text-lg">💳</span>
-                        <span className="text-xs font-bold mt-1">CB / Visa</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Payment Fields */}
-                  {paymentMethod !== 'card' ? (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Numéro Mobile Money (Cameroun)</label>
-                      <div className="relative">
-                        <input
-                          type="tel"
-                          required
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          placeholder="Ex: 692 56 89 74"
-                          className="w-full px-4 py-3 pl-16 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                        />
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">+237</span>
-                      </div>
-                      <p className="text-[10px] text-slate-500 mt-2">
-                        Une demande de paiement de {getPlanPrice(selectedPlan)} sera envoyée sur ce téléphone.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Numéro de carte</label>
-                        <input
-                          type="text"
-                          required
-                          value={cardNumber}
-                          onChange={(e) => setCardNumber(e.target.value)}
-                          placeholder="4000 1234 5678 9010"
-                          className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Expiration</label>
-                          <input
-                            type="text"
-                            required
-                            value={cardExpiry}
-                            onChange={(e) => setCardExpiry(e.target.value)}
-                            placeholder="MM/AA"
-                            className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-2">CVV</label>
-                          <input
-                            type="text"
-                            required
-                            value={cardCvv}
-                            onChange={(e) => setCardCvv(e.target.value)}
-                            placeholder="123"
-                            className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex gap-4 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setSignupStep(2)}
-                      className="flex-1 py-3 bg-slate-900 border border-slate-800 text-slate-400 rounded-xl text-sm font-bold"
-                      disabled={paymentLoading || paymentSuccess}
-                    >
-                      Forfaits
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all flex items-center justify-center gap-2"
-                      disabled={paymentLoading || paymentSuccess}
-                    >
-                      {paymentLoading ? (
-                        <>
-                          <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          <span>Validation...</span>
-                        </>
-                      ) : paymentSuccess ? (
-                        "Abonné avec succès ! ✓"
-                      ) : (
-                        `Activer l'Abonnement`
-                      )}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* STEP 4: SCHOOL & ONBOARDING */}
-              {signupStep === 4 && (
                 <form onSubmit={handleFinalSubmit} className="space-y-6">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nom de l'Établissement *</label>
@@ -609,49 +474,44 @@ function LoginContent() {
                       value={schoolName}
                       onChange={(e) => setSchoolName(e.target.value)}
                       placeholder="Ex: Collège Vogt, Lycée de Douala"
-                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Sous-système</label>
-                      <select
-                        value={schoolSystem}
-                        onChange={(e) => setSchoolSystem(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none"
-                      >
-                        <option value="Francophone">Francophone</option>
-                        <option value="Anglophone">Anglophone</option>
-                        <option value="Bilingue">Bilingue</option>
-                      </select>
-                    </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Adresse Email *</label>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="admin@mboaschool.com"
+                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                    />
+                  </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Année Scolaire Active</label>
-                      <select
-                        value={schoolYear}
-                        onChange={(e) => setSchoolYear(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none"
-                      >
-                        <option value="2025/2026">2025/2026</option>
-                        <option value="2026/2027">2026/2027</option>
-                        <option value="2024/2025">2024/2025</option>
-                      </select>
-                    </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Créer un Mot de passe *</label>
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Minimum 6 caractères"
+                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                    />
                   </div>
 
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all flex items-center justify-center"
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center disabled:opacity-50"
                   >
                     {isLoading ? "Création de l'Espace..." : "Finaliser et ouvrir mon Dashboard →"}
                   </button>
                 </form>
-              )}
-
-            </div>
+              </div>
+            )
           )}
 
         </div>

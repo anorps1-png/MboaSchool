@@ -50,7 +50,14 @@ export async function middleware(request: NextRequest) {
 
   // Check if there is an active offline/simulated session cookie
   const offlineSession = request.cookies.get('mboaschool_offline_session');
-  const hasAccess = user || offlineSession;
+  
+  // Check if the browser holds a valid-looking Supabase auth cookie.
+  // This prevents sudden logouts on navigation when the Supabase API is slow or offline.
+  const hasAuthCookie = request.cookies.getAll().some(
+    (c) => c.name.includes('auth-token') || c.name.startsWith('sb-')
+  );
+  
+  const hasAccess = user || offlineSession || hasAuthCookie;
 
   // Protected routes check
   // Allow landing page (/), login (/login), SW/manifests, and static assets
@@ -68,7 +75,9 @@ export async function middleware(request: NextRequest) {
   }
 
   // Redirect to dashboard if already logged in and hitting login page
-  if (hasAccess && path === '/login') {
+  // We require a verified Supabase user or active offline session. We do not use the soft hasAccess (which includes cookie presence) here to avoid redirect loops during logout.
+  const hasRealAccess = user || offlineSession;
+  if (hasRealAccess && path === '/login') {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

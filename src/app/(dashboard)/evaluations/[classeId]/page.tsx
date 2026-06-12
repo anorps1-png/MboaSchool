@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Eleve, Classe, NoteMatiere } from '@/types/domain';
 import Link from 'next/link';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 interface PageProps {
   params: Promise<{ classeId: string }>;
@@ -17,6 +18,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   const classeId = resolvedParams.classeId;
   const searchParams = useSearchParams();
   const term = searchParams.get('term') || 'Trimestre 1';
+  const { etablissementId } = useEtablissement();
   
   const [studentsList, setStudentsList] = useState<any[]>([]);
   const [classInfo, setClassInfo] = useState<any | null>(null);
@@ -35,6 +37,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   const supabase = createClient();
 
   useEffect(() => {
+    if (!etablissementId) return;
     const loadData = async () => {
       try {
         // 1. Get class details
@@ -42,6 +45,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
           .from('classes')
           .select('*')
           .eq('id', decodeURIComponent(classeId))
+          .eq('etablissement_id', etablissementId)
           .single();
 
         if (clsErr) throw clsErr;
@@ -51,7 +55,8 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         const { data: studsData, error: studsErr } = await supabase
           .from('eleves')
           .select('*, notes(*)')
-          .eq('classe_id', decodeURIComponent(classeId));
+          .eq('classe_id', decodeURIComponent(classeId))
+          .eq('etablissement_id', etablissementId);
 
         if (studsErr) throw studsErr;
         setStudentsList(studsData || []);
@@ -63,7 +68,8 @@ export default function EvaluationsClassePage({ params }: PageProps) {
             .from('notes')
             .select('*')
             .in('eleve_id', studsIds)
-            .eq('trimestre', term);
+            .eq('trimestre', term)
+            .eq('etablissement_id', etablissementId);
           
           if (!notesErr && notesData) {
             setNotesList(notesData);
@@ -91,7 +97,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     };
 
     loadData();
-  }, [classeId, term, selectedSubject]);
+  }, [classeId, term, selectedSubject, etablissementId]);
 
   useEffect(() => {
     if (studentsList.length > 0) {
@@ -141,6 +147,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   };
 
   const saveAllNotes = async () => {
+    if (!etablissementId) return;
     const isMaternelle = classInfo?.niveau?.toLowerCase().includes('maternelle') || classInfo?.niveau_id?.toLowerCase().includes('maternelle');
 
     const upsertData = studentsList.map(student => {
@@ -152,7 +159,8 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         matiere: selectedSubject,
         trimestre: term,
         coefficient: selectedCoef,
-        date_saisie: new Date().toISOString()
+        date_saisie: new Date().toISOString(),
+        etablissement_id: etablissementId
       };
 
       if (existingNote) {
@@ -184,7 +192,8 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         .from('notes')
         .select('*')
         .in('eleve_id', studsIds)
-        .eq('trimestre', term);
+        .eq('trimestre', term)
+        .eq('etablissement_id', etablissementId);
       
       if (notesData) {
         setNotesList(notesData);

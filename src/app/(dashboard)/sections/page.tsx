@@ -1,55 +1,56 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function SectionsPage() {
   const [sectionsList, setSectionsList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { etablissementId } = useEtablissement();
 
   const supabase = createClient();
 
   useEffect(() => {
-    const fetchSectionsData = async () => {
-      setIsLoading(true);
-      try {
-        // Fetch all classes and their nested students
-        const { data: classesData, error } = await supabase
-          .from('classes')
-          .select('*, eleves(*)');
+    if (etablissementId) fetchSectionsData();
+  }, [etablissementId]);
 
-        if (classesData) {
-          // Group by section
-          const sectionsMap: Record<string, { name: string; classes: any[]; studentsCount: number }> = {};
-          
-          classesData.forEach(cls => {
-            const sectionName = cls.section || 'Francophone';
-            if (!sectionsMap[sectionName]) {
-              sectionsMap[sectionName] = {
-                name: sectionName,
-                classes: [],
-                studentsCount: 0
-              };
-            }
-            sectionsMap[sectionName].classes.push(cls);
-            sectionsMap[sectionName].studentsCount += (cls.eleves || []).length;
-          });
+  const fetchSectionsData = async () => {
+    if (!etablissementId) return;
+    setIsLoading(true);
+    try {
+      const { data: classesData, error } = await supabase
+        .from('classes')
+        .select('*, eleves(*)')
+        .eq('etablissement_id', etablissementId);
 
-          setSectionsList(Object.values(sectionsMap));
-        }
-      } catch (err) {
-        console.error("Error loading sections:", err);
-      } finally {
-        setIsLoading(true);
-        setIsLoading(false);
+      if (classesData) {
+        const sectionsMap: Record<string, { name: string; classes: any[]; studentsCount: number }> = {};
+        
+        classesData.forEach(cls => {
+          const sectionName = cls.section || 'Francophone';
+          if (!sectionsMap[sectionName]) {
+            sectionsMap[sectionName] = {
+              name: sectionName,
+              classes: [],
+              studentsCount: 0
+            };
+          }
+          sectionsMap[sectionName].classes.push(cls);
+          sectionsMap[sectionName].studentsCount += (cls.eleves || []).length;
+        });
+
+        setSectionsList(Object.values(sectionsMap));
       }
-    };
-
-    fetchSectionsData();
-  }, []);
+    } catch (err) {
+      console.error("Error loading sections:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <h1 className="text-2xl font-bold text-slate-800 text-black">Sections & Sous-systèmes</h1>
+      <h1 className="text-2xl font-bold text-slate-800 text-black">Sections &amp; Sous-systèmes</h1>
       <p className="text-slate-500 text-sm">Vue consolidée par sous-système de l'établissement.</p>
 
       {isLoading ? (

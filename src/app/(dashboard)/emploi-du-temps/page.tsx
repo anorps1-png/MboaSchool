@@ -1,14 +1,21 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { mockLessons } from '@/mock/timetable';
 import { mockClassFees } from '@/mock/fees';
 import { ChevronDownIcon } from '@/components/icons';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function EmploiDuTempsPage() {
   const classesList = mockClassFees.map(cf => cf.niveauId);
   const [selectedClass, setSelectedClass] = useState(classesList[0] || 'Terminale D');
   const [selectedMobileDay, setSelectedMobileDay] = useState(1); // 1 = Lundi for mobile view
+  const { etablissementId } = useEtablissement();
+  const [isDemo, setIsDemo] = useState(false);
+
+  useEffect(() => {
+    // No longer needed - we always work with real data
+  }, []);
 
   const daysOfWeek = [
     { num: 1, name: 'Lundi' },
@@ -34,8 +41,9 @@ export default function EmploiDuTempsPage() {
 
   // Filter lessons for selected class
   const classLessons = useMemo(() => {
+    if (!isDemo) return [];
     return mockLessons.filter(l => l.classeId === selectedClass);
-  }, [selectedClass]);
+  }, [selectedClass, isDemo]);
 
   // Timetable slots
   const timeSlots = [

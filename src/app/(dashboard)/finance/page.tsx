@@ -13,6 +13,7 @@ import { mockStudents } from '@/mock/students';
 import { mockPersonnel, mockFormations } from '@/mock/rh';
 import { mockBSCHistorique, mockBudget2026, BudgetPrevisionnel } from '@/mock/finance';
 import { createClient } from '@/lib/supabase/client';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function FinancePage() {
   const [activeTab, setActiveTab] = useState<'bsc' | 'productivity' | 'ratios' | 'cash' | 'budget' | 'accounting'>('bsc');
@@ -25,6 +26,9 @@ export default function FinancePage() {
   const [students, setStudents] = useState<Eleve[]>([]);
   const [personnel, setPersonnel] = useState<MembrePersonnel[]>([]);
   const [formations, setFormations] = useState<FormationRH[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [sections, setSections] = useState<any[]>([]);
+  const [teachers, setTeachers] = useState<any[]>([]);
 
   // Modals for accounting
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -38,6 +42,7 @@ export default function FinancePage() {
   const [expCompteTiers, setExpCompteTiers] = useState('401');
   const [expCompteCredit, setExpCompteCredit] = useState('571');
   const [expTva, setExpTva] = useState(false);
+  const [expPartenaire, setExpPartenaire] = useState('');
 
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [newAccNum, setNewAccNum] = useState('');
@@ -67,7 +72,10 @@ export default function FinancePage() {
   // Budget report state
   const [showBudgetReportModal, setShowBudgetReportModal] = useState(false);
 
+  const { etablissementId } = useEtablissement();
+
   useEffect(() => {
+    if (!etablissementId) return;
     const loadData = async () => {
       const supabase = createClient();
       
@@ -76,6 +84,7 @@ export default function FinancePage() {
         const { data: storedPlan, error } = await supabase
           .from('comptes_ohada')
           .select('*')
+          .eq('etablissement_id', etablissementId)
           .order('numero', { ascending: true });
         
         if (!error && storedPlan && storedPlan.length > 0) {
@@ -94,7 +103,8 @@ export default function FinancePage() {
       try {
         const { data: elevesData, error } = await supabase
           .from('eleves')
-          .select('*, paiements(*)');
+          .select('*, paiements(*)')
+          .eq('etablissement_id', etablissementId);
         
         if (!error && elevesData) {
           // Map to domain format
@@ -126,21 +136,18 @@ export default function FinancePage() {
           }));
           setStudents(loadedStudents);
         } else {
-          const storedStudents = localStorage.getItem('mboaschool_students');
-          loadedStudents = storedStudents ? JSON.parse(storedStudents) : mockStudents;
-          setStudents(loadedStudents);
+          setStudents([]);
         }
       } catch (err) {
-        const storedStudents = localStorage.getItem('mboaschool_students');
-        loadedStudents = storedStudents ? JSON.parse(storedStudents) : mockStudents;
-        setStudents(loadedStudents);
+        setStudents([]);
       }
 
       // 3. Fetch Personnel (membres_personnel)
       try {
         const { data: persData, error } = await supabase
           .from('membres_personnel')
-          .select('*');
+          .select('*')
+          .eq('etablissement_id', etablissementId);
         if (!error && persData && persData.length > 0) {
           const mapped = persData.map((p: any) => ({
             id: p.id,
@@ -157,19 +164,18 @@ export default function FinancePage() {
           }));
           setPersonnel(mapped);
         } else {
-          const storedPers = localStorage.getItem('mboaschool_rh_personnel');
-          setPersonnel(storedPers ? JSON.parse(storedPers) : mockPersonnel);
+          setPersonnel([]);
         }
       } catch (err) {
-        const storedPers = localStorage.getItem('mboaschool_rh_personnel');
-        setPersonnel(storedPers ? JSON.parse(storedPers) : mockPersonnel);
+        setPersonnel([]);
       }
 
       // 4. Formations
       try {
         const { data: formsData, error } = await supabase
           .from('formations_rh')
-          .select('*');
+          .select('*')
+          .eq('etablissement_id', etablissementId);
         if (!error && formsData && formsData.length > 0) {
           const mapped = formsData.map((f: any) => ({
             id: f.id,
@@ -183,84 +189,80 @@ export default function FinancePage() {
           }));
           setFormations(mapped);
         } else {
-          setFormations(mockFormations);
+          setFormations([]);
         }
       } catch (err) {
-        setFormations(mockFormations);
+        setFormations([]);
       }
 
       // 5. Fetch General Ledger entries
+      let customEcritures: EcritureComptable[] = [];
       try {
         const { data: ecrData, error } = await supabase
           .from('ecritures_comptables')
-          .select('*, lignes_ecritures(*)');
+          .select('*, lignes_ecritures(*)')
+          .eq('etablissement_id', etablissementId);
         
-        let customEcritures: EcritureComptable[] = [];
         if (!error && ecrData && ecrData.length > 0) {
           customEcritures = ecrData.map((e: any) => ({
             id: e.id,
             date: e.date,
             libelle: e.libelle,
             reference: e.reference,
+            partenaire: e.partenaire,
             lignes: (e.lignes_ecritures || []).map((l: any) => ({
               compteNumero: l.compte_numero,
               debit: Number(l.debit || 0),
               credit: Number(l.credit || 0)
             }))
           }));
-        } else {
-          const storedEcritures = localStorage.getItem('mboaschool_ecritures');
-          customEcritures = storedEcritures ? JSON.parse(storedEcritures) : mockEcrituresInitiales;
         }
-
-        // Auto-generate entries from student payments dynamically
-        const paymentEcritures: EcritureComptable[] = [];
-        loadedStudents.forEach((student: Eleve) => {
-          if (!student) return;
-          const paiements = student.paiements || [];
-          const totalScolarite = paiements.reduce((sum, p) => sum + p.montant, 0);
-          
-          if (totalScolarite > 0) {
-            const dateConst = student.dateInscription ? student.dateInscription.split('T')[0] : '2025-09-01';
-            paymentEcritures.push({
-              id: `ecr-const-${student.id}`,
-              date: dateConst,
-              libelle: `Constatation Frais Scolaires - ${student.nom} ${student.prenom}`,
-              reference: `FACT-${student.matricule}`,
-              lignes: [
-                { compteNumero: '411', debit: totalScolarite, credit: 0 },
-                { compteNumero: '706', debit: 0, credit: totalScolarite }
-              ]
-            });
-
-            paiements.forEach(p => {
-              if (p.statut === 'paid') {
-                const compTres = p.modePaiement === 'Virement Bancaire' ? '521' : '571';
-                paymentEcritures.push({
-                  id: `ecr-pay-${p.id}`,
-                  date: p.date.split('T')[0],
-                  libelle: `Règlement ${p.typeFrais} - ${student.nom} ${student.prenom}`,
-                  reference: p.reference,
-                  lignes: [
-                    { compteNumero: compTres, debit: p.montant, credit: 0 },
-                    { compteNumero: '411', debit: 0, credit: p.montant }
-                  ]
-                });
-              }
-            });
-          }
-        });
-
-        const combined = [...customEcritures, ...paymentEcritures].sort(
-          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-        );
-        setEcritures(combined);
-
       } catch (err) {
-        const storedEcritures = localStorage.getItem('mboaschool_ecritures');
-        const customEcritures = storedEcritures ? JSON.parse(storedEcritures) : mockEcrituresInitiales;
-        setEcritures(customEcritures);
+        console.error("Error loading ecritures:", err);
       }
+
+      // Auto-generate entries from student payments dynamically
+      const paymentEcritures: EcritureComptable[] = [];
+      loadedStudents.forEach((student: Eleve) => {
+        if (!student) return;
+        const paiements = student.paiements || [];
+        const totalScolarite = paiements.reduce((sum, p) => sum + p.montant, 0);
+        
+        if (totalScolarite > 0) {
+          const dateConst = student.dateInscription ? student.dateInscription.split('T')[0] : '2025-09-01';
+          paymentEcritures.push({
+            id: `ecr-const-${student.id}`,
+            date: dateConst,
+            libelle: `Constatation Frais Scolaires - ${student.nom} ${student.prenom}`,
+            reference: `FACT-${student.matricule}`,
+            lignes: [
+              { compteNumero: '411', debit: totalScolarite, credit: 0 },
+              { compteNumero: '706', debit: 0, credit: totalScolarite }
+            ]
+          });
+
+          paiements.forEach(p => {
+            if (p.statut === 'paid') {
+              const compTres = p.modePaiement === 'Virement Bancaire' ? '521' : '571';
+              paymentEcritures.push({
+                id: `ecr-pay-${p.id}`,
+                date: p.date.split('T')[0],
+                libelle: `Règlement ${p.typeFrais} - ${student.nom} ${student.prenom}`,
+                reference: p.reference,
+                lignes: [
+                  { compteNumero: compTres, debit: p.montant, credit: 0 },
+                  { compteNumero: '411', debit: 0, credit: p.montant }
+                ]
+              });
+            }
+          });
+        }
+      });
+
+      const combined = [...customEcritures, ...paymentEcritures].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      setEcritures(combined);
 
       // 6. BSC Years
       const storedBscYears = localStorage.getItem('mboaschool_bsc_years');
@@ -270,15 +272,50 @@ export default function FinancePage() {
 
       // 7. Budget lines
       const storedBudget = localStorage.getItem('mboaschool_budget_lines');
-      if (storedBudget) {
-        try { setBudgetLines(JSON.parse(storedBudget)); } catch (e) { setBudgetLines(mockBudget2026); }
-      } else {
-        setBudgetLines(mockBudget2026);
+      setBudgetLines(storedBudget ? JSON.parse(storedBudget) : []);
+
+      // 8. Fetch Classes
+      try {
+        const { data: classesData, error: classesErr } = await supabase
+          .from('classes')
+          .select('*')
+          .eq('etablissement_id', etablissementId);
+        if (!classesErr && classesData) {
+          setClasses(classesData);
+        }
+      } catch (err) {
+        console.error('Error fetching classes:', err);
+      }
+
+      // Fetch Teachers
+      try {
+        const { data: teachersData, error: teachersErr } = await supabase
+          .from('enseignants')
+          .select('*')
+          .eq('etablissement_id', etablissementId);
+        if (!teachersErr && teachersData) {
+          setTeachers(teachersData);
+        }
+      } catch (err) {
+        console.error('Error fetching teachers:', err);
+      }
+
+      // 9. Fetch Sections
+      try {
+        const { data: sectionsData, error: sectionsErr } = await supabase
+          .from('sections')
+          .select('*')
+          .eq('etablissement_id', etablissementId);
+        if (!sectionsErr && sectionsData) {
+          setSections(sectionsData);
+        }
+      } catch (err) {
+        console.error('Error fetching sections:', err);
       }
     };
 
     loadData();
-  }, []);
+  }, [etablissementId]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -313,10 +350,33 @@ export default function FinancePage() {
   // Bénéfice Net 2026
   const netProfit2026 = totalCA2026 - (masseSalarialeAnnuelle2026 + totalChargesComptables2026 + totalTrainingCosts2026);
 
-  // Ratios balance sheet constants (simulated)
-  const simulatedInterestExpense = 240000; // Intérêts financiers
-  const simulatedDebts = 3800000; // Dettes totales
-  const simulatedEquity = 15000000; // Fonds propres
+  // Dynamic balance sheet data from ledger entries (ecritures)
+  const dynamicInterestExpense = ecritures.reduce((sum, ecr) => {
+    return sum + ecr.lignes.reduce((lSum, l) => {
+      const isInterestAcc = l.compteNumero.startsWith('67') || l.compteNumero === '631';
+      return isInterestAcc ? lSum + (l.debit - l.credit) : lSum;
+    }, 0);
+  }, 0);
+  const simulatedInterestExpense = dynamicInterestExpense;
+
+  const dynamicDebts = ecritures.reduce((sum, ecr) => {
+    return sum + ecr.lignes.reduce((lSum, l) => {
+      const num = l.compteNumero;
+      const isDebtAcc = num.startsWith('40') || num.startsWith('42') || num.startsWith('43') || num.startsWith('44') || num.startsWith('16');
+      return isDebtAcc ? lSum + (l.credit - l.debit) : lSum;
+    }, 0);
+  }, 0);
+  const simulatedDebts = dynamicDebts;
+
+  const dynamicEquity = ecritures.reduce((sum, ecr) => {
+    return sum + ecr.lignes.reduce((lSum, l) => {
+      const num = l.compteNumero;
+      const isEquityAcc = num.startsWith('10');
+      return isEquityAcc ? lSum + (l.credit - l.debit) : lSum;
+    }, 0);
+  }, 0);
+  const simulatedEquity = dynamicEquity;
+
   const totalAssets = simulatedEquity + simulatedDebts; // Total Actifs
 
   // Ratios calculations
@@ -369,32 +429,68 @@ export default function FinancePage() {
   const activeEmployeeCount = activeStaff.length;
   const globalProductivity = activeEmployeeCount > 0 ? totalCA2026 / activeEmployeeCount : 0;
 
-  // Mappings for section productivity
-  // F (Francophone): Terminale D, 3ème
-  // A (Anglophone): classes in Anglophone subsystem
-  // B (Bilingue): Maternelle
+  // Mappings for section productivity (Dynamic calculation)
   const getSectionProductivity = (secId: 'sec-fr' | 'sec-en' | 'sec-bi') => {
     let secCA = 0;
     let secStaff = 0;
 
-    if (secId === 'sec-fr') {
+    // Resolve dynamic sections from DB if sections are populated
+    const cleanSecId = secId.toLowerCase();
+    const dbSection = sections.find(s => 
+      s.id === secId || 
+      s.nom.toLowerCase().includes(cleanSecId === 'sec-fr' ? 'fran' : cleanSecId === 'sec-en' ? 'angl' : 'bil')
+    );
+
+    if (dbSection) {
+      // Find classes in this section
+      const sectionClasses = classes.filter(c => c.section_id === dbSection.id || c.nom.toLowerCase().includes(dbSection.nom.toLowerCase()));
+      const classIds = sectionClasses.map(c => c.id);
+      const classNames = sectionClasses.map(c => c.nom);
+
+      // Sum CA for this section
       secCA = students
-        .filter(s => s.classeId === 'cls-term-d' || s.classeId === 'cls-sec-c' || s.classeId === 'Terminale D' || s.classeId === '3ème')
+        .filter(s => classIds.includes(s.classeId) || classNames.includes(s.classeId))
         .flatMap(s => s.paiements || [])
         .reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
-      secStaff = activeStaff.filter(p => p.id === 'teach-1' || p.id === 'teach-3' || p.id === 'pers-6' || p.id === 'pers-11').length;
-    } else if (secId === 'sec-en') {
-      // Simulate Anglophone Subsystem
-      secCA = totalCA2026 * 0.25; // 25% of revenues
-      secStaff = activeStaff.filter(p => p.id === 'teach-2' || p.id === 'pers-9').length;
+
+      // Count unique teachers assigned to these classes
+      const teachersSet = new Set<string>();
+      sectionClasses.forEach(c => {
+        if (c.enseignant_principal_id) teachersSet.add(c.enseignant_principal_id);
+        if (c.enseignant_assistant_id) teachersSet.add(c.enseignant_assistant_id);
+      });
+      secStaff = teachersSet.size;
+
+      // Add a share of other admin staff
+      const otherStaffCount = activeStaff.filter(p => p.categorie !== 'Enseignant').length;
+      const sectionsCount = sections.length > 0 ? sections.length : 3;
+      secStaff += (otherStaffCount / sectionsCount);
     } else {
-      // Bilingue / Maternelle / Communs
-      secCA = students
-        .filter(s => s.classeId === 'cls-mat-gs' || s.classeId === 'Maternelle')
-        .flatMap(s => s.paiements || [])
-        .reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
-      if (secCA === 0) secCA = totalCA2026 * 0.15; // default fallback 15%
-      secStaff = activeStaff.filter(p => p.id === 'pers-1' || p.id === 'pers-5' || p.id === 'pers-7' || p.id === 'pers-8' || p.id === 'pers-10' || p.id === 'pers-12').length;
+      // Fallback matching logic based on class names
+      if (secId === 'sec-fr') {
+        const classStudents = students.filter(s => 
+          s.classeId === 'cls-term-d' || s.classeId === 'cls-sec-c' || 
+          s.classeId === 'Terminale D' || s.classeId === '3ème' ||
+          s.classeId.toLowerCase().includes('ème') || s.classeId.toLowerCase().includes('term')
+        );
+        secCA = classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
+        secStaff = activeStaff.filter(p => p.id === 'teach-1' || p.id === 'teach-3' || p.categorie === 'Enseignant').length * 0.6;
+      } else if (secId === 'sec-en') {
+        const classStudents = students.filter(s => 
+          s.classeId.toLowerCase().includes('form') || s.classeId.toLowerCase().includes('class') || s.classeId.toLowerCase().includes('en')
+        );
+        secCA = classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
+        if (secCA === 0) secCA = totalCA2026 * 0.25; // standard fallback
+        secStaff = activeStaff.filter(p => p.id === 'teach-2' || p.id === 'pers-9').length;
+        if (secStaff === 0) secStaff = 2;
+      } else {
+        const classStudents = students.filter(s => 
+          s.classeId === 'cls-mat-gs' || s.classeId === 'Maternelle' || s.classeId.toLowerCase().includes('mat')
+        );
+        secCA = classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
+        if (secCA === 0) secCA = totalCA2026 * 0.15; // standard fallback
+        secStaff = activeStaff.filter(p => p.categorie === 'Administration' || p.categorie === 'Technique').length * 0.5 + 1;
+      }
     }
 
     return secStaff > 0 ? secCA / secStaff : 0;
@@ -405,17 +501,15 @@ export default function FinancePage() {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XAF', maximumFractionDigits: 0 }).format(val);
   };
 
-  // Class productivity
-  // Total payments of students in class / principal teacher salary
-  const getClassProductivity = (className: string) => {
+  // Dynamic Class Productivity
+  const getClassProductivity = (classIdOrName: string) => {
     const classStudents = students.filter(s => 
-      s.classeId === className || 
-      (className === 'Terminale D' && s.classeId === 'cls-term-d') ||
-      (className === '3ème' && s.classeId === 'cls-sec-c') ||
-      (className === 'Maternelle' && s.classeId === 'cls-mat-gs')
+      s.classeId === classIdOrName || 
+      (classIdOrName === 'Terminale D' && (s.classeId === 'cls-term-d' || s.classeId === 'Terminale D')) ||
+      (classIdOrName === '3ème' && (s.classeId === 'cls-sec-c' || s.classeId === '3ème')) ||
+      (classIdOrName === 'Maternelle' && (s.classeId === 'cls-mat-gs' || s.classeId === 'Maternelle'))
     );
-    const classCA = classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
-    return classCA;
+    return classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
   };
 
   // --- Daily cash reconciliation (7 last days) ---
@@ -522,6 +616,7 @@ export default function FinancePage() {
         date: expDate,
         libelle: `Constatation : ${expLibelle}`,
         reference: ref,
+        partenaire: expPartenaire || undefined,
         lignes: lines
       });
     }
@@ -536,6 +631,7 @@ export default function FinancePage() {
         date: expDate,
         libelle: `Règlement : ${expLibelle}`,
         reference: `PAY-${ref}`,
+        partenaire: expPartenaire || undefined,
         lignes: [
           { compteNumero: expCompteTiers, debit: toPay, credit: 0 },
           { compteNumero: expCompteCredit, debit: 0, credit: toPay }
@@ -557,7 +653,9 @@ export default function FinancePage() {
           .insert([{
             date: ecr.date,
             libelle: ecr.libelle,
-            reference: ecr.reference
+            reference: ecr.reference,
+            partenaire: ecr.partenaire || null,
+            etablissement_id: etablissementId
           }])
           .select()
           .single();
@@ -597,6 +695,7 @@ export default function FinancePage() {
     setExpReference('');
     setExpAmount('');
     setExpAmountPaye('');
+    setExpPartenaire('');
     setExpTva(false);
     triggerToast(savedToSupabase ? "Opération comptable enregistrée dans le cloud !" : "Opération comptable enregistrée !");
   };
@@ -1033,27 +1132,45 @@ export default function FinancePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-black">
-                  {/* Terminale D */}
-                  <tr>
-                    <td className="px-6 py-4 font-semibold">Terminale D</td>
-                    <td className="px-6 py-4 text-slate-500">Dieudonné Atangana</td>
-                    <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('Terminale D'))}</td>
-                    <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{((getClassProductivity('Terminale D')/totalCA2026)*100).toFixed(1)}% du CA total</td>
-                  </tr>
-                  {/* 3ème */}
-                  <tr>
-                    <td className="px-6 py-4 font-semibold">3ème Espagnol</td>
-                    <td className="px-6 py-4 text-slate-500">Marthe Ngo</td>
-                    <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('3ème'))}</td>
-                    <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{((getClassProductivity('3ème')/totalCA2026)*100).toFixed(1)}% du CA total</td>
-                  </tr>
-                  {/* Maternelle */}
-                  <tr>
-                    <td className="px-6 py-4 font-semibold">Maternelle Grande Section</td>
-                    <td className="px-6 py-4 text-slate-500">Chantal Bella</td>
-                    <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('Maternelle'))}</td>
-                    <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{((getClassProductivity('Maternelle')/totalCA2026)*100).toFixed(1)}% du CA total</td>
-                  </tr>
+                  {classes.length > 0 ? (
+                    classes.map((cls) => {
+                      const classCA = getClassProductivity(cls.id);
+                      const matchedTeacher = teachers.find(t => t.id === cls.enseignant_principal_id);
+                      const teacherName = matchedTeacher 
+                        ? `${matchedTeacher.prenom} ${matchedTeacher.nom}` 
+                        : 'Non spécifié';
+                      const percentage = totalCA2026 > 0 ? ((classCA / totalCA2026) * 100).toFixed(1) : '0.0';
+                      return (
+                        <tr key={cls.id} className="hover:bg-slate-50/50">
+                          <td className="px-6 py-4 font-semibold">{cls.nom}</td>
+                          <td className="px-6 py-4 text-slate-500">{teacherName}</td>
+                          <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(classCA)}</td>
+                          <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{percentage}% du CA total</td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <>
+                      <tr className="hover:bg-slate-50/50">
+                        <td className="px-6 py-4 font-semibold">Terminale D</td>
+                        <td className="px-6 py-4 text-slate-500">Dieudonné Atangana</td>
+                        <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('Terminale D'))}</td>
+                        <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{totalCA2026 > 0 ? ((getClassProductivity('Terminale D')/totalCA2026)*100).toFixed(1) : '0.0'}% du CA total</td>
+                      </tr>
+                      <tr className="hover:bg-slate-50/50">
+                        <td className="px-6 py-4 font-semibold">3ème Espagnol</td>
+                        <td className="px-6 py-4 text-slate-500">Marthe Ngo</td>
+                        <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('3ème'))}</td>
+                        <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{totalCA2026 > 0 ? ((getClassProductivity('3ème')/totalCA2026)*100).toFixed(1) : '0.0'}% du CA total</td>
+                      </tr>
+                      <tr className="hover:bg-slate-50/50">
+                        <td className="px-6 py-4 font-semibold">Maternelle Grande Section</td>
+                        <td className="px-6 py-4 text-slate-500">Chantal Bella</td>
+                        <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('Maternelle'))}</td>
+                        <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{totalCA2026 > 0 ? ((getClassProductivity('Maternelle')/totalCA2026)*100).toFixed(1) : '0.0'}% du CA total</td>
+                      </tr>
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1427,8 +1544,13 @@ export default function FinancePage() {
                             )}
                             <td className="px-4 py-3 font-bold text-indigo-600">{ligne.compteNumero}</td>
                             <td className="px-4 py-3">
-                              <div className="font-bold text-black">{ecr.libelle}</div>
-                              <div className="text-xs text-black">{compteDef?.libelle || 'Compte inconnu'}</div>
+                              <div className="font-bold text-black flex items-center gap-2 flex-wrap">
+                                <span>{ecr.libelle}</span>
+                                {ecr.partenaire && (
+                                  <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md font-bold border border-indigo-100 whitespace-nowrap">Tiers : {ecr.partenaire}</span>
+                                )}
+                              </div>
+                              <div className="text-xs text-slate-400">{compteDef?.libelle || 'Compte inconnu'}</div>
                             </td>
                             <td className="px-4 py-3 text-right font-mono text-black font-bold">{ligne.debit > 0 ? formatMoney(ligne.debit) : ''}</td>
                             <td className="px-4 py-3 text-right font-mono text-black font-bold">{ligne.credit > 0 ? formatMoney(ligne.credit) : ''}</td>
@@ -1537,9 +1659,67 @@ export default function FinancePage() {
                 </div>
               </div>
               
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Libellé</label>
-                <input type="text" placeholder="Ex: Facture électricité mensuelle" value={expLibelle} onChange={(e) => setExpLibelle(e.target.value)} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Libellé</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Facture électricité mensuelle" 
+                    value={expLibelle} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setExpLibelle(val);
+                      
+                      // Auto-selection of accounts based on label keywords
+                      const clean = val.toLowerCase();
+                      if (clean.includes('salaire') || clean.includes('rémunération') || clean.includes('remuneration') || clean.includes('paie') || clean.includes('prime')) {
+                        setExpCompteDebit('661'); // Rémunérations directes (Salaires)
+                        setExpCompteTiers('421'); // Personnel - Rémunérations dues
+                        setExpCompteCredit('521'); // Banque
+                      } else if (clean.includes('électricité') || clean.includes('electricite') || clean.includes('eau') || clean.includes('electricité') || clean.includes('élec')) {
+                        setExpCompteDebit('605'); // Eau et Électricité
+                        setExpCompteTiers('401'); // Fournisseurs
+                        setExpCompteCredit('571'); // Caisse
+                      } else if (clean.includes('fourniture') || clean.includes('bureau') || clean.includes('achat')) {
+                        setExpCompteDebit('601'); // Achats de fournitures
+                        setExpCompteTiers('401'); // Fournisseurs
+                        setExpCompteCredit('571'); // Caisse
+                      } else if (clean.includes('transport') || clean.includes('carburant') || clean.includes('essence') || clean.includes('deplacement') || clean.includes('déplacement')) {
+                        setExpCompteDebit('61');   // Transports
+                        setExpCompteTiers('401'); // Fournisseurs
+                        setExpCompteCredit('571'); // Caisse
+                      } else if (clean.includes('loyer') || clean.includes('location')) {
+                        setExpCompteDebit('622'); // Locations et charges locatives
+                        setExpCompteTiers('401'); // Fournisseurs
+                        setExpCompteCredit('521'); // Banque
+                      } else if (clean.includes('entretien') || clean.includes('reparation') || clean.includes('réparation') || clean.includes('maintenance')) {
+                        setExpCompteDebit('624'); // Entretien et réparations
+                        setExpCompteTiers('401'); // Fournisseurs
+                        setExpCompteCredit('571'); // Caisse
+                      } else if (clean.includes('bancaire') || clean.includes('frais banc') || clean.includes('commission')) {
+                        setExpCompteDebit('631'); // Frais bancaires
+                        setExpCompteTiers('401'); // Fournisseurs
+                        setExpCompteCredit('521'); // Banque
+                      } else if (clean.includes('impôt') || clean.includes('impot') || clean.includes('taxe')) {
+                        setExpCompteDebit('64');   // Impôts et taxes
+                        setExpCompteTiers('441'); // État - Impôts et Taxes
+                        setExpCompteCredit('521'); // Banque
+                      }
+                    }} 
+                    required 
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Nom du Tiers (Bénéficiaire / Client)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: ENEO, CNPS, Nom du tiers..." 
+                    value={expPartenaire} 
+                    onChange={(e) => setExpPartenaire(e.target.value)} 
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold" 
+                  />
+                </div>
               </div>
               
               <div className="grid grid-cols-2 gap-4">

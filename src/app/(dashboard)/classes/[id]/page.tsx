@@ -3,10 +3,12 @@ import React, { useState, useEffect, use } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Classe, Eleve } from '@/types/domain';
 import Link from 'next/link';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function ClasseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const classeId = decodeURIComponent(resolvedParams.id);
+  const { etablissementId } = useEtablissement();
   
   const [classe, setClasse] = useState<any | null>(null);
   const [students, setStudents] = useState<Eleve[]>([]);
@@ -15,12 +17,14 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
   const supabase = createClient();
 
   useEffect(() => {
+    if (!etablissementId) return;
     const fetchData = async () => {
       try {
         const { data, error } = await supabase
           .from('classes')
           .select('*, eleves(*)')
           .eq('id', classeId)
+          .eq('etablissement_id', etablissementId)
           .single();
 
         if (data) {
@@ -34,7 +38,7 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
       }
     };
     fetchData();
-  }, [classeId]);
+  }, [classeId, etablissementId]);
 
   if (!isLoaded) return <div className="p-8 text-center text-slate-500">Chargement...</div>;
   if (!classe) return <div className="p-8 text-center text-red-500 font-bold">Classe introuvable</div>;

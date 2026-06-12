@@ -21,6 +21,14 @@ import {
   insertMouvement,
   insertPersonnel
 } from '@/lib/queries/rh';
+import { useEtablissement } from '@/contexts/etablissement-context';
+import { 
+  mockPersonnel, 
+  mockAbsences, 
+  mockMouvements, 
+  mockEvaluationsRH, 
+  mockFormations 
+} from '@/mock/rh';
 
 export default function RHPage() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'personnel' | 'masse' | 'mouvements' | 'evals' | 'comptes'>('dashboard');
@@ -91,37 +99,125 @@ export default function RHPage() {
   // States for Staff Accounts Tab
   const [profiles, setProfiles] = useState<any[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
+  const [newAccNom, setNewAccNom] = useState('');
   const [newAccEmail, setNewAccEmail] = useState('');
   const [newAccPassword, setNewAccPassword] = useState('');
   const [newAccRole, setNewAccRole] = useState<'directeur' | 'enseignant' | 'parent'>('enseignant');
+  const [newAccPermissions, setNewAccPermissions] = useState<Record<string, boolean>>({
+    dashboard: true,
+    sections: false,
+    classes: true,
+    eleves: true,
+    parents: false,
+    enseignants: false,
+    evaluations: true,
+    finance: false,
+    rh: false
+  });
   const [createAccLoading, setCreateAccLoading] = useState(false);
+
+  // States for Editing User Permissions
+  const [editingProfile, setEditingProfile] = useState<any | null>(null);
+  const [editingPermissions, setEditingPermissions] = useState<Record<string, boolean>>({});
+  const [isUpdatingPermissions, setIsUpdatingPermissions] = useState(false);
+
+  const handleRoleChange = (role: 'directeur' | 'enseignant' | 'parent') => {
+    setNewAccRole(role);
+    if (role === 'directeur') {
+      setNewAccPermissions({
+        dashboard: true,
+        sections: true,
+        classes: true,
+        eleves: true,
+        parents: true,
+        enseignants: true,
+        evaluations: true,
+        finance: true,
+        rh: true
+      });
+    } else if (role === 'enseignant') {
+      setNewAccPermissions({
+        dashboard: true,
+        sections: false,
+        classes: true,
+        eleves: true,
+        parents: false,
+        enseignants: false,
+        evaluations: true,
+        finance: false,
+        rh: false
+      });
+    } else if (role === 'parent') {
+      setNewAccPermissions({
+        dashboard: true,
+        sections: false,
+        classes: false,
+        eleves: true,
+        parents: true,
+        enseignants: false,
+        evaluations: false,
+        finance: false,
+        rh: false
+      });
+    }
+  };
+
+  const { etablissementId } = useEtablissement();
 
   const loadProfiles = async () => {
     setProfilesLoading(true);
     try {
       const supabase = createClient();
+      
+      // Get current user email to filter out the administrator
+      let currentUserEmail = null;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.email) currentUserEmail = user.email;
+      } catch (e) {
+        console.warn("Could not get auth user email:", e);
+      }
+      
+      if (!currentUserEmail && typeof window !== 'undefined') {
+        const offline = localStorage.getItem('mboaschool_offline_session');
+        if (offline) {
+          try {
+            const parsed = JSON.parse(offline);
+            if (parsed.email) currentUserEmail = parsed.email;
+          } catch (e) {}
+        }
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
+        .eq('etablissement_id', etablissementId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setProfiles(data || []);
+      const filtered = (data || []).filter(p => p.email !== currentUserEmail);
+      setProfiles(filtered);
     } catch (err) {
       console.warn("Failed to fetch profiles from Supabase, loading from localStorage fallback:", err);
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('mboaschool_profiles');
         if (stored) {
-          setProfiles(JSON.parse(stored));
+          const all = JSON.parse(stored);
+          const filtered = all.filter((p: any) => p.etablissement_id === etablissementId || !p.etablissement_id);
+          
+          let currentUserEmail = null;
+          const offline = localStorage.getItem('mboaschool_offline_session');
+          if (offline) {
+            try {
+              const parsed = JSON.parse(offline);
+              if (parsed.email) currentUserEmail = parsed.email;
+            } catch (e) {}
+          }
+          
+          const finalProfiles = currentUserEmail ? filtered.filter((p: any) => p.email !== currentUserEmail) : filtered;
+          setProfiles(finalProfiles);
         } else {
-          // Initialize mock accounts if empty
-          const initialMock = [
-            { id: 'mock-1', email: 'directeur@mboaschool.com', role: 'directeur', created_at: new Date().toISOString() },
-            { id: 'mock-2', email: 'enseignant.mvogo@mboaschool.com', role: 'enseignant', created_at: new Date().toISOString() },
-            { id: 'mock-3', email: 'parent.fodouop@mboaschool.com', role: 'parent', created_at: new Date().toISOString() }
-          ];
-          localStorage.setItem('mboaschool_profiles', JSON.stringify(initialMock));
-          setProfiles(initialMock);
+          setProfiles([]);
         }
       }
     } finally {
@@ -131,31 +227,15 @@ export default function RHPage() {
 
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAccEmail || !newAccPassword || newAccPassword.length < 6) {
-      triggerToast("Veuillez renseigner un email valide et un mot de passe d'au moins 6 caractères.");
+    if (!newAccNom || !newAccEmail || !newAccPassword || newAccPassword.length < 6) {
+      triggerToast("Veuillez renseigner un nom complet, un email valide et un mot de passe d'au moins 6 caractères.");
       return;
     }
     setCreateAccLoading(true);
+
     try {
       const supabase = createClient();
-      
-      // Get admin's etablissement_id to link the staff account to the same establishment
-      let adminEtabId = null;
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: adminProfile } = await supabase
-            .from('profiles')
-            .select('etablissement_id')
-            .eq('id', user.id)
-            .single();
-          if (adminProfile) {
-            adminEtabId = adminProfile.etablissement_id;
-          }
-        }
-      } catch (err) {
-        console.warn("Could not determine admin establishment id", err);
-      }
+      const adminEtabId = etablissementId;
 
       // Create browser client with persistSession: false so it doesn't overwrite admin session
       const { createBrowserClient } = await import('@supabase/ssr');
@@ -172,22 +252,25 @@ export default function RHPage() {
       // Sign up the new user
       const { data: signUpData, error: authError } = await tempSupabase.auth.signUp({
         email: newAccEmail,
-        password: newAccPassword
+        password: newAccPassword,
+        options: {
+          data: {
+            role: newAccRole,
+            permissions: newAccPermissions,
+            etablissement_id: adminEtabId,
+            nom_complet: newAccNom
+          }
+        }
       });
 
       if (authError) throw authError;
 
       if (signUpData?.user) {
-        // Create the profile in the profiles table
+        // Fetch the profile created automatically by the database trigger
         const { data: newProfile, error: profileError } = await supabase
           .from('profiles')
-          .insert([{
-            id: signUpData.user.id,
-            email: newAccEmail,
-            role: newAccRole,
-            etablissement_id: adminEtabId
-          }])
-          .select()
+          .select('*')
+          .eq('id', signUpData.user.id)
           .single();
 
         if (profileError) throw profileError;
@@ -198,35 +281,56 @@ export default function RHPage() {
         throw new Error("La création d'utilisateur auth n'a pas retourné de données.");
       }
 
+      setNewAccNom('');
       setNewAccEmail('');
       setNewAccPassword('');
     } catch (err: any) {
-      console.warn("Supabase account creation failed, falling back to local storage:", err);
+      console.warn("Supabase account creation failed, checking error type:", err);
       
-      // Fallback local storage
+      // If it's a real API auth error from Supabase, show the error toast instead of falling back to offline mode.
+      if (err.status || err.code || (err.message && !err.message.includes('fetch') && !err.message.includes('network') && !err.message.includes('Failed to fetch'))) {
+        let displayMsg = err.message;
+        if (err.code === 'over_email_send_rate_limit' || (err.message && err.message.toLowerCase().includes('rate limit'))) {
+          displayMsg = "Limite d'envoi d'emails dépassée par Supabase. Veuillez réessayer plus tard.";
+        } else if (err.code === 'user_already_exists' || (err.message && err.message.toLowerCase().includes('already registered'))) {
+          displayMsg = "Cette adresse email est déjà enregistrée.";
+        } else if (err.code === 'weak_password') {
+          displayMsg = "Le mot de passe choisi est trop faible.";
+        } else if (err.code === 'email_address_invalid') {
+          displayMsg = "L'adresse email saisie est invalide ou non autorisée.";
+        }
+        triggerToast(`Erreur lors de la création : ${displayMsg}`);
+        setCreateAccLoading(false);
+        return;
+      }
+      
+      // Fallback local storage (completely offline or network unreachable)
       const newMockProfile = {
         id: `mock-${Date.now()}`,
         email: newAccEmail,
+        password: newAccPassword, // Store password for fallback verification
         role: newAccRole,
-        created_at: new Date().toISOString()
+        permissions: newAccPermissions,
+        etablissement_id: etablissementId,
+        created_at: new Date().toISOString(),
+        nom_complet: newAccNom
       };
       
       const stored = localStorage.getItem('mboaschool_profiles');
       let currentProfiles = [];
       if (stored) {
-        currentProfiles = JSON.parse(stored);
-      } else {
-        currentProfiles = [
-          { id: 'mock-1', email: 'directeur@mboaschool.com', role: 'directeur', created_at: new Date().toISOString() },
-          { id: 'mock-2', email: 'enseignant.mvogo@mboaschool.com', role: 'enseignant', created_at: new Date().toISOString() },
-          { id: 'mock-3', email: 'parent.fodouop@mboaschool.com', role: 'parent', created_at: new Date().toISOString() }
-        ];
+        try {
+          currentProfiles = JSON.parse(stored);
+        } catch (e) {
+          currentProfiles = [];
+        }
       }
       const updatedProfiles = [newMockProfile, ...currentProfiles];
       localStorage.setItem('mboaschool_profiles', JSON.stringify(updatedProfiles));
-      setProfiles(updatedProfiles);
+      setProfiles(updatedProfiles.filter((p: any) => p.etablissement_id === etablissementId || !p.etablissement_id));
       
       triggerToast(`Compte (Local/Simulé) créé pour ${newAccEmail} !`);
+      setNewAccNom('');
       setNewAccEmail('');
       setNewAccPassword('');
     } finally {
@@ -234,45 +338,169 @@ export default function RHPage() {
     }
   };
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const loadData = async () => {
-        try {
-          const pers = await getPersonnel();
-          setPersonnelList(pers);
-          
-          const abs = await getAbsences();
-          setAbsences(abs);
-          
-          const mouvs = await getMouvements();
-          setMouvements(mouvs);
-          
-          const evs = await getEvaluationsRH();
-          setEvaluations(evs);
-          
-          const forms = await getFormations();
-          setFormations(forms);
-          
-          // Load Profiles
-          await loadProfiles();
-          
-          // Mocks for masseHistorique until DB is expanded for payroll charts
-          const mockHist = [
-            { periode: '2026-01', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.5 },
-            { periode: '2026-02', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.0 },
-            { periode: '2026-03', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 200000, tauxCroissance: 0.0 },
-            { periode: '2026-04', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 4.1 },
-            { periode: '2026-05', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 0.0 }
-          ];
-          setMasseHistorique(mockHist);
-        } catch (error) {
-          console.error("Error loading RH data:", error);
+  const handleDeleteAccount = async (profileId: string, email: string) => {
+    const profileToDelete = profiles.find(p => p.id === profileId);
+    const isAdmin = profileToDelete?.role === 'admin';
+    const profileEtabId = profileToDelete?.etablissement_id;
+
+    const confirmMsg = isAdmin 
+      ? `Êtes-vous sûr de vouloir supprimer définitivement le compte de ${email} ? ATTENTION : Cela supprimera TOUS les sous-comptes associés à cet établissement.`
+      : `Êtes-vous sûr de vouloir supprimer définitivement le compte de ${email} ?`;
+
+    if (!confirm(confirmMsg)) return;
+    
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', profileId);
+        
+      if (error) throw error;
+      
+      triggerToast(`Compte de ${email} supprimé avec succès.`);
+      
+      if (isAdmin && profileEtabId) {
+        // If an admin is deleted, all other profiles of the same establishment are deleted by the DB trigger.
+        // We refresh the profile list.
+        loadProfiles();
+      } else {
+        setProfiles(prev => prev.filter(p => p.id !== profileId));
+      }
+    } catch (err: any) {
+      console.warn("Failed to delete account on Supabase, attempting local delete:", err);
+      // Fallback local storage delete
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('mboaschool_profiles');
+        if (stored) {
+          const all = JSON.parse(stored);
+          let updated = all;
+          if (isAdmin && profileEtabId) {
+            // Delete admin and all other profiles of the same establishment
+            updated = all.filter((p: any) => p.id !== profileId && p.etablissement_id !== profileEtabId);
+            triggerToast(`Compte administrateur et tous les sous-comptes associés (Locaux/Simulés) supprimés.`);
+          } else {
+            updated = all.filter((p: any) => p.id !== profileId);
+            triggerToast(`Compte (Local/Simulé) de ${email} supprimé.`);
+          }
+          localStorage.setItem('mboaschool_profiles', JSON.stringify(updated));
+          setProfiles(updated.filter((p: any) => p.etablissement_id === etablissementId || !p.etablissement_id));
         }
+      }
+    }
+  };
+
+  const handleSavePermissions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProfile) return;
+    setIsUpdatingPermissions(true);
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('profiles')
+        .update({ permissions: editingPermissions })
+        .eq('id', editingProfile.id);
+
+      if (error) throw error;
+
+      triggerToast(`Habilitations de ${editingProfile.email} mises à jour avec succès.`);
+      
+      // Update in local state list
+      setProfiles(prev => prev.map(p => p.id === editingProfile.id ? { ...p, permissions: editingPermissions } : p));
+      setEditingProfile(null);
+    } catch (err: any) {
+      console.warn("Database permission update failed, updating locally:", err);
+
+      // Offline fallback
+      const stored = localStorage.getItem('mboaschool_profiles');
+      if (stored) {
+        try {
+          const all = JSON.parse(stored);
+          const updated = all.map((p: any) => p.id === editingProfile.id ? { ...p, permissions: editingPermissions } : p);
+          localStorage.setItem('mboaschool_profiles', JSON.stringify(updated));
+          
+          setProfiles(updated.filter((p: any) => p.etablissement_id === etablissementId || !p.etablissement_id));
+          triggerToast(`Habilitations (Local/Hors-ligne) de ${editingProfile.email} mises à jour.`);
+        } catch (e) {
+          console.error("Failed offline permissions update", e);
+        }
+      }
+      setEditingProfile(null);
+    } finally {
+      setIsUpdatingPermissions(false);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      const loadData = async () => {
+        // 1. Personnel
+        try {
+          const pers = await getPersonnel(etablissementId);
+          setPersonnelList(pers || []);
+        } catch (error) {
+          console.error("Error loading personnel:", error);
+          setPersonnelList([]);
+        }
+
+        // 2. Absences
+        try {
+          const abs = await getAbsences(etablissementId);
+          setAbsences(abs || []);
+        } catch (error) {
+          console.error("Error loading absences:", error);
+          setAbsences([]);
+        }
+
+        // 3. Mouvements
+        try {
+          const mouvs = await getMouvements(etablissementId);
+          setMouvements(mouvs || []);
+        } catch (error) {
+          console.error("Error loading movements:", error);
+          setMouvements([]);
+        }
+
+        // 4. Evaluations
+        try {
+          const evs = await getEvaluationsRH(etablissementId);
+          setEvaluations(evs || []);
+        } catch (error) {
+          console.error("Error loading evaluations:", error);
+          setEvaluations([]);
+        }
+
+        // 5. Formations
+        try {
+          const forms = await getFormations(etablissementId);
+          setFormations(forms || []);
+        } catch (error) {
+          console.error("Error loading formations:", error);
+          setFormations([]);
+        }
+
+        // 6. Profiles
+        try {
+          await loadProfiles();
+        } catch (error) {
+          console.error("Error loading profiles:", error);
+        }
+
+        // Mocks for masseHistorique until DB is expanded for payroll charts
+        const mockHist = [
+          { periode: '2026-01', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.5 },
+          { periode: '2026-02', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.0 },
+          { periode: '2026-03', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 200000, tauxCroissance: 0.0 },
+          { periode: '2026-04', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 4.1 },
+          { periode: '2026-05', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 0.0 }
+        ];
+        setMasseHistorique(mockHist);
       };
       
       loadData();
     }
-  }, []);
+  }, [etablissementId]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -364,7 +592,7 @@ export default function RHPage() {
     };
 
     try {
-      const data = await insertAbsence(newAbsData);
+      const data = await insertAbsence(newAbsData, etablissementId!);
       if (data && data.length > 0) {
         const a = data[0];
         const newAbs: AbsenceRecord = {
@@ -397,6 +625,12 @@ export default function RHPage() {
       return;
     }
 
+    let updatedStatut = editEmpStatut;
+    if (newMouvType === 'depart_volontaire' || newMouvType === 'licenciement') {
+      updatedStatut = 'quitte';
+      setEditEmpStatut('quitte');
+    }
+
     const newMouvData = {
       personnel_id: selectedEmployee.id,
       nom_personnel: `${selectedEmployee.nom} ${selectedEmployee.prenom}`,
@@ -405,16 +639,10 @@ export default function RHPage() {
       details: newMouvDetails,
     };
 
-    let updatedStatut = editEmpStatut;
-    if (newMouvType === 'depart_volontaire' || newMouvType === 'licenciement') {
-      updatedStatut = 'quitte';
-      setEditEmpStatut('quitte');
-    }
-
     try {
       // Met à jour le statut du personnel
       await updatePersonnel(selectedEmployee.id, { statut: updatedStatut });
-      const data = await insertMouvement(newMouvData);
+      const data = await insertMouvement(newMouvData, etablissementId!);
       
       if (data && data.length > 0) {
         const m = data[0];
@@ -465,7 +693,7 @@ export default function RHPage() {
     };
 
     try {
-      const p = await insertPersonnel(newEmpData);
+      const p = await insertPersonnel(newEmpData, etablissementId!);
       const newEmp: MembrePersonnel = {
         id: p.id,
         nom: p.nom,
@@ -490,7 +718,7 @@ export default function RHPage() {
         date: newEmp.dateEmbauche,
         details: `Embauche en contrat ${newEmp.typeContrat} (${newEmp.categorie})`
       };
-      const dataMouv = await insertMouvement(newMouvData);
+      const dataMouv = await insertMouvement(newMouvData, etablissementId!);
       if (dataMouv && dataMouv.length > 0) {
         const m = dataMouv[0];
         const newMouv: MouvementPersonnel = {
@@ -1393,16 +1621,20 @@ export default function RHPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/30">
-                      <th className="px-4 py-3">Adresse Email</th>
+                      <th className="px-4 py-3">Collaborateur</th>
                       <th className="px-4 py-3">Rôle / Habilitation</th>
                       <th className="px-4 py-3">Créé le</th>
                       <th className="px-4 py-3 text-center">Statut</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {profiles.map((p) => (
                       <tr key={p.id} className="hover:bg-slate-50/30">
-                        <td className="px-4 py-3 font-semibold text-slate-800 text-black">{p.email}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-800 text-black">{p.nom_complet || 'Non renseigné'}</div>
+                          <div className="text-xs text-slate-400 mt-0.5">{p.email}</div>
+                        </td>
                         <td className="px-4 py-3">
                           <span className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
                             p.role === 'admin' ? 'bg-indigo-50 text-indigo-700' :
@@ -1420,11 +1652,35 @@ export default function RHPage() {
                             Actif
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-right space-x-2">
+                          <button
+                            onClick={() => {
+                              setEditingProfile(p);
+                              const defaultPerms: Record<string, boolean> = p.role === 'directeur' ? {
+                                dashboard: true, sections: true, classes: true, eleves: true, parents: true, enseignants: true, evaluations: true, finance: true, rh: true
+                              } : p.role === 'enseignant' ? {
+                                dashboard: true, sections: false, classes: true, eleves: true, parents: false, enseignants: false, evaluations: true, finance: false, rh: false
+                              } : {
+                                dashboard: true, sections: false, classes: false, eleves: true, parents: true, enseignants: false, evaluations: false, finance: false, rh: false
+                              };
+                              setEditingPermissions({ ...defaultPerms, ...(p.permissions || {}) });
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition-colors"
+                          >
+                            Habilitations
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAccount(p.id, p.email)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-lg text-xs transition-colors"
+                          >
+                            Supprimer
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {profiles.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-4 py-12 text-center text-slate-400">Aucun compte trouvé.</td>
+                        <td colSpan={5} className="px-4 py-12 text-center text-slate-400">Aucun compte trouvé.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1439,6 +1695,18 @@ export default function RHPage() {
               <div className="border-b border-slate-100 pb-3">
                 <h3 className="font-bold text-slate-800 text-black">Créer un Compte Personnel</h3>
                 <p className="text-xs text-slate-500">Ajouter un accès avec rôle spécifique pour vos collaborateurs</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nom Complet du collaborateur *</label>
+                <input
+                  type="text"
+                  required
+                  value={newAccNom}
+                  onChange={(e) => setNewAccNom(e.target.value)}
+                  placeholder="ex: Jean Dupont"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
               </div>
 
               <div>
@@ -1469,13 +1737,40 @@ export default function RHPage() {
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Niveau d'habilitation / Rôle *</label>
                 <select
                   value={newAccRole}
-                  onChange={(e) => setNewAccRole(e.target.value as any)}
+                  onChange={(e) => handleRoleChange(e.target.value as any)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black bg-slate-50 font-semibold outline-none"
                 >
                   <option value="directeur">Directeur</option>
                   <option value="enseignant">Enseignant</option>
                   <option value="parent">Parent</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Modules autorisés (Habilitations)</label>
+                <div className="grid grid-cols-2 gap-3 mt-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  {Object.entries({
+                    dashboard: 'Tableau de bord',
+                    sections: 'Sections',
+                    classes: 'Classes',
+                    eleves: 'Élèves',
+                    parents: 'Communauté & QHSE',
+                    enseignants: 'Enseignants',
+                    evaluations: 'Évaluations',
+                    finance: 'Finance',
+                    rh: 'Ressources Humaines'
+                  }).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer hover:text-indigo-600">
+                      <input
+                        type="checkbox"
+                        checked={newAccPermissions[key] || false}
+                        onChange={(e) => setNewAccPermissions(prev => ({ ...prev, [key]: e.target.checked }))}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <button
@@ -1994,6 +2289,70 @@ export default function RHPage() {
               )}
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- EDIT USER PERMISSIONS MODAL -------------------- */}
+      {editingProfile && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-lg border border-slate-100 shadow-2xl p-6 relative animate-in fade-in duration-200">
+            <button
+              onClick={() => setEditingProfile(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold"
+            >
+              ✕
+            </button>
+            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 flex items-center gap-2 text-black">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Gérer les Habilitations
+            </h3>
+            <p className="text-sm text-slate-600 mb-4">
+              Modifier les accès de l'utilisateur <strong className="text-indigo-600">{editingProfile.email}</strong> (Rôle actuel : <strong className="uppercase text-slate-800">{editingProfile.role}</strong>)
+            </p>
+
+            <form onSubmit={handleSavePermissions} className="space-y-6">
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                {Object.entries({
+                  dashboard: 'Tableau de bord',
+                  sections: 'Sections',
+                  classes: 'Classes',
+                  eleves: 'Élèves',
+                  parents: 'Communauté & QHSE',
+                  enseignants: 'Enseignants',
+                  evaluations: 'Évaluations',
+                  finance: 'Finance',
+                  rh: 'Ressources Humaines'
+                }).map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer hover:text-indigo-600">
+                    <input
+                      type="checkbox"
+                      checked={editingPermissions[key] || false}
+                      onChange={(e) => setEditingPermissions(prev => ({ ...prev, [key]: e.target.checked }))}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer"
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex gap-4 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingProfile(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingPermissions}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors disabled:opacity-50"
+                >
+                  {isUpdatingPermissions ? "Enregistrement..." : "Enregistrer les modifications"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

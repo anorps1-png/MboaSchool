@@ -9,8 +9,10 @@ import { downloadExcel } from '@/lib/excel';
 import SyncManager from '@/lib/syncManager';
 import { getStudents, createStudent, addPayment } from '@/lib/queries/eleves';
 import { getClasses } from '@/lib/queries/classes';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function ElevesPage() {
+  const { etablissementId } = useEtablissement();
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -51,10 +53,10 @@ export default function ElevesPage() {
 
   // Load from Supabase
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && etablissementId) {
       const fetchClasses = async () => {
         try {
-          const data = await getClasses();
+          const data = await getClasses(etablissementId);
           setClassesList(data);
           if (data.length > 0) {
             setClassName(data[0].id);
@@ -69,7 +71,7 @@ export default function ElevesPage() {
 
       const fetchEleves = async () => {
         try {
-          const data = await getStudents();
+          const data = await getStudents(etablissementId);
           const mapped = data.map(d => ({
             id: d.id,
             matricule: d.matricule,
@@ -108,7 +110,7 @@ export default function ElevesPage() {
 
       fetchEleves();
     }
-  }, []);
+  }, [etablissementId]);
 
   // Helper: Get student payment stats
   const getStudentPaymentStats = useCallback((student: Eleve) => {
@@ -236,7 +238,7 @@ export default function ElevesPage() {
     }
 
     try {
-      const data = await createStudent(studentData);
+      const data = await createStudent(studentData, etablissementId!);
 
       if (data && data.length > 0) {
         const d = data[0];
@@ -265,7 +267,7 @@ export default function ElevesPage() {
                modePaiement: 'Espèces'
              };
           } else {
-            const payData = await addPayment(paymentData);
+            const payData = await addPayment(paymentData, etablissementId!);
             
             if (payData && payData.length > 0) {
               const pd = payData[0];

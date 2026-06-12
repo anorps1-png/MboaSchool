@@ -5,6 +5,7 @@ import { mockStudents } from '@/mock/students';
 import { mockSurveys, Survey } from '@/mock/surveys';
 import { mockIncidentsQHSE, mockReunionsQHSE, mockDepensesQHSE, mockEvaluationsQHSE } from '@/mock/qhse';
 import { createClient } from '@/lib/supabase/client';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 interface ParentProfile {
   id: string;
@@ -16,6 +17,7 @@ interface ParentProfile {
 
 export default function CommunauteQHSEPage() {
   const [activeTab, setActiveTab] = useState<'communication' | 'satisfaction' | 'qhse'>('satisfaction');
+  const { etablissementId } = useEtablissement();
   
   // ==========================================
   // LOGIQUE ONGLET 1: COMMUNICATION
@@ -37,11 +39,12 @@ export default function CommunauteQHSEPage() {
   const [evaluationsData, setEvaluationsData] = useState<any[]>([]);
 
   useEffect(() => {
+    if (!etablissementId) return;
     const fetchData = async () => {
       const supabase = createClient();
       
-      // Fetch Eleves -> Extract Parents
-      const { data: eleves } = await supabase.from('eleves').select('*');
+      // Fetch Eleves -> Extract Parents (filtered by etablissement)
+      const { data: eleves } = await supabase.from('eleves').select('*').eq('etablissement_id', etablissementId);
       if (eleves) {
         const parentsMap = new Map<string, ParentProfile>();
         eleves.forEach(student => {
@@ -77,25 +80,38 @@ export default function CommunauteQHSEPage() {
       }
 
       // Fetch Enquêtes
-      const { data: enquetes } = await supabase.from('enquetes').select('*');
-      if (enquetes) setSurveysData(enquetes);
+      try {
+        const { data: enquetes } = await supabase.from('enquetes').select('*').eq('etablissement_id', etablissementId);
+        setSurveysData(enquetes || []);
+      } catch { setSurveysData([]); }
 
-      // Fetch QHSE
-      const { data: incidents } = await supabase.from('qhse_incidents').select('*').order('date', { ascending: false });
-      if (incidents) setIncidentsData(incidents);
+      // Fetch QHSE Incidents
+      try {
+        const { data: incidents } = await supabase.from('qhse_incidents').select('*').eq('etablissement_id', etablissementId).order('date', { ascending: false });
+        setIncidentsData(incidents || []);
+      } catch { setIncidentsData([]); }
 
-      const { data: reunions } = await supabase.from('qhse_reunions').select('*').order('date', { ascending: false });
-      if (reunions) setReunionsData(reunions);
+      // Fetch QHSE Réunions
+      try {
+        const { data: reunions } = await supabase.from('qhse_reunions').select('*').eq('etablissement_id', etablissementId).order('date', { ascending: false });
+        setReunionsData(reunions || []);
+      } catch { setReunionsData([]); }
 
-      const { data: depenses } = await supabase.from('qhse_depenses').select('*').order('date', { ascending: false });
-      if (depenses) setDepensesData(depenses);
+      // Fetch QHSE Dépenses
+      try {
+        const { data: depenses } = await supabase.from('qhse_depenses').select('*').eq('etablissement_id', etablissementId).order('date', { ascending: false });
+        setDepensesData(depenses || []);
+      } catch { setDepensesData([]); }
 
-      const { data: evaluations } = await supabase.from('qhse_evaluations').select('*');
-      if (evaluations) setEvaluationsData(evaluations);
+      // Fetch QHSE Évaluations
+      try {
+        const { data: evaluations } = await supabase.from('qhse_evaluations').select('*').eq('etablissement_id', etablissementId);
+        setEvaluationsData(evaluations || []);
+      } catch { setEvaluationsData([]); }
     };
 
     fetchData();
-  }, []);
+  }, [etablissementId]);
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) setSelectedParents(parentsList.map(p => p.id));

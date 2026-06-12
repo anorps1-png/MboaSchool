@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 interface SupabaseClasse {
   id: string;
@@ -26,19 +27,22 @@ export default function ClassesPage() {
   const [section, setSection] = useState('Francophone');
   const [prix, setPrix] = useState('');
 
+  const { etablissementId } = useEtablissement();
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (etablissementId) fetchData();
+  }, [etablissementId]);
 
   const fetchData = async () => {
+    if (!etablissementId) return;
     setIsLoading(true);
     
-    // Fetch classes
+    // Fetch classes filtered by etablissement
     const { data: classesData, error: classesError } = await supabase
       .from('classes')
       .select('*')
+      .eq('etablissement_id', etablissementId)
       .order('niveau', { ascending: true })
       .order('nom', { ascending: true });
 
@@ -46,8 +50,8 @@ export default function ClassesPage() {
       setClassesList(classesData);
     }
 
-    // Fetch eleves to count them per class
-    const { data: elevesData } = await supabase.from('eleves').select('classe_id');
+    // Fetch eleves to count them per class (filtered by etablissement)
+    const { data: elevesData } = await supabase.from('eleves').select('classe_id').eq('etablissement_id', etablissementId);
     if (elevesData) {
       const counts: Record<string, number> = {};
       elevesData.forEach(e => {
@@ -78,6 +82,7 @@ export default function ClassesPage() {
           niveau,
           section,
           prix: Number(prix) || 0,
+          etablissement_id: etablissementId,
         }
       ])
       .select();

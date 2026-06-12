@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Eleve, Classe } from '@/types/domain';
 import Link from 'next/link';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 interface PageProps {
   params: Promise<{ classeId: string; eleveId: string }>;
@@ -14,6 +15,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const searchParams = useSearchParams();
   const term = searchParams.get('term') || 'Trimestre 1';
+  const { etablissementId } = useEtablissement();
   
   const [student, setStudent] = useState<any | null>(null);
   const [classInfo, setClassInfo] = useState<any | null>(null);
@@ -24,6 +26,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
   const supabase = createClient();
 
   useEffect(() => {
+    if (!etablissementId) return;
     const loadData = async () => {
       try {
         const classeId = decodeURIComponent(resolvedParams.classeId);
@@ -34,6 +37,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
           .from('classes')
           .select('*')
           .eq('id', classeId)
+          .eq('etablissement_id', etablissementId)
           .single();
         if (clsData) setClassInfo(clsData);
 
@@ -41,7 +45,8 @@ export default function BulletinImpressionPage({ params }: PageProps) {
         const { data: studsData } = await supabase
           .from('eleves')
           .select('*')
-          .eq('classe_id', classeId);
+          .eq('classe_id', classeId)
+          .eq('etablissement_id', etablissementId);
         
         if (studsData) {
           setAllStudents(studsData);
@@ -56,7 +61,8 @@ export default function BulletinImpressionPage({ params }: PageProps) {
             .from('notes')
             .select('*')
             .in('eleve_id', studsIds)
-            .eq('trimestre', term);
+            .eq('trimestre', term)
+            .eq('etablissement_id', etablissementId);
           if (notesData) setNotesList(notesData);
         }
 
@@ -71,7 +77,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
       }
     };
     loadData();
-  }, [resolvedParams.classeId, resolvedParams.eleveId, term]);
+  }, [resolvedParams.classeId, resolvedParams.eleveId, term, etablissementId]);
 
   if (!isLoaded || !student || !classInfo) {
     return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center">Préparation du bulletin...</div>;

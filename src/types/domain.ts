@@ -196,6 +196,7 @@ export interface EcritureComptable {
   libelle: string;
   reference: string;
   lignes: LigneEcriture[];
+  partenaire?: string;
 }
 
 // Module Ressources Humaines (RH)

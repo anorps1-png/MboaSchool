@@ -5,6 +5,7 @@ import { SearchIcon, PlusIcon, DownloadIcon } from '@/components/icons';
 import { createClient } from '@/lib/supabase/client';
 import { downloadExcel } from '@/lib/excel';
 import SyncManager from '@/lib/syncManager';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 interface EnseignantDB {
   id: string;
@@ -34,14 +35,20 @@ export default function EnseignantsPage() {
     salaire_mensuel: 0
   });
 
+  const { etablissementId } = useEtablissement();
   const supabase = createClient();
 
   useEffect(() => {
-    fetchEnseignants();
-  }, []);
+    if (etablissementId) fetchEnseignants();
+  }, [etablissementId]);
 
   const fetchEnseignants = async () => {
-    const { data, error } = await supabase.from('enseignants').select('*').order('nom');
+    if (!etablissementId) return;
+    const { data, error } = await supabase
+      .from('enseignants')
+      .select('*')
+      .eq('etablissement_id', etablissementId)
+      .order('nom');
     if (data) {
       setEnseignants(data as EnseignantDB[]);
     }
@@ -66,21 +73,9 @@ export default function EnseignantsPage() {
       email: newEns.email,
       matiere_principale: newEns.matiere_principale,
       salaire_mensuel: newEns.salaire_mensuel || 0,
-      statut: newEns.statut || 'actif'
+      statut: newEns.statut || 'actif',
+      etablissement_id: etablissementId,
     };
-
-    if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
-      await SyncManager.addToQueue('enseignants', 'insert', enseignantData);
-      const localEns = {
-        id: `temp_${Date.now()}`,
-        ...enseignantData
-      };
-      setEnseignants([localEns as EnseignantDB, ...enseignants]);
-      setShowAddModal(false);
-      setNewEns({ sexe: 'M', statut: 'actif', salaire_mensuel: 0 });
-      triggerToast(`Hors-ligne : L'enseignant ${newEns.nom} a été mis en file d'attente de synchronisation.`);
-      return;
-    }
 
     const { data, error } = await supabase.from('enseignants').insert([enseignantData]).select();
 

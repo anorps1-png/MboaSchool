@@ -12,6 +12,7 @@ import {
 } from '@/components/icons';
 import { Eleve, Paiement, NoteMatiere, TransactionPaiement, Classe, DisciplineIncident } from '@/types/domain';
 import { createClient } from '@/lib/supabase/client';
+import { useEtablissement } from '@/contexts/etablissement-context';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -20,6 +21,7 @@ interface PageProps {
 export default function FicheElevePage({ params }: PageProps) {
   const resolvedParams = use(params);
   const studentId = resolvedParams.id;
+  const { etablissementId } = useEtablissement();
 
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
@@ -28,18 +30,23 @@ export default function FicheElevePage({ params }: PageProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'finance' | 'grades' | 'discipline'>('info');
 
   useEffect(() => {
+    if (!etablissementId) return;
     const fetchData = async () => {
       const supabase = createClient();
       
       // Fetch classes
-      const { data: classesData } = await supabase.from('classes').select('*');
+      const { data: classesData } = await supabase
+        .from('classes')
+        .select('*')
+        .eq('etablissement_id', etablissementId);
       if (classesData) setClassesList(classesData);
 
       // Fetch student with payments, notes, and discipline
       const { data: studentData } = await supabase
         .from('eleves')
-        .select('*, paiements(*), notes(*), discipline_incidents(*)')
+        .select('*, paiements(*), notes(*), discipline(*)')
         .eq('id', studentId)
+        .eq('etablissement_id', etablissementId)
         .single();
 
       if (studentData) {
@@ -47,7 +54,8 @@ export default function FicheElevePage({ params }: PageProps) {
         const { data: classmatesData } = await supabase
           .from('eleves')
           .select('id, notes(*)')
-          .eq('classe_id', studentData.classe_id);
+          .eq('classe_id', studentData.classe_id)
+          .eq('etablissement_id', etablissementId);
           
         if (classmatesData) {
           // Transform notes if needed to match interface
@@ -97,7 +105,7 @@ export default function FicheElevePage({ params }: PageProps) {
             evaluationMaternelle: n.evaluation_maternelle,
             enseignantId: n.enseignant_id
           })) || [],
-          discipline: studentData.discipline_incidents?.map((d: any) => ({
+          discipline: studentData.discipline?.map((d: any) => ({
             id: d.id,
             eleveId: d.eleve_id,
             dateIncident: d.date_incident,
@@ -115,7 +123,7 @@ export default function FicheElevePage({ params }: PageProps) {
     if (typeof window !== 'undefined') {
       fetchData();
     }
-  }, [studentId]);
+  }, [studentId, etablissementId]);
 
   // Form states for adding payment
   const [payAmount, setPayAmount] = useState('');
@@ -146,7 +154,7 @@ export default function FicheElevePage({ params }: PageProps) {
     const gradeIndex = updatedNotes.findIndex(g => g.id === gradeId);
     
     if (gradeIndex !== -1) {
-      let updatePayload: any = {};
+      const updatePayload: any = {};
 
       if (isMaternelle) {
         updatePayload.evaluation_maternelle = editingGradeValue;
@@ -268,7 +276,8 @@ export default function FicheElevePage({ params }: PageProps) {
       type_frais: payType,
       statut: 'paid',
       reference: reference,
-      mode_paiement: payMethod
+      mode_paiement: payMethod,
+      etablissement_id: etablissementId
     }]).select();
 
     if (error) {
@@ -317,7 +326,8 @@ export default function FicheElevePage({ params }: PageProps) {
       eleve_id: student.id,
       matiere: newGradeMatiere, // Necessite ALTER TABLE notes RENAME COLUMN matiere_id TO matiere; ALTER TABLE notes ALTER COLUMN matiere TYPE TEXT;
       trimestre: 'Trimestre 1',
-      coefficient: Number(newGradeCoef) || 1
+      coefficient: Number(newGradeCoef) || 1,
+      etablissement_id: etablissementId
     };
 
     if (newGradeType === 'Maternelle') {
@@ -379,10 +389,11 @@ export default function FicheElevePage({ params }: PageProps) {
       type_incident: newDisciplineType,
       motif: newDisciplineMotif,
       sanction: newDisciplineSanction,
-      statut: newDisciplineStatut
+      statut: newDisciplineStatut,
+      etablissement_id: etablissementId
     };
 
-    const { data: discData, error } = await supabase.from('discipline_incidents').insert([payload]).select();
+    const { data: discData, error } = await supabase.from('discipline').insert([payload]).select();
 
     if (error) {
       alert("Erreur lors de l'ajout de l'incident: " + error.message);

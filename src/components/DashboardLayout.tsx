@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import SyncManager from '@/lib/syncManager';
+import { useEtablissement } from '@/contexts/etablissement-context';
 import {
   DashboardIcon,
   StudentsIcon,
@@ -15,7 +16,8 @@ import {
   ChevronDownIcon,
   AcademicIcon,
   UsersIcon,
-  ChartIcon
+  ChartIcon,
+  SettingsIcon
 } from './icons';
 
 interface DashboardLayoutProps {
@@ -24,15 +26,41 @@ interface DashboardLayoutProps {
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
+  const { etablissementId, setEtablissementId } = useEtablissement();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [academicYear, setAcademicYear] = useState('2025/2026');
-  const [selectedSchool, setSelectedSchool] = useState('Collège Vogt - Yaoundé');
+  const [academicYear, setAcademicYear] = useState('');
+  const [selectedSchool, setSelectedSchool] = useState('');
   const [subscriptionPlan, setSubscriptionPlan] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState('admin@mboaschool.com');
   const [userRole, setUserRole] = useState('Administrateur');
+  const [userPermissions, setUserPermissions] = useState<Record<string, boolean> | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [forceOffline, setForceOffline] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const handleUpdate = () => setRefreshTrigger(prev => prev + 1);
+      window.addEventListener('school_settings_updated', handleUpdate);
+      return () => window.removeEventListener('school_settings_updated', handleUpdate);
+    }
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      const { createClient } = await import('@/lib/supabase/client');
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("Error signing out:", err);
+    }
+    // Always clear cookies & local storage
+    document.cookie = "mboaschool_offline_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    localStorage.removeItem('mboaschool_offline_session');
+    setEtablissementId(null);
+    window.location.href = '/login';
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -48,12 +76,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             // Get profile details
             const { data: profile } = await supabase
               .from('profiles')
-              .select('role, etablissement_id')
+              .select('role, etablissement_id, permissions')
               .eq('id', user.id)
               .single();
 
             if (profile) {
               setUserRole(profile.role === 'admin' ? 'Administrateur' : profile.role);
+              if (profile.permissions) {
+                setUserPermissions(profile.permissions);
+              }
+              
+              // Synchronize database etablissement_id with context/localStorage
+              if (profile.etablissement_id && profile.etablissement_id !== etablissementId) {
+                setEtablissementId(profile.etablissement_id);
+              }
               
               // Get establishment details
               if (profile.etablissement_id) {
@@ -65,6 +101,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
                 if (etab) {
                   setSelectedSchool(etab.nom);
+                  localStorage.setItem('mboaschool_current_school', etab.nom);
                   
                   if (etab.annee_scolaire_active_id) {
                     const { data: annee } = await supabase
@@ -75,6 +112,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
                     if (annee) {
                       setAcademicYear(annee.nom);
+                      localStorage.setItem('mboaschool_current_year', annee.nom);
                     }
                   }
                 }
@@ -85,14 +123,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           console.warn("Could not load dynamic user context from Supabase, loading fallbacks", err);
         }
 
-        // Always check local storage fallbacks
+        // Check local storage fallbacks only if we don't have DB values yet
         const localSchool = localStorage.getItem('mboaschool_current_school');
         const localYear = localStorage.getItem('mboaschool_current_year');
         const localSub = localStorage.getItem('mboaschool_subscription');
         const offlineSession = localStorage.getItem('mboaschool_offline_session');
 
-        if (localSchool) setSelectedSchool(localSchool);
-        if (localYear) setAcademicYear(localYear);
+        if (!selectedSchool && localSchool) setSelectedSchool(localSchool);
+        if (!academicYear && localYear) setAcademicYear(localYear);
         if (localSub) setSubscriptionPlan(localSub);
         
         if (offlineSession) {
@@ -100,6 +138,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const parsed = JSON.parse(offlineSession);
             if (parsed.email) setUserEmail(parsed.email);
             if (parsed.role) setUserRole(parsed.role === 'admin' ? 'Administrateur' : parsed.role);
+            if (parsed.permissions) setUserPermissions(parsed.permissions);
           } catch (e) {
             console.warn("Failed parsing offline session", e);
           }
@@ -108,7 +147,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
       loadProfileAndSchool();
     }
-  }, []);
+  }, [refreshTrigger]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -155,16 +194,72 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
 
   const menuItems = [
-    { name: 'Tableau de bord', href: '/dashboard', icon: DashboardIcon },
-    { name: 'Sections', href: '/sections', icon: DashboardIcon },
-    { name: 'Classes', href: '/classes', icon: StudentsIcon },
-    { name: 'Élèves', href: '/eleves', icon: StudentsIcon },
-    { name: 'Communauté & QHSE', href: '/parents', icon: UsersIcon },
-    { name: 'Enseignants', href: '/enseignants', icon: TeachersIcon },
-    { name: 'Évaluations', href: '/evaluations', icon: AcademicIcon },
-    { name: 'Finance', href: '/finance', icon: ChartIcon },
-    { name: 'Ressources Humaines', href: '/rh', icon: UsersIcon },
+    { name: 'Tableau de bord', href: '/dashboard', icon: DashboardIcon, key: 'dashboard' },
+    { name: 'Sections', href: '/sections', icon: DashboardIcon, key: 'sections' },
+    { name: 'Classes', href: '/classes', icon: StudentsIcon, key: 'classes' },
+    { name: 'Élèves', href: '/eleves', icon: StudentsIcon, key: 'eleves' },
+    { name: 'Communauté & QHSE', href: '/parents', icon: UsersIcon, key: 'parents' },
+    { name: 'Enseignants', href: '/enseignants', icon: TeachersIcon, key: 'enseignants' },
+    { name: 'Évaluations', href: '/evaluations', icon: AcademicIcon, key: 'evaluations' },
+    { name: 'Finance', href: '/finance', icon: ChartIcon, key: 'finance' },
+    { name: 'Ressources Humaines', href: '/rh', icon: UsersIcon, key: 'rh' },
+    { name: 'Paramètres', href: '/settings', icon: SettingsIcon, key: 'settings' },
   ];
+
+  const roleLower = userRole.toLowerCase();
+
+  const filteredMenuItems = menuItems.filter(item => {
+    if (roleLower === 'admin' || roleLower === 'administrateur') {
+      return true;
+    }
+
+    // Check custom permissions first if available
+    if (userPermissions && Object.keys(userPermissions).length > 0) {
+      if (item.key === 'dashboard') return true;
+      if (userPermissions[item.key] !== undefined) {
+        return userPermissions[item.key];
+      }
+    }
+
+    // Fallback role defaults
+    if (roleLower === 'directeur') {
+      return true;
+    }
+    if (roleLower === 'enseignant') {
+      return ['/dashboard', '/classes', '/eleves', '/evaluations'].includes(item.href);
+    }
+    if (roleLower === 'parent') {
+      return ['/dashboard', '/eleves', '/parents'].includes(item.href);
+    }
+    return item.href === '/dashboard';
+  });
+
+  const isAuthorized = (href: string) => {
+    if (roleLower === 'admin' || roleLower === 'administrateur') {
+      return true;
+    }
+
+    // Check custom permissions first if available
+    if (userPermissions && Object.keys(userPermissions).length > 0) {
+      if (href === '/dashboard') return true;
+      const matched = menuItems.find(item => href === item.href || href.startsWith(item.href + '/'));
+      if (matched && userPermissions[matched.key] !== undefined) {
+        return userPermissions[matched.key];
+      }
+    }
+
+    // Fallback role defaults
+    if (roleLower === 'directeur') {
+      return true;
+    }
+    if (roleLower === 'enseignant') {
+      return ['/dashboard', '/classes', '/eleves', '/evaluations'].some(path => href === path || href.startsWith(path + '/'));
+    }
+    if (roleLower === 'parent') {
+      return ['/dashboard', '/eleves', '/parents'].some(path => href === path || href.startsWith(path + '/'));
+    }
+    return href === '/dashboard';
+  };
 
   const notifications = [
     { id: 1, text: "Nouveau paiement de 150 000 FCFA reçu pour Jean-Pierre Fouda", time: "Il y a 10 min", unread: true },
@@ -235,7 +330,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
           {/* Sidebar Menu */}
           <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-            {menuItems.map((item) => {
+            {filteredMenuItems.map((item) => {
               const Icon = item.icon;
               // Check if pathname starts with item.href to keep active subroutes
               const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
@@ -260,26 +355,28 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </nav>
 
           {/* Sidebar Footer */}
-          <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm uppercase">
-              {userEmail ? userEmail.substring(0, 2) : 'AD'}
+          <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm uppercase">
+                {userEmail ? userEmail.substring(0, 2) : 'AD'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-white truncate" title={userEmail}>{userEmail}</p>
+                <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider">{userRole}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{isOnline ? 'En ligne' : 'Hors-ligne'}</span>
+                <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-white truncate" title={userEmail}>{userEmail}</p>
-              <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider">{userRole}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-[10px] text-slate-400 cursor-pointer flex items-center gap-1" title="Simuler le mode hors-ligne">
-                <input 
-                  type="checkbox" 
-                  checked={forceOffline} 
-                  onChange={(e) => setForceOffline(e.target.checked)}
-                  className="rounded border-slate-700 bg-slate-800"
-                />
-                Offline
-              </label>
-              <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
-            </div>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 hover:bg-rose-950/20 hover:border-rose-900/50 hover:text-rose-400 text-slate-400 rounded-xl text-xs font-bold transition-all"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              <span>Se déconnecter</span>
+            </button>
           </div>
         </aside>
 
@@ -380,7 +477,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
           {/* Children Content */}
           <main className="flex-1 p-4 lg:p-8 overflow-y-auto">
-            {children}
+            {isAuthorized(pathname) ? (
+              children
+            ) : (
+              <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm text-center max-w-md mx-auto mt-20">
+                <span className="text-5xl">🔒</span>
+                <h2 className="text-xl font-bold text-slate-800 mt-4">Accès Restreint</h2>
+                <p className="text-sm text-slate-500 mt-2">
+                  Vous n'avez pas les habilitations nécessaires pour accéder à la rubrique <strong>{pathname}</strong>.
+                </p>
+                <Link href="/dashboard" className="mt-6 inline-block px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md transition-all">
+                  Retour au Tableau de bord
+                </Link>
+              </div>
+            )}
           </main>
         </div>
       </div>
