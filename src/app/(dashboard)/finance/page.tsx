@@ -805,6 +805,16 @@ export default function FinancePage() {
     b.solde = b.debit - b.credit;
   });
 
+  const getTiersForAccount = (compteNumero: string) => {
+    const partners = new Set<string>();
+    ecritures.forEach(ecr => {
+      if (ecr.partenaire && ecr.lignes.some(l => l.compteNumero === compteNumero)) {
+        partners.add(ecr.partenaire);
+      }
+    });
+    return Array.from(partners).join(', ');
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Toast */}
@@ -1524,6 +1534,7 @@ export default function FinancePage() {
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">Référence</th>
                     <th className="px-4 py-3">Compte</th>
+                    <th className="px-4 py-3">Tiers</th>
                     <th className="px-4 py-3">Libellé</th>
                     <th className="px-4 py-3 text-right">Débit</th>
                     <th className="px-4 py-3 text-right">Crédit</th>
@@ -1543,12 +1554,12 @@ export default function FinancePage() {
                               </>
                             )}
                             <td className="px-4 py-3 font-bold text-indigo-600">{ligne.compteNumero}</td>
+                            <td className="px-4 py-3 text-slate-700 font-semibold">
+                              {ligne.compteNumero.startsWith('4') && ecr.partenaire ? ecr.partenaire : ''}
+                            </td>
                             <td className="px-4 py-3">
                               <div className="font-bold text-black flex items-center gap-2 flex-wrap">
                                 <span>{ecr.libelle}</span>
-                                {ecr.partenaire && (
-                                  <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md font-bold border border-indigo-100 whitespace-nowrap">Tiers : {ecr.partenaire}</span>
-                                )}
                               </div>
                               <div className="text-xs text-slate-400">{compteDef?.libelle || 'Compte inconnu'}</div>
                             </td>
@@ -1569,6 +1580,7 @@ export default function FinancePage() {
                 <thead>
                   <tr className="border-b border-slate-200 text-xs font-bold text-black uppercase bg-slate-50/20">
                     <th className="px-4 py-3 w-24">Compte</th>
+                    <th className="px-4 py-3">Tiers</th>
                     <th className="px-4 py-3">Intitulé</th>
                     <th className="px-4 py-3 text-right">Mouvement Débit</th>
                     <th className="px-4 py-3 text-right">Mouvement Crédit</th>
@@ -1582,6 +1594,7 @@ export default function FinancePage() {
                     return (
                       <tr key={compte.numero} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-bold text-indigo-600">{compte.numero}</td>
+                        <td className="px-4 py-3 text-slate-600 font-semibold">{getTiersForAccount(compte.numero)}</td>
                         <td className="px-4 py-3 font-bold text-black">{compte.libelle}</td>
                         <td className="px-4 py-3 text-right font-mono text-xs font-bold text-black">{formatMoney(b.debit)}</td>
                         <td className="px-4 py-3 text-right font-mono text-xs font-bold text-black">{formatMoney(b.credit)}</td>
