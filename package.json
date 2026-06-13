@@ -48,8 +48,7 @@
       ".next/**/*",
       "!.next/cache/**/*",
       "!.next/dev/**/*",
-      "public/**/*",
-      "node_modules/**/*"
+      "public/**/*"
     ],
     "win": {
       "target": "nsis"
