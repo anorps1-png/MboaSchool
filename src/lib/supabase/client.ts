@@ -150,10 +150,18 @@ function createOfflineBuilder(table: string, realBuilder: any): any {
       // If it's a Promise thenable method
       if (prop === 'then') {
         return (onfulfilled: any, onrejected: any) => {
+          const isOffline = typeof navigator !== 'undefined'
+            ? (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline))
+            : false;
+
+          if (isOffline) {
+            return handleOfflineQuery(target).then(onfulfilled, onrejected);
+          }
+
           return target.realBuilder.then(
             async (result: any) => {
-              const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
-              if (isOffline || (result.error && (result.error.message?.includes('Failed to fetch') || result.error.status === 0))) {
+              // Even if isOffline was false, the request might fail due to sudden network loss
+              if (result.error && (result.error.message?.includes('Failed to fetch') || result.error.status === 0)) {
                 try {
                   const offlineResult = await handleOfflineQuery(target);
                   return onfulfilled ? onfulfilled(offlineResult) : offlineResult;
@@ -169,8 +177,7 @@ function createOfflineBuilder(table: string, realBuilder: any): any {
               return onfulfilled ? onfulfilled(result) : result;
             },
             async (error: any) => {
-              const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
-              if (isOffline || error.message?.includes('Failed to fetch') || error.status === 0) {
+              if (error.message?.includes('Failed to fetch') || error.status === 0) {
                 try {
                   const offlineResult = await handleOfflineQuery(target);
                   return onfulfilled ? onfulfilled(offlineResult) : offlineResult;

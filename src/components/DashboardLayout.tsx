@@ -41,11 +41,38 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      const isElectron = window.navigator.userAgent.toLowerCase().includes('electron') || 
+                          !!(window as any).process?.versions?.electron;
+      const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
+      
+      let initForceOffline = false;
+      if (storedForceOffline !== null) {
+        initForceOffline = storedForceOffline === 'true';
+      } else if (isElectron) {
+        initForceOffline = true;
+        localStorage.setItem('mboaschool_force_offline', 'true');
+      }
+      
+      setForceOffline(initForceOffline);
+      (window as any).__forceOffline = initForceOffline;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
       const handleUpdate = () => setRefreshTrigger(prev => prev + 1);
       window.addEventListener('school_settings_updated', handleUpdate);
       return () => window.removeEventListener('school_settings_updated', handleUpdate);
     }
   }, []);
+
+  const toggleForceOffline = () => {
+    const newVal = !forceOffline;
+    setForceOffline(newVal);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mboaschool_force_offline', String(newVal));
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -270,10 +297,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* Offline Banner */}
+      {/* Offline/Local Banner */}
       {!isOnline && (
-        <div className="bg-red-500 text-white text-xs font-bold text-center py-1.5 px-4 shadow-md z-50">
-          ⚠️ Mode Hors-ligne : Aucune connexion internet. Vos actions seront enregistrées et synchronisées automatiquement à la reconnexion.
+        <div className={`${forceOffline ? 'bg-amber-600' : 'bg-red-500'} text-white text-xs font-bold text-center py-1.5 px-4 shadow-md z-50 transition-colors duration-300`}>
+          {forceOffline ? (
+            <span>💻 Mode Local actif : Vos données sont lues et modifiées localement pour une réactivité maximale. Cliquez sur le bouton "Local" en bas à gauche pour basculer en ligne.</span>
+          ) : (
+            <span>⚠️ Mode Hors-ligne : Aucune connexion internet. Vos actions seront enregistrées et synchronisées automatiquement à la reconnexion.</span>
+          )}
         </div>
       )}
 
@@ -377,10 +408,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <p className="text-xs font-semibold text-white truncate" title={userEmail}>{userEmail}</p>
                 <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider">{userRole}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{isOnline ? 'En ligne' : 'Hors-ligne'}</span>
-                <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
-              </div>
+              <button
+                type="button"
+                onClick={toggleForceOffline}
+                title={forceOffline ? "Mode local actif. Cliquez pour basculer en ligne." : "Mode connecté actif. Cliquez pour forcer le mode local."}
+                className="flex items-center gap-1.5 px-2 py-1 bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-400 hover:text-white rounded-lg text-[10px] font-bold tracking-wide uppercase transition-all duration-200 cursor-pointer"
+              >
+                <span>{forceOffline ? 'Local' : (isOnline ? 'En ligne' : 'Déconnecté')}</span>
+                <div className={`w-2 h-2 rounded-full ${
+                  forceOffline ? 'bg-amber-500 animate-pulse' : (isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500')
+                }`}></div>
+              </button>
             </div>
 
             <button
