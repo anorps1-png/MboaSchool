@@ -18,6 +18,23 @@ function LoginContent() {
   // Step 1 & Login States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const checkStatus = () => {
+        const forceOffline = localStorage.getItem('mboaschool_force_offline') === 'true';
+        setIsOffline(!navigator.onLine || forceOffline);
+      };
+      checkStatus();
+      window.addEventListener('online', checkStatus);
+      window.addEventListener('offline', checkStatus);
+      return () => {
+        window.removeEventListener('online', checkStatus);
+        window.removeEventListener('offline', checkStatus);
+      };
+    }
+  }, []);
 
   // Step 2 State: Subscription Plan
   const [selectedPlan, setSelectedPlan] = useState<'Basic' | 'Standard' | 'Premium'>('Standard');
@@ -46,10 +63,85 @@ function LoginContent() {
     }
   }, [searchParams]);
 
+  const handleOfflineLogin = () => {
+    // Check if we have a simulated active account session
+    const storedOffline = localStorage.getItem('mboaschool_offline_session');
+    if (storedOffline) {
+      try {
+        const parsed = JSON.parse(storedOffline);
+        if (parsed.email === email) {
+          document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
+          router.push('/dashboard');
+          return;
+        }
+      } catch (e) {
+        console.warn("Parsing offline session failed", e);
+      }
+    }
+
+    // Check in mboaschool_profiles for simulated accounts cached during online login
+    const storedProfiles = localStorage.getItem('mboaschool_profiles');
+    if (storedProfiles) {
+      try {
+        const profilesList = JSON.parse(storedProfiles);
+        const matchedProfile = profilesList.find((p: any) => p.email === email);
+        if (matchedProfile) {
+          // Verify password if it is stored in the profile
+          if (matchedProfile.password && matchedProfile.password !== password) {
+            setErrorMsg("Mot de passe incorrect.");
+            setIsLoading(false);
+            return;
+          }
+          localStorage.setItem('mboaschool_offline_session', JSON.stringify({
+            email: matchedProfile.email,
+            role: matchedProfile.role,
+            school: matchedProfile.school || localStorage.getItem('mboaschool_current_school') || 'Mon Établissement'
+          }));
+          if (matchedProfile.school) {
+            localStorage.setItem('mboaschool_current_school', matchedProfile.school);
+          }
+          if (matchedProfile.etablissement_id) {
+            localStorage.setItem('mboaschool_etablissement_id', matchedProfile.etablissement_id);
+          }
+          document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
+          router.push('/dashboard');
+          return;
+        }
+      } catch (e) {
+        console.warn("Failed checking mboaschool_profiles", e);
+      }
+    }
+
+    // General fallback demo login
+    if (email === 'admin@mboaschool.com' || email === 'directeur@mboaschool.com') {
+      document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
+      localStorage.setItem('mboaschool_offline_session', JSON.stringify({
+        email,
+        role: 'admin',
+        school: 'Collège Vogt - Yaoundé'
+      }));
+      localStorage.setItem('mboaschool_current_school', 'Collège Vogt - Yaoundé');
+      localStorage.setItem('mboaschool_etablissement_id', 'd3b07384-d113-4ee7-a496-c67b8a74e50d');
+      router.push('/dashboard');
+      return;
+    }
+
+    setErrorMsg("Aucun compte local correspondant trouvé sur cet appareil. Veuillez vous connecter une fois en ligne.");
+    setIsLoading(false);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setErrorMsg(null);
+
+    const forceOffline = typeof window !== 'undefined' && localStorage.getItem('mboaschool_force_offline') === 'true';
+    const isOfflineMode = typeof navigator !== 'undefined' && (!navigator.onLine || forceOffline);
+
+    if (isOfflineMode) {
+      handleOfflineLogin();
+      return;
+    }
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -61,45 +153,70 @@ function LoginContent() {
       if (data?.user) {
         // Clear offline session cookie if successful Supabase authentication
         document.cookie = "mboaschool_offline_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        // Fetch profile to get etablissement_id
+        
+        // Fetch profile and cache robustly
         try {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('etablissement_id, role')
+            .select('etablissement_id, role, permissions, nom_complet')
             .eq('id', data.user.id)
             .single();
-          if (profile?.etablissement_id) {
-            localStorage.setItem('mboaschool_etablissement_id', profile.etablissement_id);
-            // Also fetch school name
+            
+          let schoolName = 'Mon Établissement';
+          let etabId = profile?.etablissement_id || null;
+          
+          if (etabId) {
+            localStorage.setItem('mboaschool_etablissement_id', etabId);
             const { data: etab } = await supabase
               .from('etablissements')
               .select('nom')
-              .eq('id', profile.etablissement_id)
+              .eq('id', etabId)
               .single();
             if (etab) {
+              schoolName = etab.nom;
               localStorage.setItem('mboaschool_current_school', etab.nom);
-              
-              // Cache their profile details locally for subsequent offline logins
-              const storedProfiles = localStorage.getItem('mboaschool_profiles');
-              let profilesList = [];
-              if (storedProfiles) {
-                try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
-              }
-              profilesList = profilesList.filter((p: any) => p.email !== email);
-              profilesList.push({
-                id: data.user.id,
-                email: email,
-                password: password, // Store password for offline local check
-                role: profile?.role || 'admin',
-                school: etab.nom,
-                etablissement_id: profile?.etablissement_id,
-                created_at: new Date().toISOString()
-              });
-              localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
             }
           }
+          
+          const storedProfiles = localStorage.getItem('mboaschool_profiles');
+          let profilesList = [];
+          if (storedProfiles) {
+            try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
+          }
+          profilesList = profilesList.filter((p: any) => p.email !== email);
+          profilesList.push({
+            id: data.user.id,
+            email: email,
+            password: password, // Store password for offline local check
+            role: profile?.role || 'admin',
+            school: schoolName,
+            etablissement_id: etabId,
+            permissions: profile?.permissions || null,
+            nom_complet: profile?.nom_complet || '',
+            created_at: new Date().toISOString()
+          });
+          localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
         } catch (profileErr) {
-          console.warn('Could not fetch profile on login:', profileErr);
+          console.warn('Could not fetch/cache profile on login:', profileErr);
+          
+          // Fallback to caching basic details
+          const storedProfiles = localStorage.getItem('mboaschool_profiles');
+          let profilesList = [];
+          if (storedProfiles) {
+            try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
+          }
+          if (!profilesList.find((p: any) => p.email === email)) {
+            profilesList.push({
+              id: data.user.id,
+              email: email,
+              password: password,
+              role: 'admin',
+              school: localStorage.getItem('mboaschool_current_school') || 'Mon Établissement',
+              etablissement_id: localStorage.getItem('mboaschool_etablissement_id'),
+              created_at: new Date().toISOString()
+            });
+            localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+          }
         }
         router.push('/dashboard');
       }
@@ -126,70 +243,8 @@ function LoginContent() {
         return;
       }
 
-      // Check if we have a simulated account session
-      const storedOffline = localStorage.getItem('mboaschool_offline_session');
-      if (storedOffline) {
-        try {
-          const parsed = JSON.parse(storedOffline);
-          if (parsed.email === email) {
-            document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
-            router.push('/dashboard');
-            return;
-          }
-        } catch (e) {
-          console.warn("Parsing offline session failed", e);
-        }
-      }
-
-      // Check in mboaschool_profiles for simulated accounts created by admin
-      const storedProfiles = localStorage.getItem('mboaschool_profiles');
-      if (storedProfiles) {
-        try {
-          const profilesList = JSON.parse(storedProfiles);
-          const matchedProfile = profilesList.find((p: any) => p.email === email);
-          if (matchedProfile) {
-            // Verify password if it is stored in the profile
-            if (matchedProfile.password && matchedProfile.password !== password) {
-              setErrorMsg("Mot de passe incorrect.");
-              setIsLoading(false);
-              return;
-            }
-            localStorage.setItem('mboaschool_offline_session', JSON.stringify({
-              email: matchedProfile.email,
-              role: matchedProfile.role,
-              school: matchedProfile.school || localStorage.getItem('mboaschool_current_school') || 'Mon Établissement'
-            }));
-            if (matchedProfile.school) {
-              localStorage.setItem('mboaschool_current_school', matchedProfile.school);
-            }
-            // Restore etablissement_id from offline profile
-            if (matchedProfile.etablissement_id) {
-              localStorage.setItem('mboaschool_etablissement_id', matchedProfile.etablissement_id);
-            }
-            document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
-            router.push('/dashboard');
-            return;
-          }
-        } catch (e) {
-          console.warn("Failed checking mboaschool_profiles", e);
-        }
-      }
-
-      // General fallback demo login
-      if (email === 'admin@mboaschool.com' || email === 'directeur@mboaschool.com') {
-        document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
-        localStorage.setItem('mboaschool_offline_session', JSON.stringify({
-          email,
-          role: 'admin',
-          school: 'Collège Vogt - Yaoundé'
-        }));
-        localStorage.setItem('mboaschool_current_school', 'Collège Vogt - Yaoundé');
-        localStorage.setItem('mboaschool_etablissement_id', 'd3b07384-d113-4ee7-a496-c67b8a74e50d');
-        router.push('/dashboard');
-        return;
-      }
-
-      setErrorMsg(err.message || "Erreur de connexion. Veuillez vérifier vos identifiants.");
+      // Connection error, fallback to offline login
+      handleOfflineLogin();
     } finally {
       setIsLoading(false);
     }
@@ -394,6 +449,41 @@ function LoginContent() {
             <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3.5 rounded-xl text-xs font-semibold flex items-center gap-3 mb-6">
               <span className="w-5 h-5 rounded-full bg-rose-500/20 flex items-center justify-center font-bold">!</span>
               <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {isOffline ? (
+            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-3.5 rounded-xl text-xs font-semibold mb-6">
+              <div className="flex justify-between items-center">
+                <span className="flex items-center gap-1.5">💻 Mode Hors-ligne / Local actif</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.setItem('mboaschool_force_offline', 'false');
+                    setIsOffline(!navigator.onLine);
+                  }}
+                  className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-lg border border-slate-700 font-bold transition-all cursor-pointer"
+                >
+                  Passer en ligne
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 font-normal mt-2 leading-relaxed">
+                Connexion avec vos identifiants habituels (déjà connectés sur cet appareil) ou le compte démo :
+                <strong className="text-amber-300 ml-1">admin@mboaschool.com</strong>.
+              </p>
+            </div>
+          ) : (
+            <div className="flex justify-end mb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('mboaschool_force_offline', 'true');
+                  setIsOffline(true);
+                }}
+                className="text-[10px] text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-all cursor-pointer"
+              >
+                <span>🌐 Travailler hors-ligne (mode local)</span>
+              </button>
             </div>
           )}
 
