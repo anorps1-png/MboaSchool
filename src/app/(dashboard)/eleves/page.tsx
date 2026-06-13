@@ -240,7 +240,7 @@ export default function ElevesPage() {
           const { data: years } = await supabase
             .from('annees_scolaires')
             .select('id')
-            .eq('etablissement_id', etablissementId)
+            .order('created_at', { ascending: false })
             .limit(1);
           if (years && years.length > 0) {
             resolvedAnneeScolaireId = years[0].id;
