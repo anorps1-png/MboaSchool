@@ -21,6 +21,52 @@ export default function SettingsPage() {
   const [activeYearId, setActiveYearId] = useState('');
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 
+  const [showAddYearForm, setShowAddYearForm] = useState(false);
+  const [newYearName, setNewYearName] = useState('');
+  const [newYearStart, setNewYearStart] = useState('');
+  const [newYearEnd, setNewYearEnd] = useState('');
+
+  useEffect(() => {
+    if (/^\d{4}\/\d{4}$/.test(newYearName)) {
+      const parts = newYearName.split('/');
+      setNewYearStart(`${parts[0]}-09-01`);
+      setNewYearEnd(`${parts[1]}-06-30`);
+    }
+  }, [newYearName]);
+
+  const handleCreateYear = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!newYearName) return;
+
+    const supabase = createClient();
+    try {
+      const yearPayload = {
+        nom: newYearName,
+        date_debut: newYearStart || `${newYearName.split('/')[0]}-09-01`,
+        date_fin: newYearEnd || `${newYearName.split('/')[1]}-06-30`,
+      };
+
+      const { data, error } = await supabase
+        .from('annees_scolaires')
+        .insert([yearPayload])
+        .select();
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const createdYear = data[0];
+        setAcademicYears([createdYear, ...academicYears]);
+        setActiveYearId(createdYear.id);
+        setShowAddYearForm(false);
+        setNewYearName('');
+        triggerToast(`Année scolaire ${createdYear.nom} créée et sélectionnée !`);
+      }
+    } catch (err: any) {
+      console.error('Error creating academic year:', err);
+      triggerToast(`Erreur : ${err.message || err}`);
+    }
+  };
+
   // Local state (localStorage persisted)
   const [schoolMotto, setSchoolMotto] = useState('Éducation, Discipline, Succès');
   const [schoolEmail, setSchoolEmail] = useState('contact@etablissement.com');
@@ -273,17 +319,68 @@ export default function SettingsPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Année Scolaire Active</label>
-                <select
-                  value={activeYearId}
-                  onChange={(e) => setActiveYearId(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
-                >
-                  <option value="">Sélectionnez l'année active</option>
-                  {academicYears.map((y) => (
-                    <option key={y.id} value={y.id}>{y.nom}</option>
-                  ))}
-                </select>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Année Scolaire Active</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddYearForm(!showAddYearForm)}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-700 font-bold transition-colors cursor-pointer"
+                  >
+                    {showAddYearForm ? "Annuler" : "+ Nouvelle Année"}
+                  </button>
+                </div>
+                {!showAddYearForm ? (
+                  <select
+                    value={activeYearId}
+                    onChange={(e) => setActiveYearId(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold cursor-pointer"
+                  >
+                    <option value="">Sélectionnez l'année active</option>
+                    {academicYears.map((y) => (
+                      <option key={y.id} value={y.id}>{y.nom}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="space-y-2.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nom (Ex: 2026/2027)</label>
+                      <input
+                        type="text"
+                        placeholder="2026/2027"
+                        value={newYearName}
+                        onChange={(e) => setNewYearName(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-black focus:ring-1 focus:ring-indigo-500 outline-none font-semibold"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Début</label>
+                        <input
+                          type="date"
+                          value={newYearStart}
+                          onChange={(e) => setNewYearStart(e.target.value)}
+                          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-[11px] text-black focus:ring-1 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fin</label>
+                        <input
+                          type="date"
+                          value={newYearEnd}
+                          onChange={(e) => setNewYearEnd(e.target.value)}
+                          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-[11px] text-black focus:ring-1 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCreateYear}
+                      className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    >
+                      Ajouter & Sélectionner
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Seuil de Réussite Académique (Note minimum de passage)</label>
