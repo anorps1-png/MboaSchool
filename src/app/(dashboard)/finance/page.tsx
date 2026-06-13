@@ -50,7 +50,7 @@ export default function FinancePage() {
   const [newAccClasse, setNewAccClasse] = useState('6');
 
   // Subtab for accounting
-  const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance'>('journal');
+  const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance' | 'suspens'>('journal');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // BSC years state
@@ -815,6 +815,75 @@ export default function FinancePage() {
     return Array.from(partners).join(', ');
   };
 
+  const getSuspensComptables = () => {
+    const suspensMap: Record<string, {
+      reference: string;
+      partenaire: string;
+      compteTiers: string;
+      montantConstate: number;
+      montantRegle: number;
+      dateConstatation: string;
+      libelle: string;
+    }> = {};
+
+    ecritures.forEach(ecr => {
+      const baseRef = ecr.reference.startsWith('PAY-') ? ecr.reference.substring(4) : ecr.reference;
+      
+      ecr.lignes.forEach(l => {
+        if (l.compteNumero.startsWith('4')) {
+          const partenaireName = ecr.partenaire || 'Tiers Divers';
+          const key = `${baseRef}-${partenaireName}-${l.compteNumero}`;
+          
+          if (!suspensMap[key]) {
+            suspensMap[key] = {
+              reference: baseRef,
+              partenaire: partenaireName,
+              compteTiers: l.compteNumero,
+              montantConstate: 0,
+              montantRegle: 0,
+              dateConstatation: ecr.date,
+              libelle: ecr.libelle.replace('Constatation : ', '').replace('Règlement : ', '')
+            };
+          }
+
+          suspensMap[key].montantConstate += l.credit;
+          suspensMap[key].montantRegle += l.debit;
+          
+          if (new Date(ecr.date).getTime() < new Date(suspensMap[key].dateConstatation).getTime()) {
+            suspensMap[key].dateConstatation = ecr.date;
+          }
+        }
+      });
+    });
+
+    return Object.values(suspensMap)
+      .map(s => ({
+        ...s,
+        soldeRestant: s.montantConstate - s.montantRegle
+      }))
+      .filter(s => Math.abs(s.soldeRestant) > 0.01)
+      .sort((a, b) => new Date(b.dateConstatation).getTime() - new Date(a.dateConstatation).getTime());
+  };
+
+  const suspensList = getSuspensComptables();
+
+  const handleSettleSuspens = (item: any) => {
+    setExpTypeSaisie('reglement');
+    setExpDate(new Date().toISOString().split('T')[0]);
+    setExpReference(`PAY-${item.reference}`);
+    setExpPartenaire(item.partenaire === 'Tiers Divers' ? '' : item.partenaire);
+    
+    const outstanding = Math.abs(item.soldeRestant);
+    setExpAmountPaye(String(outstanding));
+    setExpAmount(String(outstanding));
+    setExpCompteTiers(item.compteTiers);
+    
+    // Default credit account to bank (521) for large amounts, cash (571) for small
+    setExpCompteCredit(outstanding > 100000 ? '521' : '571');
+    setExpLibelle(`Règlement ${item.libelle}`);
+    setShowExpenseModal(true);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Toast */}
@@ -1519,14 +1588,29 @@ export default function FinancePage() {
               >
                 Balance des Comptes
               </button>
+              <button
+                onClick={() => setAccountingSubTab('suspens')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  accountingSubTab === 'suspens' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span>Suspens Comptables</span>
+                {suspensList.length > 0 && (
+                  <span className="bg-rose-100 text-rose-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                    {suspensList.length}
+                  </span>
+                )}
+              </button>
             </div>
             <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
-              {ecritures.length} écritures OHADA
+              {accountingSubTab === 'journal' && `${ecritures.length} écritures OHADA`}
+              {accountingSubTab === 'balance' && `${planComptable.filter(c => accountBalances[c.numero]?.debit > 0 || accountBalances[c.numero]?.credit > 0).length} comptes mouvementés`}
+              {accountingSubTab === 'suspens' && `${suspensList.length} suspens à solder`}
             </span>
           </div>
 
           {/* Subtab content: Journal */}
-          {accountingSubTab === 'journal' ? (
+          {accountingSubTab === 'journal' && (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse text-black">
                 <thead>
@@ -1573,8 +1657,10 @@ export default function FinancePage() {
                 </tbody>
               </table>
             </div>
-          ) : (
-            /* Subtab content: Balance */
+          )}
+
+          {/* Subtab content: Balance */}
+          {accountingSubTab === 'balance' && (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse text-black">
                 <thead>
@@ -1603,6 +1689,76 @@ export default function FinancePage() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Subtab content: Suspens */}
+          {accountingSubTab === 'suspens' && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse text-black">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs font-bold text-black uppercase bg-slate-50/20">
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Référence</th>
+                    <th className="px-4 py-3">Tiers</th>
+                    <th className="px-4 py-3">Compte</th>
+                    <th className="px-4 py-3">Libellé</th>
+                    <th className="px-4 py-3 text-right">Montant Initial</th>
+                    <th className="px-4 py-3 text-right">Déjà Réglé</th>
+                    <th className="px-4 py-3 text-right">Reste à Solder</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {suspensList.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-8 text-center text-slate-500 font-medium">
+                        Aucune opération en suspens. Toutes les factures à crédit sont soldées !
+                      </td>
+                    </tr>
+                  ) : (
+                    suspensList.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-3 font-mono text-xs text-black font-semibold whitespace-nowrap">
+                          {new Date(item.dateConstatation).toLocaleDateString('fr-FR')}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-black font-semibold">
+                          {item.reference}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 font-semibold">
+                          {item.partenaire}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-indigo-600">
+                          {item.compteTiers}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-black">{item.libelle}</div>
+                          <div className="text-xs text-slate-400">
+                            {planComptable.find(c => c.numero === item.compteTiers)?.libelle || 'Compte de tiers'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-black font-bold">
+                          {formatMoney(Math.max(item.montantConstate, item.montantRegle))}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-emerald-600 font-bold">
+                          {item.montantConstate > 0 && item.montantRegle > 0 ? formatMoney(Math.min(item.montantConstate, item.montantRegle)) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-rose-600 font-extrabold bg-rose-50/30">
+                          {formatMoney(Math.abs(item.soldeRestant))}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => handleSettleSuspens(item)}
+                            className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-800 rounded-lg text-xs font-bold shadow-sm transition-all border border-indigo-100/50"
+                          >
+                            Solder
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
