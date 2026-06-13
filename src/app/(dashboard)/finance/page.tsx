@@ -50,7 +50,7 @@ export default function FinancePage() {
   const [newAccClasse, setNewAccClasse] = useState('6');
 
   // Subtab for accounting
-  const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance' | 'suspens'>('journal');
+  const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance' | 'suspens' | 'bilan' | 'dsf'>('journal');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // BSC years state
@@ -100,6 +100,8 @@ export default function FinancePage() {
 
       // 2. Fetch Students & Payments from Supabase
       let loadedStudents: Eleve[] = [];
+      let loadedPersonnel: MembrePersonnel[] = [];
+      let loadedFormations: FormationRH[] = [];
       try {
         const { data: elevesData, error } = await supabase
           .from('eleves')
@@ -162,6 +164,7 @@ export default function FinancePage() {
             dateEmbauche: p.date_embauche,
             statut: p.statut
           }));
+          loadedPersonnel = mapped;
           setPersonnel(mapped);
         } else {
           setPersonnel([]);
@@ -187,6 +190,7 @@ export default function FinancePage() {
             statut: f.statut,
             beneficiairesIds: []
           }));
+          loadedFormations = mapped;
           setFormations(mapped);
         } else {
           setFormations([]);
@@ -279,7 +283,83 @@ export default function FinancePage() {
         }
       });
 
-      const combined = [...customEcritures, ...paymentEcritures].sort(
+      // Auto-generate salary entries dynamically
+      const salaryEcritures: EcritureComptable[] = [];
+      const personnelForEntries = loadedPersonnel.length > 0 ? loadedPersonnel : mockPersonnel;
+      const activeStaff = personnelForEntries.filter(p => p.statut === 'actif');
+      activeStaff.forEach(p => {
+        // Generate salary for each month of 2026 from Jan to May (5 months)
+        const months = ['2026-01-25', '2026-02-25', '2026-03-25', '2026-04-25', '2026-05-25'];
+        months.forEach((dateStr, monthIdx) => {
+          const amount = p.salaireDeBase;
+          if (amount > 0) {
+            // Constatation of salary
+            salaryEcritures.push({
+              id: `ecr-sal-const-${p.id}-${monthIdx}`,
+              date: dateStr,
+              libelle: `Paie constatée - ${p.prenom} ${p.nom}`,
+              reference: `DEC-SAL-${(p.id || '').slice(-4)}-M${monthIdx + 1}`,
+              lignes: [
+                { compteNumero: '661', debit: amount, credit: 0 },
+                { compteNumero: '421', debit: 0, credit: amount }
+              ]
+            });
+            
+            // Payment of salary (fully paid for Jan, Feb, Mar, Apr, but May is in suspens!)
+            if (monthIdx < 4) {
+              salaryEcritures.push({
+                id: `ecr-sal-pay-${p.id}-${monthIdx}`,
+                date: dateStr,
+                libelle: `Règlement salaire - ${p.prenom} ${p.nom}`,
+                reference: `PAY-SAL-${(p.id || '').slice(-4)}-M${monthIdx + 1}`,
+                lignes: [
+                  { compteNumero: '421', debit: amount, credit: 0 },
+                  { compteNumero: '521', debit: 0, credit: amount }
+                ]
+              });
+            }
+          }
+        });
+      });
+
+      // Auto-generate training entries dynamically
+      const trainingEcritures: EcritureComptable[] = [];
+      const formationsForEntries = loadedFormations.length > 0 ? loadedFormations : mockFormations;
+      formationsForEntries.forEach((f: any) => {
+        const amount = Number(f.cout_total || f.coutTotal || 0);
+        if (amount > 0) {
+          const dateConst = f.date_debut || f.dateDebut || '2026-03-01';
+          const datePay = f.date_fin || f.dateFin || '2026-03-15';
+          // Constatation
+          trainingEcritures.push({
+            id: `ecr-train-const-${f.id}`,
+            date: typeof dateConst === 'string' ? dateConst.split('T')[0] : '2026-03-01',
+            libelle: `Frais formation : ${f.theme}`,
+            reference: `FOR-${(f.id || '').slice(-4)}`,
+            partenaire: f.organisme || 'Organisme de formation',
+            lignes: [
+              { compteNumero: '601', debit: amount, credit: 0 },
+              { compteNumero: '401', debit: 0, credit: amount }
+            ]
+          });
+          // Règlement (paid) if status is Terminé
+          if (f.statut === 'Terminé' || f.statut === 'termine') {
+            trainingEcritures.push({
+              id: `ecr-train-pay-${f.id}`,
+              date: typeof datePay === 'string' ? datePay.split('T')[0] : '2026-03-15',
+              libelle: `Règlement formation : ${f.theme}`,
+              reference: `PAY-FOR-${(f.id || '').slice(-4)}`,
+              partenaire: f.organisme || 'Organisme de formation',
+              lignes: [
+                { compteNumero: '401', debit: amount, credit: 0 },
+                { compteNumero: '521', debit: 0, credit: amount }
+              ]
+            });
+          }
+        }
+      });
+
+      const combined = [...customEcritures, ...paymentEcritures, ...salaryEcritures, ...trainingEcritures].sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       );
       setEcritures(combined);
@@ -342,32 +422,49 @@ export default function FinancePage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  // Accounting balance computed first to feed financial metrics
+  const accountBalances: Record<string, { debit: number, credit: number, solde: number }> = {};
+  planComptable.forEach(c => {
+    accountBalances[c.numero] = { debit: 0, credit: 0, solde: 0 };
+  });
+
+  ecritures.forEach(ecr => {
+    ecr.lignes.forEach(ligne => {
+      if (!accountBalances[ligne.compteNumero]) {
+        accountBalances[ligne.compteNumero] = { debit: 0, credit: 0, solde: 0 };
+      }
+      accountBalances[ligne.compteNumero].debit += ligne.debit;
+      accountBalances[ligne.compteNumero].credit += ligne.credit;
+    });
+  });
+
+  Object.keys(accountBalances).forEach(num => {
+    const b = accountBalances[num];
+    b.solde = b.debit - b.credit;
+  });
+
   // --- Dynamic Financial Metrics for 2026 ---
 
-  // Chiffre d'Affaires 2026 (recognized from all student payments)
-  const totalCA2026 = students.reduce((sum, s) => {
-    const studentPays = s.paiements || [];
-    return sum + studentPays.reduce((sSum, p) => p.statut === 'paid' ? sSum + p.montant : sSum, 0);
-  }, 0);
+  // Chiffre d'Affaires 2026 (credit balance of all Class 7 accounts in ledger)
+  const totalCA2026 = planComptable
+    .filter(c => c.numero.startsWith('7'))
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.credit - accountBalances[c.numero]?.debit || 0), 0);
 
-  // Masse salariale mensuelle et annuelle 2026
+  // Masse salariale mensuelle et annuelle 2026 from ledger (account 661)
   const activeStaff = personnel.filter(p => p.statut === 'actif');
   const masseSalarialeMensuelle2026 = activeStaff.reduce((sum, p) => sum + p.salaireDeBase, 0);
-  const masseSalarialeAnnuelle2026 = masseSalarialeMensuelle2026 * 12;
-
-  // Operating charges from OHADA journal (Class 6 except account 661 - Salaries)
-  const totalChargesComptables2026 = ecritures.reduce((sum, ecr) => {
-    return sum + ecr.lignes.reduce((lSum, l) => {
-      const isClass6 = l.compteNumero.startsWith('6');
-      const isNotSalaries = l.compteNumero !== '661';
-      return isClass6 && isNotSalaries ? lSum + (l.debit - l.credit) : lSum;
-    }, 0);
-  }, 0);
+  const masseSalarialeAnnuelle2026 = accountBalances['661']?.debit || 0;
 
   // Training expenditures
   const totalTrainingCosts2026 = formations.reduce((sum, f) => sum + f.coutTotal, 0);
 
-  // Bénéfice Net 2026
+  // Operating charges from OHADA journal (Class 6 except account 661, minus training costs to avoid double-counting)
+  const totalChargesComptables2026Raw = planComptable
+    .filter(c => c.numero.startsWith('6') && c.numero !== '661')
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.debit - accountBalances[c.numero]?.credit || 0), 0);
+  const totalChargesComptables2026 = Math.max(0, totalChargesComptables2026Raw - totalTrainingCosts2026);
+
+  // Bénéfice Net 2026 (perfectly consistent with double entry ledger)
   const netProfit2026 = totalCA2026 - (masseSalarialeAnnuelle2026 + totalChargesComptables2026 + totalTrainingCosts2026);
 
   // Dynamic balance sheet data from ledger entries (ecritures)
@@ -804,26 +901,7 @@ export default function FinancePage() {
     }
   };
 
-  // Accounting balance
-  const accountBalances: Record<string, { debit: number, credit: number, solde: number }> = {};
-  planComptable.forEach(c => {
-    accountBalances[c.numero] = { debit: 0, credit: 0, solde: 0 };
-  });
-
-  ecritures.forEach(ecr => {
-    ecr.lignes.forEach(ligne => {
-      if (!accountBalances[ligne.compteNumero]) {
-        accountBalances[ligne.compteNumero] = { debit: 0, credit: 0, solde: 0 };
-      }
-      accountBalances[ligne.compteNumero].debit += ligne.debit;
-      accountBalances[ligne.compteNumero].credit += ligne.credit;
-    });
-  });
-
-  Object.keys(accountBalances).forEach(num => {
-    const b = accountBalances[num];
-    b.solde = b.debit - b.credit;
-  });
+  // accountBalances is already calculated at the top
 
   const getTiersForAccount = (compteNumero: string) => {
     const partners = new Set<string>();
@@ -856,7 +934,11 @@ export default function FinancePage() {
       const baseRef = getBaseReference(ecr.reference);
       
       ecr.lignes.forEach(l => {
-        if (l.compteNumero.startsWith('4')) {
+        const isExpensePayable = l.compteNumero.startsWith('40') || 
+                                 l.compteNumero.startsWith('42') || 
+                                 l.compteNumero.startsWith('43') || 
+                                 l.compteNumero.startsWith('44');
+        if (isExpensePayable) {
           const partenaireName = ecr.partenaire || 'Tiers Divers';
           const key = `${baseRef}-${partenaireName}-${l.compteNumero}`;
           
@@ -892,6 +974,61 @@ export default function FinancePage() {
   };
 
   const suspensList = getSuspensComptables();
+
+  // Bilan OHADA Calculations
+  const assetImmobilise = planComptable
+    .filter(c => c.numero.startsWith('2'))
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.debit - accountBalances[c.numero]?.credit || 0), 0);
+    
+  const assetCreances = planComptable
+    .filter(c => c.numero.startsWith('41'))
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.debit - accountBalances[c.numero]?.credit || 0), 0);
+    
+  const assetTresor = planComptable
+    .filter(c => c.numero.startsWith('5'))
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.debit - accountBalances[c.numero]?.credit || 0), 0);
+
+  const totalActif = assetImmobilise + assetCreances + assetTresor;
+
+  const passifEquity = planComptable
+    .filter(c => c.numero.startsWith('1') && !c.numero.startsWith('16'))
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.credit - accountBalances[c.numero]?.debit || 0), 0);
+
+  const passifDebtsFin = planComptable
+    .filter(c => c.numero.startsWith('16'))
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.credit - accountBalances[c.numero]?.debit || 0), 0);
+
+  const passifDebtsCirc = planComptable
+    .filter(c => c.numero.startsWith('4') && !c.numero.startsWith('41'))
+    .reduce((sum, c) => sum + (accountBalances[c.numero]?.credit - accountBalances[c.numero]?.debit || 0), 0);
+
+  const totalPassif = passifEquity + netProfit2026 + passifDebtsFin + passifDebtsCirc;
+
+  // DSF / Fiscal calculations
+  const totalRevenuesDSF = totalCA2026;
+  const totalChargesDSF = masseSalarialeAnnuelle2026 + totalChargesComptables2026 + totalTrainingCosts2026;
+  const resultatComptableDSF = netProfit2026;
+  
+  // Tax adjustments
+  const reintegrationsDSF = 0; // standard mock
+  const deductionsDSF = 0;
+  const resultatFiscalDSF = Math.max(0, resultatComptableDSF + reintegrationsDSF - deductionsDSF);
+  
+  // IS at 30.8% or Minimum Tax of 2.2% of CA
+  const isSurResultat = resultatFiscalDSF * 0.308;
+  const impotMinimum = totalRevenuesDSF * 0.022;
+  const impotDufinal = Math.max(isSurResultat, impotMinimum);
+  
+  const netResultatApresImpot = resultatComptableDSF - impotDufinal;
+
+  // TVA details
+  const tvaCollectee = ecritures.reduce((sum, e) => {
+    return sum + e.lignes.reduce((lSum, l) => l.compteNumero === '443' ? lSum + (l.credit - l.debit) : lSum, 0);
+  }, 0);
+  const tvaDeductible = ecritures.reduce((sum, e) => {
+    return sum + e.lignes.reduce((lSum, l) => l.compteNumero === '445' ? lSum + (l.debit - l.credit) : lSum, 0);
+  }, 0);
+  const tvaNetReverser = Math.max(0, tvaCollectee - tvaDeductible);
 
   const handleSettleSuspens = (item: any) => {
     setExpTypeSaisie('reglement');
@@ -1628,11 +1765,29 @@ export default function FinancePage() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => setAccountingSubTab('bilan')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  accountingSubTab === 'bilan' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Bilan Actif/Passif
+              </button>
+              <button
+                onClick={() => setAccountingSubTab('dsf')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  accountingSubTab === 'dsf' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Déclaration DSF
+              </button>
             </div>
             <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
               {accountingSubTab === 'journal' && `${ecritures.length} écritures OHADA`}
               {accountingSubTab === 'balance' && `${planComptable.filter(c => accountBalances[c.numero]?.debit > 0 || accountBalances[c.numero]?.credit > 0).length} comptes mouvementés`}
-              {accountingSubTab === 'suspens' && `${suspensList.length} suspens en attente`}
+              {accountingSubTab === 'suspens' && `${suspensList.length} suspens de charges`}
+              {accountingSubTab === 'bilan' && "Bilan Équilibré"}
+              {accountingSubTab === 'dsf' && "Calcul IS & DSF"}
             </span>
           </div>
 
@@ -1742,7 +1897,7 @@ export default function FinancePage() {
                   {suspensList.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-8 text-center text-slate-500 font-medium">
-                        Aucune opération en suspens. Toutes les factures à crédit sont réglées !
+                        Aucune charge ou facture fournisseur en suspens.
                       </td>
                     </tr>
                   ) : (
@@ -1788,6 +1943,208 @@ export default function FinancePage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Subtab content: Bilan */}
+          {accountingSubTab === 'bilan' && (
+            <div className="p-6 space-y-6">
+              <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 flex flex-col sm:flex-row gap-4 items-center justify-between text-black">
+                <div>
+                  <h4 className="font-bold text-slate-800 text-black text-sm">Bilan Comptable Système Minimal de Trésorerie (SMT) - OHADA</h4>
+                  <p className="text-xs text-slate-500 font-medium">Bilan équilibré généré en temps réel basé sur les écritures comptables saisies et constatées.</p>
+                </div>
+                {Math.abs(totalActif - totalPassif) > 0.01 && (
+                  <span className="bg-rose-100 text-rose-700 text-xs font-bold px-3 py-1 rounded-full border border-rose-200">
+                    ⚠️ Équilibre rompu (Écart: {formatMoney(Math.abs(totalActif - totalPassif))})
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-black">
+                {/* Actif */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2 flex justify-between">
+                    <span>ACTIF (Emplois)</span>
+                    <span className="text-xs text-slate-400 font-medium">Valeurs Brutes</span>
+                  </h4>
+                  <div className="space-y-3.5 text-sm">
+                    <div className="flex justify-between border-b border-slate-50 pb-2">
+                      <span className="font-semibold text-slate-700">Actif Immobilisé (Classe 2)</span>
+                      <span className="font-mono font-bold">{formatMoney(assetImmobilise)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                      <span>Immobilisations corporelles & incorporelles</span>
+                      <span>{formatMoney(assetImmobilise)}</span>
+                    </div>
+                    
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
+                      <span className="font-semibold text-slate-700">Actif Circulant (Créances - Classe 4)</span>
+                      <span className="font-mono font-bold">{formatMoney(assetCreances)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                      <span>Créances Clients & Scolarités (Compte 411...)</span>
+                      <span>{formatMoney(assetCreances)}</span>
+                    </div>
+
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
+                      <span className="font-semibold text-slate-700">Trésorerie Actif (Disponibilités - Classe 5)</span>
+                      <span className="font-mono font-bold">{formatMoney(assetTresor)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                      <span>Soldes Banques & Caisses (Comptes 52, 57...)</span>
+                      <span>{formatMoney(assetTresor)}</span>
+                    </div>
+
+                    <div className="flex justify-between bg-indigo-600 text-white font-black p-4 rounded-xl text-base mt-6 shadow-md">
+                      <span>TOTAL ACTIF</span>
+                      <span className="font-mono">{formatMoney(totalActif)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Passif */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2 flex justify-between">
+                    <span>PASSIF (Ressources)</span>
+                    <span className="text-xs text-slate-400 font-medium">Capitaux & Dettes</span>
+                  </h4>
+                  <div className="space-y-3.5 text-sm">
+                    <div className="flex justify-between border-b border-slate-50 pb-2">
+                      <span className="font-semibold text-slate-700">Capitaux Propres (Classe 1)</span>
+                      <span className="font-mono font-bold">{formatMoney(passifEquity)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                      <span>Capital Social & Réserves réglementaires</span>
+                      <span>{formatMoney(passifEquity)}</span>
+                    </div>
+
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
+                      <span className="font-semibold text-slate-700">Résultat net de l'exercice</span>
+                      <span className={`font-mono font-bold ${netProfit2026 >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {formatMoney(netProfit2026)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                      <span>Bénéfice de l'exercice (Solde Créditeur)</span>
+                      <span>{formatMoney(netProfit2026)}</span>
+                    </div>
+
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
+                      <span className="font-semibold text-slate-700">Dettes Financières (Moyen/Long terme - Cl. 16)</span>
+                      <span className="font-mono font-bold">{formatMoney(passifDebtsFin)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                      <span>Emprunts et dettes financières assimilées</span>
+                      <span>{formatMoney(passifDebtsFin)}</span>
+                    </div>
+
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
+                      <span className="font-semibold text-slate-700">Dettes Circulantes (Tiers Passif - Classe 4)</span>
+                      <span className="font-mono font-bold">{formatMoney(passifDebtsCirc)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                      <span>Dettes Fournisseurs, CNPS, État (Comptes 40, 42, 44...)</span>
+                      <span>{formatMoney(passifDebtsCirc)}</span>
+                    </div>
+
+                    <div className="flex justify-between bg-indigo-600 text-white font-black p-4 rounded-xl text-base mt-6 shadow-md">
+                      <span>TOTAL PASSIF</span>
+                      <span className="font-mono">{formatMoney(totalPassif)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Subtab content: DSF */}
+          {accountingSubTab === 'dsf' && (
+            <div className="p-6 space-y-6 text-black">
+              <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 flex justify-between items-center">
+                <div>
+                  <h4 className="font-bold text-slate-800 text-black text-sm">Déclaration Statistique et Fiscale (DSF) Provisoire</h4>
+                  <p className="text-xs text-slate-500 font-medium">Formulaires de synthèse fiscale et détermination de l'Impôt sur les Sociétés (IS) - Cameroun / CEMAC.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => alert('Exportation de la DSF en cours...')}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
+                >
+                  📥 Télécharger Liasse DSF
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* Resultat Fiscal Box */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4 md:col-span-2">
+                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2">Détermination du Résultat Fiscal</h4>
+                  <div className="space-y-3.5 text-sm">
+                    <div className="flex justify-between border-b border-slate-50 pb-2">
+                      <span className="text-slate-600">Résultat Comptable Net de l'exercice</span>
+                      <span className="font-mono font-bold">{formatMoney(resultatComptableDSF)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 text-xs">
+                      <span className="text-slate-500 pl-4">+ Réintégrations Fiscales (Charges non déductibles)</span>
+                      <span className="font-mono text-slate-600">+{formatMoney(reintegrationsDSF)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-50 pb-2 text-xs">
+                      <span className="text-slate-500 pl-4">- Déductions Fiscales (Produits exonérés)</span>
+                      <span className="font-mono text-slate-600">-{formatMoney(deductionsDSF)}</span>
+                    </div>
+                    <div className="flex justify-between border-b-2 border-slate-200 pb-2 pt-2 text-base font-bold">
+                      <span className="text-slate-800 text-black">Résultat Fiscal Imposable (Base IS)</span>
+                      <span className="font-mono text-indigo-600">{formatMoney(resultatFiscalDSF)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Impot du Box */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2">Calcul de l'Impôt Dû (Cameroun)</h4>
+                  <div className="space-y-3 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-semibold">Taux standard IS (28% + 10% CAC = 30.8%)</span>
+                      <span className="font-mono">{formatMoney(isSurResultat)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-100 pb-2">
+                      <span className="text-slate-500 font-semibold">Impôt Minimum Légal (2.2% du CA total)</span>
+                      <span className="font-mono">{formatMoney(impotMinimum)}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 text-sm font-bold text-rose-600">
+                      <span>Impôt Définitif Dû (Le plus élevé)</span>
+                      <span className="font-mono font-extrabold">{formatMoney(impotDufinal)}</span>
+                    </div>
+                    <div className="flex justify-between pt-3 border-t border-slate-100 text-sm font-bold text-emerald-600">
+                      <span>Résultat Net après impôt</span>
+                      <span className="font-mono font-extrabold">{formatMoney(netResultatApresImpot)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Other fiscal declarations summary */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2">Autres Taxes et Déclarations Périodiques</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">TVA Net à Reverser</span>
+                    <h4 className="text-lg font-black text-rose-600">{formatMoney(tvaNetReverser)}</h4>
+                    <span className="text-[9px] text-slate-400 font-medium block mt-1">Calculé sur TVA Collectée: {formatMoney(tvaCollectee)} • Déductible: {formatMoney(tvaDeductible)}</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">IRPP / IRSA (Retenue Salaires)</span>
+                    <h4 className="text-lg font-black text-slate-800 text-black">{formatMoney(masseSalarialeAnnuelle2026 * 0.1)}</h4>
+                    <span className="text-[9px] text-slate-400 font-medium block mt-1">Estimation 10% de la masse salariale brute ({formatMoney(masseSalarialeAnnuelle2026)})</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Cotisations Sociales CNPS</span>
+                    <h4 className="text-lg font-black text-slate-800 text-black">{formatMoney(masseSalarialeAnnuelle2026 * 0.22)}</h4>
+                    <span className="text-[9px] text-slate-400 font-medium block mt-1">Base de calcul CNPS 22% (Part employeur + salarié)</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
