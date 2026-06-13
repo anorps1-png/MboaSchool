@@ -38,6 +38,7 @@
   "build": {
     "appId": "com.mboaschool.app",
     "productName": "MboaSchool",
+    "asar": false,
     "directories": {
       "output": "dist"
     },
@@ -45,6 +46,8 @@
       "main.js",
       "package.json",
       ".next/**/*",
+      "!.next/cache/**/*",
+      "!.next/dev/**/*",
       "public/**/*",
       "node_modules/**/*"
     ],
