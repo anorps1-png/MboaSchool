@@ -104,6 +104,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   localStorage.setItem('mboaschool_current_school', etab.nom);
                   
                   if (etab.annee_scolaire_active_id) {
+                    localStorage.setItem('mboaschool_active_year_id', etab.annee_scolaire_active_id);
                     const { data: annee } = await supabase
                       .from('annees_scolaires')
                       .select('nom')

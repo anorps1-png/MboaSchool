@@ -37,9 +37,9 @@ function startNextServer() {
 
     // Set a safety timeout to prevent infinite hanging
     const timeout = setTimeout(() => {
-      log("Next.js server prepare timeout reached (15s). Resolving anyway to open window.");
+      log("Next.js server prepare timeout reached (45s). Resolving anyway to open window.");
       resolve();
-    }, 15000);
+    }, 45000);
 
     log("Calling nextApp.prepare()...");
     nextApp.prepare().then(() => {
@@ -59,6 +59,10 @@ function startNextServer() {
       server.listen(3000, '127.0.0.1', () => {
         log("HTTP Server is listening successfully.");
         clearTimeout(timeout);
+        if (mainWindow) {
+          log("Server started listening after window creation. Reloading page...");
+          mainWindow.loadURL('http://127.0.0.1:3000');
+        }
         resolve();
       });
     }).catch(err => {

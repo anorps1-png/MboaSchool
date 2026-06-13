@@ -121,6 +121,9 @@ export default function SettingsPage() {
       // 2. Save other configurations in localStorage
       if (typeof window !== 'undefined') {
         localStorage.setItem('mboaschool_current_school', schoolName);
+        if (activeYearId) {
+          localStorage.setItem('mboaschool_active_year_id', activeYearId);
+        }
         const activeYearObj = academicYears.find(y => y.id === activeYearId);
         if (activeYearObj) {
           localStorage.setItem('mboaschool_current_year', activeYearObj.nom);

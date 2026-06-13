@@ -197,6 +197,7 @@ export default function FinancePage() {
 
       // 5. Fetch General Ledger entries
       let customEcritures: EcritureComptable[] = [];
+      let loadedFromSupabase = false;
       try {
         const { data: ecrData, error } = await supabase
           .from('ecritures_comptables')
@@ -216,9 +217,28 @@ export default function FinancePage() {
               credit: Number(l.credit || 0)
             }))
           }));
+          loadedFromSupabase = true;
+          // Sync to local storage for offline use
+          localStorage.setItem('mboaschool_ecritures', JSON.stringify(customEcritures));
         }
       } catch (err) {
         console.error("Error loading ecritures:", err);
+      }
+
+      // Fallback to local storage if not loaded from Supabase (e.g. offline, empty database, or network error)
+      if (!loadedFromSupabase && typeof window !== 'undefined') {
+        const stored = localStorage.getItem('mboaschool_ecritures');
+        if (stored) {
+          try {
+            customEcritures = JSON.parse(stored);
+          } catch (e) {
+            customEcritures = [];
+          }
+        } else {
+          // Default mock data if no local storage cache is present
+          customEcritures = mockEcrituresInitiales;
+          localStorage.setItem('mboaschool_ecritures', JSON.stringify(mockEcrituresInitiales));
+        }
       }
 
       // Auto-generate entries from student payments dynamically
@@ -827,7 +847,13 @@ export default function FinancePage() {
     }> = {};
 
     ecritures.forEach(ecr => {
-      const baseRef = ecr.reference.startsWith('PAY-') ? ecr.reference.substring(4) : ecr.reference;
+      const getBaseReference = (ref: string) => {
+        if (ref.startsWith('PAY-')) {
+          return ref.substring(4).replace(/-\d+$/, '');
+        }
+        return ref;
+      };
+      const baseRef = getBaseReference(ecr.reference);
       
       ecr.lignes.forEach(l => {
         if (l.compteNumero.startsWith('4')) {
@@ -870,7 +896,8 @@ export default function FinancePage() {
   const handleSettleSuspens = (item: any) => {
     setExpTypeSaisie('reglement');
     setExpDate(new Date().toISOString().split('T')[0]);
-    setExpReference(`PAY-${item.reference}`);
+    // Pre-populate with a unique short suffix to avoid UNIQUE reference constraint violations
+    setExpReference(`PAY-${item.reference}-${Date.now().toString().slice(-6)}`);
     setExpPartenaire(item.partenaire === 'Tiers Divers' ? '' : item.partenaire);
     
     const outstanding = Math.abs(item.soldeRestant);
@@ -1605,7 +1632,7 @@ export default function FinancePage() {
             <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
               {accountingSubTab === 'journal' && `${ecritures.length} écritures OHADA`}
               {accountingSubTab === 'balance' && `${planComptable.filter(c => accountBalances[c.numero]?.debit > 0 || accountBalances[c.numero]?.credit > 0).length} comptes mouvementés`}
-              {accountingSubTab === 'suspens' && `${suspensList.length} suspens à solder`}
+              {accountingSubTab === 'suspens' && `${suspensList.length} suspens en attente`}
             </span>
           </div>
 
@@ -1707,7 +1734,7 @@ export default function FinancePage() {
                     <th className="px-4 py-3">Libellé</th>
                     <th className="px-4 py-3 text-right">Montant Initial</th>
                     <th className="px-4 py-3 text-right">Déjà Réglé</th>
-                    <th className="px-4 py-3 text-right">Reste à Solder</th>
+                    <th className="px-4 py-3 text-right">Reste à payer</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -1715,7 +1742,7 @@ export default function FinancePage() {
                   {suspensList.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-8 text-center text-slate-500 font-medium">
-                        Aucune opération en suspens. Toutes les factures à crédit sont soldées !
+                        Aucune opération en suspens. Toutes les factures à crédit sont réglées !
                       </td>
                     </tr>
                   ) : (
@@ -1753,7 +1780,7 @@ export default function FinancePage() {
                             onClick={() => handleSettleSuspens(item)}
                             className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-800 rounded-lg text-xs font-bold shadow-sm transition-all border border-indigo-100/50"
                           >
-                            Solder
+                            Régler / Avance
                           </button>
                         </td>
                       </tr>

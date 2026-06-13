@@ -197,6 +197,80 @@ export default function ElevesPage() {
       return;
     }
 
+    // Resolve the active year UUID dynamically
+    let resolvedAnneeScolaireId = null;
+
+    // 1. Try to get it from the selected class in classesList
+    const selectedClassObj = classesList.find(c => c.id === className);
+    if (selectedClassObj) {
+      resolvedAnneeScolaireId = (selectedClassObj as any).annee_scolaire_id || (selectedClassObj as any).anneeScolaireId;
+    }
+
+    // 2. Try to get it from localStorage cached ID
+    if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
+      resolvedAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
+    }
+
+    // 3. Try to extract it from loaded students list if any exist
+    if (!resolvedAnneeScolaireId && students.length > 0) {
+      const studentWithYear = students.find(s => s && s.anneeScolaireId);
+      if (studentWithYear) {
+        resolvedAnneeScolaireId = studentWithYear.anneeScolaireId;
+      }
+    }
+
+    // 4. Try online query fallback if we are online
+    const isOfflineMode = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+    if (!resolvedAnneeScolaireId && !isOfflineMode && etablissementId) {
+      try {
+        const { createClient } = await import('@/lib/supabase/client');
+        const supabase = createClient();
+        const { data: etab } = await supabase
+          .from('etablissements')
+          .select('annee_scolaire_active_id')
+          .eq('id', etablissementId)
+          .single();
+
+        if (etab?.annee_scolaire_active_id) {
+          resolvedAnneeScolaireId = etab.annee_scolaire_active_id;
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('mboaschool_active_year_id', resolvedAnneeScolaireId);
+          }
+        } else {
+          const { data: years } = await supabase
+            .from('annees_scolaires')
+            .select('id')
+            .eq('etablissement_id', etablissementId)
+            .limit(1);
+          if (years && years.length > 0) {
+            resolvedAnneeScolaireId = years[0].id;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to dynamically fetch active year ID:", err);
+      }
+    }
+
+    // 5. Try offline cache for annees_scolaires if still missing
+    if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
+      const storedYears = localStorage.getItem('offline_cache_annees_scolaires');
+      if (storedYears) {
+        try {
+          const parsed = JSON.parse(storedYears);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            resolvedAnneeScolaireId = parsed[0].id;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+
+    if (!resolvedAnneeScolaireId) {
+      alert("Erreur : Impossible de déterminer l'année scolaire active. Veuillez rafraîchir la page.");
+      return;
+    }
+
     const generatedMatricule = matricule.trim() || `26YAE${Math.floor(100 + Math.random() * 900)}`;
 
     const studentData = {
@@ -205,7 +279,7 @@ export default function ElevesPage() {
       prenom: firstName,
       sexe: gender,
       classe_id: className,
-      annee_scolaire_id: '2025/2026',
+      annee_scolaire_id: resolvedAnneeScolaireId,
       nom_parent: parentName,
       telephone_parent: parentPhone,
       email_parent: parentEmail,

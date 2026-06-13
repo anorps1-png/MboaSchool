@@ -19,6 +19,8 @@ interface EnseignantDB {
   salaire_mensuel: number;
   date_embauche: string;
   statut: 'actif' | 'en_conge' | 'quitte';
+  type_contrat?: string;
+  categorie?: string;
 }
 
 export default function EnseignantsPage() {
@@ -32,7 +34,10 @@ export default function EnseignantsPage() {
   const [newEns, setNewEns] = useState<Partial<EnseignantDB>>({
     sexe: 'M',
     statut: 'actif',
-    salaire_mensuel: 0
+    salaire_mensuel: 0,
+    categorie: 'Enseignant',
+    type_contrat: 'CDI',
+    date_embauche: new Date().toISOString().split('T')[0]
   });
 
   const { etablissementId } = useEtablissement();
@@ -74,6 +79,9 @@ export default function EnseignantsPage() {
       matiere_principale: newEns.matiere_principale,
       salaire_mensuel: newEns.salaire_mensuel || 0,
       statut: newEns.statut || 'actif',
+      type_contrat: newEns.type_contrat || 'CDI',
+      categorie: newEns.categorie || 'Enseignant',
+      date_embauche: newEns.date_embauche || new Date().toISOString().split('T')[0],
       etablissement_id: etablissementId,
     };
 
@@ -87,7 +95,14 @@ export default function EnseignantsPage() {
     if (data && data.length > 0) {
       setEnseignants([data[0] as EnseignantDB, ...enseignants]);
       setShowAddModal(false);
-      setNewEns({ sexe: 'M', statut: 'actif', salaire_mensuel: 0 });
+      setNewEns({ 
+        sexe: 'M', 
+        statut: 'actif', 
+        salaire_mensuel: 0,
+        categorie: 'Enseignant',
+        type_contrat: 'CDI',
+        date_embauche: new Date().toISOString().split('T')[0]
+      });
       triggerToast(`L'enseignant ${data[0].nom} a été ajouté avec succès.`);
     }
   };
@@ -273,51 +288,80 @@ export default function EnseignantsPage() {
             <div className="p-6 overflow-y-auto">
               <form id="add-ens-form" onSubmit={handleAddEnseignant} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Identité */}
+                  {/* Identité & Contact */}
                   <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Identité</h4>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Identité & Contact</h4>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Nom <span className="text-red-500">*</span></label>
-                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
                         value={newEns.nom || ''} onChange={e => setNewEns({...newEns, nom: e.target.value})} />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Prénom <span className="text-red-500">*</span></label>
-                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
                         value={newEns.prenom || ''} onChange={e => setNewEns({...newEns, prenom: e.target.value})} />
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Genre</label>
-                      <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black"
-                        value={newEns.sexe} onChange={e => setNewEns({...newEns, sexe: e.target.value as 'M'|'F'})}>
-                        <option value="M">Masculin</option>
-                        <option value="F">Féminin</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Professionnel */}
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Professionnel & Contact</h4>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Matière principale</label>
-                      <input type="text" placeholder="ex: Mathématiques" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
-                        value={newEns.matiere_principale || ''} onChange={e => setNewEns({...newEns, matiere_principale: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Salaire Mensuel (FCFA)</label>
-                      <input type="number" min="0" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
-                        value={newEns.salaire_mensuel || 0} onChange={e => setNewEns({...newEns, salaire_mensuel: Number(e.target.value)})} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone</label>
-                      <input type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
-                        value={newEns.telephone || ''} onChange={e => setNewEns({...newEns, telephone: e.target.value})} />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Genre <span className="text-red-500">*</span></label>
+                        <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500"
+                          value={newEns.sexe} onChange={e => setNewEns({...newEns, sexe: e.target.value as 'M'|'F'})}>
+                          <option value="M">Masculin</option>
+                          <option value="F">Féminin</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone</label>
+                        <input type="text" placeholder="+237 6xx xx..." className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                          value={newEns.telephone || ''} onChange={e => setNewEns({...newEns, telephone: e.target.value})} />
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Email</label>
-                      <input type="email" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black" 
+                      <input type="email" placeholder="nom@ecole.cm" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
                         value={newEns.email || ''} onChange={e => setNewEns({...newEns, email: e.target.value})} />
+                    </div>
+                  </div>
+
+                  {/* Professionnel & Contrat */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Contrat & Poste</h4>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Matière principale</label>
+                      <input type="text" placeholder="ex: Mathématiques" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                        value={newEns.matiere_principale || ''} onChange={e => setNewEns({...newEns, matiere_principale: e.target.value})} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Catégorie Métier <span className="text-red-500">*</span></label>
+                        <select required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500"
+                          value={newEns.categorie || 'Enseignant'} onChange={e => setNewEns({...newEns, categorie: e.target.value})}>
+                          <option value="Enseignant">Enseignant</option>
+                          <option value="Administration">Administration</option>
+                          <option value="Technique">Technique</option>
+                          <option value="Personnel d'appui">Personnel d'appui</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Type de Contrat <span className="text-red-500">*</span></label>
+                        <select required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500"
+                          value={newEns.type_contrat || 'CDI'} onChange={e => setNewEns({...newEns, type_contrat: e.target.value})}>
+                          <option value="CDI">CDI</option>
+                          <option value="CDD">CDD</option>
+                          <option value="Intérimaire">Intérimaire</option>
+                          <option value="Stagiaire">Stagiaire</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Salaire Mensuel Brut (FCFA) <span className="text-red-500">*</span></label>
+                      <input required type="number" min="0" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-mono outline-none focus:border-indigo-500" 
+                        value={newEns.salaire_mensuel || 0} onChange={e => setNewEns({...newEns, salaire_mensuel: Number(e.target.value)})} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Date de Prise d'Effet <span className="text-red-500">*</span></label>
+                      <input required type="date" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500" 
+                        value={newEns.date_embauche || ''} onChange={e => setNewEns({...newEns, date_embauche: e.target.value})} />
                     </div>
                   </div>
                 </div>
