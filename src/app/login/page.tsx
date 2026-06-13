@@ -76,7 +76,27 @@ function LoginContent() {
               .select('nom')
               .eq('id', profile.etablissement_id)
               .single();
-            if (etab) localStorage.setItem('mboaschool_current_school', etab.nom);
+            if (etab) {
+              localStorage.setItem('mboaschool_current_school', etab.nom);
+              
+              // Cache their profile details locally for subsequent offline logins
+              const storedProfiles = localStorage.getItem('mboaschool_profiles');
+              let profilesList = [];
+              if (storedProfiles) {
+                try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
+              }
+              profilesList = profilesList.filter((p: any) => p.email !== email);
+              profilesList.push({
+                id: data.user.id,
+                email: email,
+                password: password, // Store password for offline local check
+                role: profile?.role || 'admin',
+                school: etab.nom,
+                etablissement_id: profile?.etablissement_id,
+                created_at: new Date().toISOString()
+              });
+              localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+            }
           }
         } catch (profileErr) {
           console.warn('Could not fetch profile on login:', profileErr);
@@ -86,21 +106,22 @@ function LoginContent() {
     } catch (err: any) {
       console.error("Login error, checking error type:", err);
 
-      // Check if the error is due to unconfirmed email
+      // 1. Check if the error is due to unconfirmed email
       if (err.message && (err.message.includes('Email not confirmed') || err.message.toLowerCase().includes('confirm'))) {
         setErrorMsg("Veuillez valider votre adresse email avant de vous connecter. Un email de confirmation vous a été envoyé lors de votre inscription.");
         setIsLoading(false);
         return;
       }
 
-      // If it's a real API auth error from Supabase (status code exists or it's a formal validation/auth error)
-      // and NOT a network/fetch error, display the error instead of falling back to offline mode.
-      if (err.status || err.code || (err.message && !err.message.includes('fetch') && !err.message.includes('network') && !err.message.includes('Failed to fetch'))) {
-        let displayMsg = err.message;
-        if (err.message && err.message.includes('Invalid login credentials')) {
-          displayMsg = "Identifiants de connexion invalides. Veuillez vérifier votre adresse email et votre mot de passe.";
-        }
-        setErrorMsg(displayMsg);
+      // 2. Check if it's a real credential failure from Supabase
+      const isRealAuthError = err.message && (
+        err.message.includes('Invalid login credentials') ||
+        err.message.toLowerCase().includes('invalid_credentials') ||
+        err.message.toLowerCase().includes('invalid credentials')
+      );
+
+      if (isRealAuthError) {
+        setErrorMsg("Identifiants de connexion invalides. Veuillez vérifier votre adresse email et votre mot de passe.");
         setIsLoading(false);
         return;
       }
