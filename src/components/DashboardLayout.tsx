@@ -161,6 +161,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         if (!academicYear && localYear) setAcademicYear(localYear);
         if (localSub) setSubscriptionPlan(localSub);
         
+        let localActiveYearId = localStorage.getItem('mboaschool_active_year_id');
+        const activeYearVal = localYear || academicYear;
+        if (!localActiveYearId && activeYearVal) {
+          localActiveYearId = typeof crypto !== 'undefined' ? crypto.randomUUID() : `local_year_${Date.now()}`;
+          localStorage.setItem('mboaschool_active_year_id', localActiveYearId);
+          
+          const storedYears = localStorage.getItem('offline_cache_annees_scolaires');
+          if (!storedYears) {
+            const mockYear = { 
+              id: localActiveYearId, 
+              nom: activeYearVal, 
+              etablissement_id: localStorage.getItem('mboaschool_etablissement_id') || 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+            };
+            localStorage.setItem('offline_cache_annees_scolaires', JSON.stringify([mockYear]));
+          }
+        }
+        
         if (offlineSession) {
           try {
             const parsed = JSON.parse(offlineSession);

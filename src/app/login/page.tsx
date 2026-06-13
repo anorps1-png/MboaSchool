@@ -114,6 +114,8 @@ function LoginContent() {
 
     // General fallback demo login
     if (email === 'admin@mboaschool.com' || email === 'directeur@mboaschool.com') {
+      const demoEtabId = 'd3b07384-d113-4ee7-a496-c67b8a74e50d';
+      const demoYearId = 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d';
       document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
       localStorage.setItem('mboaschool_offline_session', JSON.stringify({
         email,
@@ -121,7 +123,14 @@ function LoginContent() {
         school: 'Collège Vogt - Yaoundé'
       }));
       localStorage.setItem('mboaschool_current_school', 'Collège Vogt - Yaoundé');
-      localStorage.setItem('mboaschool_etablissement_id', 'd3b07384-d113-4ee7-a496-c67b8a74e50d');
+      localStorage.setItem('mboaschool_current_year', '2025/2026');
+      localStorage.setItem('mboaschool_active_year_id', demoYearId);
+      localStorage.setItem('mboaschool_etablissement_id', demoEtabId);
+
+      // Pre-populate offline cache for annees_scolaires
+      const mockYear = { id: demoYearId, nom: '2025/2026', etablissement_id: demoEtabId };
+      localStorage.setItem('offline_cache_annees_scolaires', JSON.stringify([mockYear]));
+
       router.push('/dashboard');
       return;
     }
@@ -376,10 +385,16 @@ function LoginContent() {
       
       // Local Fallback Mode (only when completely offline or server unreachable)
       const offlineEtabId = crypto.randomUUID();
+      const offlineYearId = crypto.randomUUID();
       localStorage.setItem('mboaschool_current_school', schoolName);
       localStorage.setItem('mboaschool_current_year', schoolYear);
+      localStorage.setItem('mboaschool_active_year_id', offlineYearId);
       localStorage.setItem('mboaschool_subscription', selectedPlan);
       localStorage.setItem('mboaschool_etablissement_id', offlineEtabId);
+
+      // Pre-populate offline cache for annees_scolaires so that academic years list and student dropdowns are happy
+      const mockYear = { id: offlineYearId, nom: schoolYear, etablissement_id: offlineEtabId };
+      localStorage.setItem('offline_cache_annees_scolaires', JSON.stringify([mockYear]));
 
       // Update local profiles list so they can log back in
       const storedProfiles = localStorage.getItem('mboaschool_profiles');
