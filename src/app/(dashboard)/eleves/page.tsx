@@ -489,6 +489,37 @@ export default function ElevesPage() {
     return classNameStr;
   };
 
+  const parseImportDate = (val: any): string | null => {
+    if (!val) return null;
+    if (typeof val === 'number') {
+      try {
+        const utc_days = Math.floor(val - 25569);
+        const utc_value = utc_days * 86400;
+        const date_info = new Date(utc_value * 1000);
+        const year = date_info.getFullYear();
+        const month = String(date_info.getMonth() + 1).padStart(2, '0');
+        const day = String(date_info.getDate()).padStart(2, '0');
+        const formatted = `${year}-${month}-${day}`;
+        if (!isNaN(date_info.getTime())) return formatted;
+      } catch (e) {
+        // ignore
+      }
+    }
+    const str = val.toString().trim();
+    if (!str) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return str;
+    }
+    const parsedDate = new Date(str);
+    if (!isNaN(parsedDate.getTime())) {
+      const year = parsedDate.getFullYear();
+      const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(parsedDate.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    return null;
+  };
+
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -539,9 +570,9 @@ export default function ElevesPage() {
           const nomParent = (row["Nom Parent"] || row.nom_parent || row.Parent || row.parent || '').toString().trim();
           const telephoneParent = (row["Téléphone Parent"] || row.telephone_parent || row.Tel || row.tel || '').toString().trim();
           const emailParent = (row["Email Parent"] || row.email_parent || row.Email || row.email || '').toString().trim();
-          const dateNaissance = (row["Date Naissance"] || row.date_naissance || row.Naissance || row.naissance || '').toString().trim();
+          const dateNaissance = parseImportDate(row["Date Naissance"] || row.date_naissance || row.Naissance || row.naissance);
           const lieuNaissance = (row["Lieu Naissance"] || row.lieu_naissance || row.Lieu || row.lieu || '').toString().trim();
-          const dateInscriptionVal = (row["Date Inscription"] || row.date_inscription || row.inscription || row.Inscription || new Date().toISOString().split('T')[0]).toString().trim();
+          const dateInscriptionVal = parseImportDate(row["Date Inscription"] || row.date_inscription || row.inscription || row.Inscription) || new Date().toISOString().split('T')[0];
           const matriculeVal = (row.Matricule || row.matricule || row.MATRICULE || `26YAE${Math.floor(100 + Math.random() * 900)}`).toString().trim();
 
           let classId = '';
