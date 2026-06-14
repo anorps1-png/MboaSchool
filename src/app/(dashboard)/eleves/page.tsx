@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { mockClassFees } from '@/mock/fees';
 import Link from 'next/link';
 import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, DownloadIcon } from '@/components/icons';
@@ -10,6 +11,7 @@ import SyncManager from '@/lib/syncManager';
 import { getStudents, createStudent, addPayment } from '@/lib/queries/eleves';
 import { getClasses } from '@/lib/queries/classes';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { createClient } from '@/lib/supabase/client';
 
 export default function ElevesPage() {
   const { etablissementId } = useEtablissement();
@@ -33,6 +35,9 @@ export default function ElevesPage() {
 
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // File input ref for Excel import
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter States
   const [searchTerm, setSearchTerm] = useState('');
@@ -402,6 +407,10 @@ export default function ElevesPage() {
     triggerToast(`L'élève ${lastName} ${firstName} a été inscrit avec succès dans Supabase.`);
   };
 
+  const handleTriggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
   const handleExportExcel = () => {
     const dataToExport = filteredStudents.map(s => {
       const { totalDue, totalPaid, status } = getStudentPaymentStats(s);
@@ -420,6 +429,276 @@ export default function ElevesPage() {
     });
     downloadExcel(dataToExport, 'Liste_Eleves');
     triggerToast('Export Excel généré avec succès !');
+  };
+
+  const getOrCreateClass = async (classNameStr: string, resolvedAnneeScolaireId: string) => {
+    const existing = classesList.find(c => c.nom.toLowerCase().trim() === classNameStr.toLowerCase().trim() || c.id.toLowerCase().trim() === classNameStr.toLowerCase().trim());
+    if (existing) return existing.id;
+
+    const newClassData = {
+      nom: classNameStr,
+      niveau_id: classNameStr,
+      annee_scolaire_id: resolvedAnneeScolaireId,
+      prix: 200000
+    };
+
+    const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+
+    if (isOffline) {
+      const tempId = `temp_cls_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+      const newLocalClass: Classe = {
+        id: tempId,
+        nom: classNameStr,
+        niveauId: classNameStr,
+        anneeScolaireId: resolvedAnneeScolaireId
+      };
+      await SyncManager.addToQueue('classes', 'insert', { ...newClassData, id: tempId });
+      setClassesList(prev => [...prev, newLocalClass]);
+      return tempId;
+    } else {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from('classes')
+          .insert([{ ...newClassData, etablissement_id: etablissementId }])
+          .select();
+        
+        if (!error && data && data.length > 0) {
+          const created = data[0];
+          const newClassObj: Classe = {
+            id: created.id,
+            nom: created.nom,
+            niveauId: created.niveau_id,
+            anneeScolaireId: created.annee_scolaire_id
+          };
+          setClassesList(prev => [...prev, newClassObj]);
+          return created.id;
+        }
+      } catch (err) {
+        console.error("Error creating class:", err);
+      }
+    }
+    return classNameStr;
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    let resolvedAnneeScolaireId = null;
+    if (typeof window !== 'undefined') {
+      resolvedAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
+    }
+    if (!resolvedAnneeScolaireId && students.length > 0) {
+      const studentWithYear = students.find(s => s && s.anneeScolaireId);
+      if (studentWithYear) resolvedAnneeScolaireId = studentWithYear.anneeScolaireId;
+    }
+    if (!resolvedAnneeScolaireId && classesList.length > 0) {
+      resolvedAnneeScolaireId = (classesList[0] as any).annee_scolaire_id || (classesList[0] as any).anneeScolaireId;
+    }
+    if (!resolvedAnneeScolaireId) {
+      alert("Erreur : Impossible de déterminer l'année scolaire active. Créez d'abord au moins une classe ou une année scolaire.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+        if (!data || data.length === 0) {
+          alert("Le fichier Excel est vide ou invalide.");
+          return;
+        }
+
+        let importedCount = 0;
+        let errorsCount = 0;
+
+        const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+        const supabase = createClient();
+
+        for (const row of data) {
+          const nom = row.Nom || row.nom || row.NOM || '';
+          const prenom = row.Prénom || row.prenom || row.Prenom || row.PRENOM || '';
+          if (!nom || !prenom) {
+            errorsCount++;
+            continue;
+          }
+
+          const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toUpperCase().trim() === 'F' ? 'F' : 'M';
+          const classNameStr = row.Classe || row.classe || row.CLASSE || '';
+          const nomParent = row["Nom Parent"] || row.nom_parent || row.Parent || row.parent || 'Parent Divers';
+          const telephoneParent = row["Téléphone Parent"] || row.telephone_parent || row.Tel || row.tel || '+237 600 00 00 00';
+          const emailParent = row["Email Parent"] || row.email_parent || row.Email || row.email || '';
+          const dateNaissance = row["Date Naissance"] || row.date_naissance || row.Naissance || row.naissance || '2012-01-01';
+          const lieuNaissance = row["Lieu Naissance"] || row.lieu_naissance || row.Lieu || row.lieu || 'Yaoundé';
+          const matriculeVal = row.Matricule || row.matricule || row.MATRICULE || `26YAE${Math.floor(100 + Math.random() * 900)}`;
+
+          let classId = '';
+          if (classNameStr) {
+            classId = await getOrCreateClass(classNameStr, resolvedAnneeScolaireId);
+          } else if (classesList.length > 0) {
+            classId = classesList[0].id;
+          } else {
+            errorsCount++;
+            continue;
+          }
+
+          const studentData = {
+            matricule: matriculeVal,
+            nom: nom.toUpperCase(),
+            prenom: prenom,
+            sexe,
+            classe_id: classId,
+            annee_scolaire_id: resolvedAnneeScolaireId,
+            nom_parent: nomParent,
+            telephone_parent: telephoneParent,
+            email_parent: emailParent,
+            date_naissance: dateNaissance,
+            lieu_naissance: lieuNaissance,
+            statut: 'actif'
+          };
+
+          let studentId = '';
+          let finalStudentObj: any = null;
+
+          if (isOffline) {
+            studentId = `temp_stud_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+            await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
+            finalStudentObj = {
+              id: studentId,
+              ...studentData,
+              classeId: classId,
+              anneeScolaireId: resolvedAnneeScolaireId,
+              dateNaissance,
+              lieuNaissance,
+              nomParent,
+              telephoneParent,
+              emailParent,
+              paiements: [],
+              notes: []
+            };
+          } else {
+            const { data: createdData, error: createErr } = await supabase
+              .from('eleves')
+              .insert([{ ...studentData, etablissement_id: etablissementId }])
+              .select();
+            if (!createErr && createdData && createdData.length > 0) {
+              studentId = createdData[0].id;
+              finalStudentObj = {
+                id: studentId,
+                matricule: createdData[0].matricule,
+                nom: createdData[0].nom,
+                prenom: createdData[0].prenom,
+                sexe: createdData[0].sexe,
+                classeId: classId,
+                nomParent: createdData[0].nom_parent,
+                telephoneParent: createdData[0].telephone_parent,
+                emailParent: createdData[0].email_parent || 'N/A',
+                dateNaissance: createdData[0].date_naissance || '2012-01-01',
+                lieuNaissance: createdData[0].lieu_naissance || 'Yaoundé',
+                dateInscription: createdData[0].date_inscription,
+                anneeScolaireId: createdData[0].annee_scolaire_id,
+                statut: createdData[0].statut,
+                paiements: [],
+                notes: []
+              };
+            } else {
+              errorsCount++;
+              continue;
+            }
+          }
+
+          const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
+          if (amountPaidVal > 0 && studentId) {
+            const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
+            const reference = row.Reference || row.reference || `REC-INS-${Date.now()}-${Math.floor(Math.random()*100)}`;
+            const paymentData = {
+              eleve_id: studentId,
+              montant: amountPaidVal,
+              date: new Date().toISOString().split('T')[0],
+              type_frais: 'Scolarité',
+              mode_paiement: mode,
+              statut: 'paid',
+              reference: reference
+            };
+
+            if (isOffline) {
+              const localPayId = `temp_pay_${Date.now()}_${Math.floor(Math.random()*100)}`;
+              await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
+              finalStudentObj.paiements.push({
+                id: localPayId,
+                eleveId: studentId,
+                montant: amountPaidVal,
+                date: paymentData.date,
+                typeFrais: 'Scolarité',
+                modePaiement: mode,
+                statut: 'paid',
+                reference
+              });
+            } else {
+              const { data: payCreated, error: payErr } = await supabase
+                .from('paiements')
+                .insert([{ ...paymentData, etablissement_id: etablissementId }])
+                .select();
+              if (!payErr && payCreated && payCreated.length > 0) {
+                finalStudentObj.paiements.push({
+                  id: payCreated[0].id,
+                  eleveId: studentId,
+                  montant: Number(payCreated[0].montant),
+                  date: payCreated[0].date,
+                  typeFrais: payCreated[0].type_frais,
+                  modePaiement: payCreated[0].mode_paiement,
+                  statut: payCreated[0].statut,
+                  reference: payCreated[0].reference
+                });
+              }
+            }
+          }
+
+          if (finalStudentObj) {
+            setStudents(prev => [finalStudentObj, ...prev]);
+            importedCount++;
+          }
+        }
+
+        triggerToast(`Importation réussie : ${importedCount} élèves importés. (${errorsCount} lignes ignorées)`);
+      } catch (err) {
+        console.error("Error parsing excel:", err);
+        alert("Erreur lors de l'analyse du fichier Excel.");
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (e.target) e.target.value = '';
+  };
+
+  const downloadTemplate = () => {
+    const headers = [
+      {
+        Matricule: '26YAE001',
+        Nom: 'FOUDA',
+        Prénom: 'Jean',
+        Sexe: 'M',
+        Classe: 'Terminale D',
+        'Date Naissance': '2012-05-14',
+        'Lieu Naissance': 'Yaoundé',
+        'Nom Parent': 'Emmanuel Fouda',
+        'Téléphone Parent': '+237 677 88 99 00',
+        'Email Parent': 'parent.fouda@gmail.com',
+        'Frais Payes': 150000,
+        'Mode Paiement': 'Espèces',
+        Reference: 'REC-INS-001'
+      }
+    ];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(headers);
+    XLSX.utils.book_append_sheet(wb, ws, "Gabarit");
+    XLSX.writeFile(wb, "gabarit_importation_eleves.xlsx");
+    triggerToast("Gabarit d'importation Excel téléchargé !");
   };
 
   const formatFCFA = (amount: number) => {
@@ -445,18 +724,38 @@ export default function ElevesPage() {
           </p>
         </div>
         <div className="flex items-center gap-3 self-start sm:self-auto">
+          {/* Hidden file input for Excel import */}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImportExcel} 
+            accept=".xlsx, .xls" 
+            className="hidden" 
+          />
+          <button
+            onClick={downloadTemplate}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+          >
+            📋 Gabarit
+          </button>
+          <button
+            onClick={handleTriggerFileInput}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
+          >
+            📥 Importer
+          </button>
           <button
             onClick={handleExportExcel}
-            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
           >
-            <DownloadIcon size={16} />
+            <DownloadIcon size={14} />
             Exporter
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md shadow-indigo-600/10 transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-md shadow-indigo-600/10 transition-colors cursor-pointer"
           >
-            <PlusIcon size={16} />
+            <PlusIcon size={14} />
             Inscrire un élève
           </button>
         </div>

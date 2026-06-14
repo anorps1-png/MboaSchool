@@ -30,7 +30,7 @@ export interface Classe {
   niveauId: string;
   anneeScolaireId: string;
   nom: string; // ex: "CM2 A"
-  enseignantPrincipalId: string;
+  enseignantPrincipalId?: string;
   enseignantAssistantId?: string;
   sectionId?: string; // ex: 'sec-fr' ou 'sec-en'
   prix?: number; // Prix de la scolarité pour cette classe

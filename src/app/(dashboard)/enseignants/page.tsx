@@ -64,7 +64,6 @@ export default function EnseignantsPage() {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
-
   const handleAddEnseignant = async (e: React.FormEvent) => {
     e.preventDefault();
     const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
@@ -92,6 +91,44 @@ export default function EnseignantsPage() {
       return;
     }
 
+    // Link creation to headcount (membres_personnel) & contract
+    const newEmpData = {
+      nom: newEns.nom,
+      prenom: newEns.prenom,
+      email: newEns.email || '',
+      telephone: newEns.telephone || '+237 600 00 00 00',
+      sexe: newEns.sexe,
+      categorie: newEns.categorie || 'Enseignant',
+      type_contrat: newEns.type_contrat || 'CDI',
+      salaire_de_base: Number(newEns.salaire_mensuel || 0),
+      date_embauche: newEns.date_embauche || new Date().toISOString().split('T')[0],
+      statut: 'actif',
+      etablissement_id: etablissementId
+    };
+
+    try {
+      const { data: empData, error: empErr } = await supabase
+        .from('membres_personnel')
+        .insert([newEmpData])
+        .select();
+
+      if (!empErr && empData && empData.length > 0) {
+        const insertedEmp = empData[0];
+        // Create recruitment movement log
+        const newMouvData = {
+          personnel_id: insertedEmp.id,
+          nom_personnel: `${insertedEmp.nom} ${insertedEmp.prenom}`,
+          type: 'embauche',
+          date: insertedEmp.date_embauche,
+          details: `Embauche en contrat ${insertedEmp.type_contrat} (${insertedEmp.categorie})`,
+          etablissement_id: etablissementId
+        };
+        await supabase.from('mouvements_personnel').insert([newMouvData]);
+      }
+    } catch (err) {
+      console.warn("Failed to link teacher creation to headcount/contracts in Supabase:", err);
+    }
+
     if (data && data.length > 0) {
       setEnseignants([data[0] as EnseignantDB, ...enseignants]);
       setShowAddModal(false);
@@ -103,10 +140,9 @@ export default function EnseignantsPage() {
         type_contrat: 'CDI',
         date_embauche: new Date().toISOString().split('T')[0]
       });
-      triggerToast(`L'enseignant ${data[0].nom} a été ajouté avec succès.`);
+      triggerToast(`L'enseignant ${data[0].nom} a été ajouté avec succès et enregistré dans l'effectif.`);
     }
   };
-
   const handleExportExcel = () => {
     const dataToExport = enseignants.map(e => ({
       Matricule: e.matricule,

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   EcritureComptable, 
   CompteOHADA, 
@@ -14,6 +15,7 @@ import { mockPersonnel, mockFormations } from '@/mock/rh';
 import { mockBSCHistorique, mockBudget2026, BudgetPrevisionnel } from '@/mock/finance';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
+
 
 export default function FinancePage() {
   const [activeTab, setActiveTab] = useState<'bsc' | 'productivity' | 'ratios' | 'cash' | 'budget' | 'accounting'>('bsc');
@@ -50,7 +52,8 @@ export default function FinancePage() {
   const [newAccClasse, setNewAccClasse] = useState('6');
 
   // Subtab for accounting
-  const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance' | 'suspens' | 'bilan' | 'dsf'>('journal');
+  const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance' | 'bilan' | 'dsf'>('journal');
+  const [userRole, setUserRole] = useState<string>('directeur');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // BSC years state
@@ -75,6 +78,20 @@ export default function FinancePage() {
   const { etablissementId } = useEtablissement();
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedSession = localStorage.getItem('mboaschool_offline_session');
+      if (storedSession) {
+        try {
+          const parsed = JSON.parse(storedSession);
+          if (parsed.role) {
+            setUserRole(parsed.role);
+          }
+        } catch (e) {
+          console.error("Error parsing offline session:", e);
+        }
+      }
+    }
+
     if (!etablissementId) return;
     const loadData = async () => {
       const supabase = createClient();
@@ -359,9 +376,20 @@ export default function FinancePage() {
         }
       });
 
-      const combined = [...customEcritures, ...paymentEcritures, ...salaryEcritures, ...trainingEcritures].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      );
+      // Load registry of deleted entries (so admin deleted ones don't show up again)
+      let deletedIds: string[] = [];
+      const storedDeleted = localStorage.getItem('mboaschool_deleted_ecritures');
+      if (storedDeleted) {
+        try {
+          deletedIds = JSON.parse(storedDeleted);
+        } catch (e) {
+          console.error("Error parsing deleted ecritures:", e);
+        }
+      }
+
+      const combined = [...customEcritures, ...paymentEcritures, ...salaryEcritures, ...trainingEcritures]
+        .filter(e => !deletedIds.includes(e.id))
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEcritures(combined);
 
       // 6. BSC Years
@@ -617,6 +645,8 @@ export default function FinancePage() {
   const formatMoney = (val: number) => {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XAF', maximumFractionDigits: 0 }).format(val);
   };
+
+  const isAdmin = userRole && (userRole.toLowerCase() === 'admin' || userRole.toLowerCase() === 'administrateur');
 
   // Dynamic Class Productivity
   const getClassProductivity = (classIdOrName: string) => {
@@ -913,67 +943,56 @@ export default function FinancePage() {
     return Array.from(partners).join(', ');
   };
 
-  const getSuspensComptables = () => {
-    const suspensMap: Record<string, {
-      reference: string;
-      partenaire: string;
-      compteTiers: string;
-      montantConstate: number;
-      montantRegle: number;
-      dateConstatation: string;
-      libelle: string;
-    }> = {};
+  // handleDeleteEcriture: allowing admin accounts to delete ledger items
+  const handleDeleteEcriture = async (id: string) => {
+    if (!confirm('Voulez-vous vraiment supprimer cette écriture comptable ?')) return;
 
-    ecritures.forEach(ecr => {
-      const getBaseReference = (ref: string) => {
-        if (ref.startsWith('PAY-')) {
-          return ref.substring(4).replace(/-\d+$/, '');
-        }
-        return ref;
-      };
-      const baseRef = getBaseReference(ecr.reference);
+    const supabase = createClient();
+    let deletedFromSupabase = false;
+    try {
+      // Delete lines first to satisfy foreign key constraint if ON DELETE CASCADE is not set
+      await supabase.from('lignes_ecritures').delete().eq('ecriture_id', id);
       
-      ecr.lignes.forEach(l => {
-        const isExpensePayable = l.compteNumero.startsWith('40') || 
-                                 l.compteNumero.startsWith('42') || 
-                                 l.compteNumero.startsWith('43') || 
-                                 l.compteNumero.startsWith('44');
-        if (isExpensePayable) {
-          const partenaireName = ecr.partenaire || 'Tiers Divers';
-          const key = `${baseRef}-${partenaireName}-${l.compteNumero}`;
-          
-          if (!suspensMap[key]) {
-            suspensMap[key] = {
-              reference: baseRef,
-              partenaire: partenaireName,
-              compteTiers: l.compteNumero,
-              montantConstate: 0,
-              montantRegle: 0,
-              dateConstatation: ecr.date,
-              libelle: ecr.libelle.replace('Constatation : ', '').replace('Règlement : ', '')
-            };
-          }
+      const { error } = await supabase.from('ecritures_comptables').delete().eq('id', id);
+      if (!error) {
+        deletedFromSupabase = true;
+      }
+    } catch (err) {
+      console.warn("Failed to delete from Supabase, relying on local registry:", err);
+    }
 
-          suspensMap[key].montantConstate += l.credit;
-          suspensMap[key].montantRegle += l.debit;
-          
-          if (new Date(ecr.date).getTime() < new Date(suspensMap[key].dateConstatation).getTime()) {
-            suspensMap[key].dateConstatation = ecr.date;
-          }
-        }
-      });
-    });
+    // Register the deleted ID in local storage to prevent dynamic mock entries from showing
+    let deletedIds: string[] = [];
+    const deletedStored = localStorage.getItem('mboaschool_deleted_ecritures');
+    if (deletedStored) {
+      try {
+        deletedIds = JSON.parse(deletedStored);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      localStorage.setItem('mboaschool_deleted_ecritures', JSON.stringify(deletedIds));
+    }
 
-    return Object.values(suspensMap)
-      .map(s => ({
-        ...s,
-        soldeRestant: s.montantConstate - s.montantRegle
-      }))
-      .filter(s => Math.abs(s.soldeRestant) > 0.01)
-      .sort((a, b) => new Date(b.dateConstatation).getTime() - new Date(a.dateConstatation).getTime());
+    // Update memory state
+    setEcritures(prev => prev.filter(e => e.id !== id));
+
+    // Update cached manual ecritures in localStorage
+    const stored = localStorage.getItem('mboaschool_ecritures');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const filtered = parsed.filter((e: any) => e.id !== id);
+        localStorage.setItem('mboaschool_ecritures', JSON.stringify(filtered));
+      } catch (e) {
+        console.error("Error updating cached ecritures:", e);
+      }
+    }
+
+    triggerToast(deletedFromSupabase ? "Écriture supprimée dans le cloud !" : "Écriture supprimée !");
   };
-
-  const suspensList = getSuspensComptables();
 
   // Bilan OHADA Calculations
   const assetImmobilise = planComptable
@@ -1030,22 +1049,54 @@ export default function FinancePage() {
   }, 0);
   const tvaNetReverser = Math.max(0, tvaCollectee - tvaDeductible);
 
-  const handleSettleSuspens = (item: any) => {
-    setExpTypeSaisie('reglement');
-    setExpDate(new Date().toISOString().split('T')[0]);
-    // Pre-populate with a unique short suffix to avoid UNIQUE reference constraint violations
-    setExpReference(`PAY-${item.reference}-${Date.now().toString().slice(-6)}`);
-    setExpPartenaire(item.partenaire === 'Tiers Divers' ? '' : item.partenaire);
-    
-    const outstanding = Math.abs(item.soldeRestant);
-    setExpAmountPaye(String(outstanding));
-    setExpAmount(String(outstanding));
-    setExpCompteTiers(item.compteTiers);
-    
-    // Default credit account to bank (521) for large amounts, cash (571) for small
-    setExpCompteCredit(outstanding > 100000 ? '521' : '571');
-    setExpLibelle(`Règlement ${item.libelle}`);
-    setShowExpenseModal(true);
+  // exportDSFToExcel: generate and download the statistical & fiscal liasse
+  const exportDSFToExcel = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // Sheet 1: Résultat Fiscal
+      const dataFiscal = [
+        ["DÉCLARATION STATISTIQUE ET FISCALE (DSF) PROVISOIRE"],
+        ["Établissement ID", etablissementId || "Non défini"],
+        ["Date d'exportation", new Date().toLocaleDateString('fr-FR')],
+        [],
+        ["1. DÉTERMINATION DU RÉSULTAT FISCAL", "Montant (XAF)"],
+        ["Résultat Comptable Net de l'exercice", resultatComptableDSF],
+        ["+ Réintégrations Fiscales (Charges non déductibles)", reintegrationsDSF],
+        ["- Déductions Fiscales (Produits exonérés)", deductionsDSF],
+        ["Résultat Fiscal Imposable (Base IS)", resultatFiscalDSF],
+        [],
+        ["2. CALCUL DE L'IMPÔT DÛ", "Montant (XAF)"],
+        ["Taux standard IS (28% + 10% CAC = 30.8%)", isSurResultat],
+        ["Impôt Minimum Légal (2.2% du CA total)", impotMinimum],
+        ["Impôt Définitif Dû (Le plus élevé)", impotDufinal],
+        ["Résultat Net après impôt", netResultatApresImpot]
+      ];
+      
+      const wsFiscal = XLSX.utils.aoa_to_sheet(dataFiscal);
+      XLSX.utils.book_append_sheet(wb, wsFiscal, "Résultat Fiscal");
+
+      // Sheet 2: Autres Taxes et Déclarations
+      const dataTaxes = [
+        ["AUTRES TAXES ET DÉCLARATIONS PÉRIODIQUES"],
+        ["Date d'exportation", new Date().toLocaleDateString('fr-FR')],
+        [],
+        ["Taxe / Cotisation", "Montant (XAF)", "Détails / Base de calcul"],
+        ["TVA Net à Reverser", tvaNetReverser, `TVA Collectée: ${tvaCollectee} • Déductible: ${tvaDeductible}`],
+        ["IRPP / IRSA (Retenue Salaires)", masseSalarialeAnnuelle2026 * 0.1, `Estimation 10% de la masse salariale brute (${masseSalarialeAnnuelle2026})`],
+        ["Cotisations Sociales CNPS", masseSalarialeAnnuelle2026 * 0.22, `Base de calcul CNPS 22% (Part employeur + salarié)`]
+      ];
+
+      const wsTaxes = XLSX.utils.aoa_to_sheet(dataTaxes);
+      XLSX.utils.book_append_sheet(wb, wsTaxes, "Taxes & Déclarations");
+
+      // Save the workbook
+      XLSX.writeFile(wb, `liasse_dsf_${etablissementId || 'etab'}.xlsx`);
+      triggerToast("Liasse DSF exportée avec succès !");
+    } catch (error) {
+      console.error("Failed to export Excel:", error);
+      alert("Erreur lors de l'exportation de la liasse DSF.");
+    }
   };
 
   return (
@@ -1753,19 +1804,6 @@ export default function FinancePage() {
                 Balance des Comptes
               </button>
               <button
-                onClick={() => setAccountingSubTab('suspens')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  accountingSubTab === 'suspens' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <span>Suspens Comptables</span>
-                {suspensList.length > 0 && (
-                  <span className="bg-rose-100 text-rose-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                    {suspensList.length}
-                  </span>
-                )}
-              </button>
-              <button
                 onClick={() => setAccountingSubTab('bilan')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   accountingSubTab === 'bilan' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
@@ -1785,7 +1823,6 @@ export default function FinancePage() {
             <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
               {accountingSubTab === 'journal' && `${ecritures.length} écritures OHADA`}
               {accountingSubTab === 'balance' && `${planComptable.filter(c => accountBalances[c.numero]?.debit > 0 || accountBalances[c.numero]?.credit > 0).length} comptes mouvementés`}
-              {accountingSubTab === 'suspens' && `${suspensList.length} suspens de charges`}
               {accountingSubTab === 'bilan' && "Bilan Équilibré"}
               {accountingSubTab === 'dsf' && "Calcul IS & DSF"}
             </span>
@@ -1804,6 +1841,7 @@ export default function FinancePage() {
                     <th className="px-4 py-3">Libellé</th>
                     <th className="px-4 py-3 text-right">Débit</th>
                     <th className="px-4 py-3 text-right">Crédit</th>
+                    {isAdmin && <th className="px-4 py-3 text-center">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1831,6 +1869,17 @@ export default function FinancePage() {
                             </td>
                             <td className="px-4 py-3 text-right font-mono text-black font-bold">{ligne.debit > 0 ? formatMoney(ligne.debit) : ''}</td>
                             <td className="px-4 py-3 text-right font-mono text-black font-bold">{ligne.credit > 0 ? formatMoney(ligne.credit) : ''}</td>
+                            {idx === 0 && isAdmin && (
+                              <td className="px-4 py-3 text-center align-middle" rowSpan={ecr.lignes.length}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteEcriture(ecr.id)}
+                                  className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 rounded font-bold text-xs transition-all border border-rose-100"
+                                >
+                                  Supprimer
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -1876,75 +1925,7 @@ export default function FinancePage() {
             </div>
           )}
 
-          {/* Subtab content: Suspens */}
-          {accountingSubTab === 'suspens' && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse text-black">
-                <thead>
-                  <tr className="border-b border-slate-200 text-xs font-bold text-black uppercase bg-slate-50/20">
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Référence</th>
-                    <th className="px-4 py-3">Tiers</th>
-                    <th className="px-4 py-3">Compte</th>
-                    <th className="px-4 py-3">Libellé</th>
-                    <th className="px-4 py-3 text-right">Montant Initial</th>
-                    <th className="px-4 py-3 text-right">Déjà Réglé</th>
-                    <th className="px-4 py-3 text-right">Reste à payer</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {suspensList.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-slate-500 font-medium">
-                        Aucune charge ou facture fournisseur en suspens.
-                      </td>
-                    </tr>
-                  ) : (
-                    suspensList.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-3 font-mono text-xs text-black font-semibold whitespace-nowrap">
-                          {new Date(item.dateConstatation).toLocaleDateString('fr-FR')}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-black font-semibold">
-                          {item.reference}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 font-semibold">
-                          {item.partenaire}
-                        </td>
-                        <td className="px-4 py-3 font-bold text-indigo-600">
-                          {item.compteTiers}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-bold text-black">{item.libelle}</div>
-                          <div className="text-xs text-slate-400">
-                            {planComptable.find(c => c.numero === item.compteTiers)?.libelle || 'Compte de tiers'}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-black font-bold">
-                          {formatMoney(Math.max(item.montantConstate, item.montantRegle))}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-emerald-600 font-bold">
-                          {item.montantConstate > 0 && item.montantRegle > 0 ? formatMoney(Math.min(item.montantConstate, item.montantRegle)) : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-rose-600 font-extrabold bg-rose-50/30">
-                          {formatMoney(Math.abs(item.soldeRestant))}
-                        </td>
-                        <td className="px-4 py-3 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => handleSettleSuspens(item)}
-                            className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-800 rounded-lg text-xs font-bold shadow-sm transition-all border border-indigo-100/50"
-                          >
-                            Régler / Avance
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
+
 
           {/* Subtab content: Bilan */}
           {accountingSubTab === 'bilan' && (
@@ -2068,7 +2049,7 @@ export default function FinancePage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => alert('Exportation de la DSF en cours...')}
+                  onClick={exportDSFToExcel}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
                 >
                   📥 Télécharger Liasse DSF
@@ -2223,40 +2204,145 @@ export default function FinancePage() {
                       const val = e.target.value;
                       setExpLibelle(val);
                       
-                      // Auto-selection of accounts based on label keywords
-                      const clean = val.toLowerCase();
-                      if (clean.includes('salaire') || clean.includes('rémunération') || clean.includes('remuneration') || clean.includes('paie') || clean.includes('prime')) {
-                        setExpCompteDebit('661'); // Rémunérations directes (Salaires)
-                        setExpCompteTiers('421'); // Personnel - Rémunérations dues
-                        setExpCompteCredit('521'); // Banque
-                      } else if (clean.includes('électricité') || clean.includes('electricite') || clean.includes('eau') || clean.includes('electricité') || clean.includes('élec')) {
-                        setExpCompteDebit('605'); // Eau et Électricité
-                        setExpCompteTiers('401'); // Fournisseurs
-                        setExpCompteCredit('571'); // Caisse
-                      } else if (clean.includes('fourniture') || clean.includes('bureau') || clean.includes('achat')) {
-                        setExpCompteDebit('601'); // Achats de fournitures
-                        setExpCompteTiers('401'); // Fournisseurs
-                        setExpCompteCredit('571'); // Caisse
-                      } else if (clean.includes('transport') || clean.includes('carburant') || clean.includes('essence') || clean.includes('deplacement') || clean.includes('déplacement')) {
-                        setExpCompteDebit('61');   // Transports
-                        setExpCompteTiers('401'); // Fournisseurs
-                        setExpCompteCredit('571'); // Caisse
-                      } else if (clean.includes('loyer') || clean.includes('location')) {
-                        setExpCompteDebit('622'); // Locations et charges locatives
-                        setExpCompteTiers('401'); // Fournisseurs
-                        setExpCompteCredit('521'); // Banque
-                      } else if (clean.includes('entretien') || clean.includes('reparation') || clean.includes('réparation') || clean.includes('maintenance')) {
+                      // Auto-selection of accounts based on detailed OHADA keywords (OHADA Referentiel de mots-clés)
+                      const clean = val.toLowerCase().trim();
+                      if (!clean) return;
+
+                      // 1. Personnel (Salaires, Avances, Primes, CNPS)
+                      const isSal = clean.includes('salaire') || clean.includes('rémunération') || clean.includes('remuneration') || clean.includes('paie') || clean.includes('bulletin') || clean.includes('prime') || clean.includes('traitement') || clean.includes('paie constatée');
+                      const isAvance = clean.includes('avance') || clean.includes('acompte');
+                      const isCnps = clean.includes('cnps') || clean.includes('cotisation sociale') || clean.includes('charge sociale');
+
+                      if (isSal) {
+                        if (isAvance) {
+                          setExpCompteDebit(planComptable.some(c => c.numero === '425') ? '425' : '661');
+                          setExpCompteTiers('421');
+                          setExpCompteCredit('521'); // Banque
+                        } else {
+                          setExpCompteDebit('661'); // Rémunérations directes
+                          setExpCompteTiers('421'); // Personnel - Rémunérations dues
+                          setExpCompteCredit('521'); // Banque
+                        }
+                        setExpTva(false);
+                      } else if (isCnps) {
+                        setExpCompteDebit('661'); // Fallback charges
+                        setExpCompteTiers('431'); // Organismes sociaux
+                        setExpCompteCredit('521');
+                        setExpTva(false);
+                      }
+                      
+                      // 2. Loyer & Crédit-bail
+                      else if (clean.includes('loyer') || clean.includes('location') || clean.includes('bail') || clean.includes('leasing') || clean.includes('loa') || clean.includes('credit bail') || clean.includes('crédit-bail')) {
+                        if (clean.includes('credit bail') || clean.includes('crédit-bail') || clean.includes('leasing') || clean.includes('loa')) {
+                          setExpCompteDebit(planComptable.some(c => c.numero === '612') ? '612' : '622');
+                        } else {
+                          setExpCompteDebit('622'); // Locations
+                        }
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('521');
+                        setExpTva(true);
+                      }
+
+                      // 3. Entretien & réparations
+                      else if (clean.includes('entretien') || clean.includes('reparation') || clean.includes('réparation') || clean.includes('maintenance') || clean.includes('revision') || clean.includes('vidange')) {
                         setExpCompteDebit('624'); // Entretien et réparations
-                        setExpCompteTiers('401'); // Fournisseurs
+                        setExpCompteTiers('401');
                         setExpCompteCredit('571'); // Caisse
-                      } else if (clean.includes('bancaire') || clean.includes('frais banc') || clean.includes('commission')) {
+                        setExpTva(true);
+                      }
+
+                      // 4. Assurances
+                      else if (clean.includes('assurance') || clean.includes('prime assurance') || clean.includes('cotisation assurance')) {
+                        setExpCompteDebit(planComptable.some(c => c.numero === '616') ? '616' : '61');
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('521');
+                        setExpTva(false);
+                      }
+
+                      // 5. Publicité et communication
+                      else if (clean.includes('publicite') || clean.includes('publicité') || clean.includes('communication') || clean.includes('marketing') || clean.includes('pub')) {
+                        setExpCompteDebit(planComptable.some(c => c.numero === '623') ? '623' : '601');
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('521');
+                        setExpTva(true);
+                      }
+
+                      // 6. Transports, carburant et déplacements
+                      else if (clean.includes('transport') || clean.includes('carburant') || clean.includes('essence') || clean.includes('gasoil') || clean.includes('deplacement') || clean.includes('déplacement') || clean.includes('mission')) {
+                        if (clean.includes('carburant') || clean.includes('essence') || clean.includes('gasoil')) {
+                          setExpCompteDebit('605'); // combustibles
+                        } else {
+                          setExpCompteDebit('61'); // Transports
+                        }
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('571');
+                        setExpTva(true);
+                      }
+
+                      // 7. Électricité, eau (ENEO, Camwater, etc.)
+                      else if (clean.includes('electricite') || clean.includes('électricité') || clean.includes('eau') || clean.includes('camwater') || clean.includes('eneo') || clean.includes('cde') || clean.includes('sonel') || clean.includes('élec')) {
+                        setExpCompteDebit('605'); // Eau et Électricité
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('571');
+                        setExpTva(true);
+                      }
+
+                      // 8. Télécommunications
+                      else if (clean.includes('telephone') || clean.includes('téléphone') || clean.includes('internet') || clean.includes('orange') || clean.includes('mtn')) {
+                        setExpCompteDebit(planComptable.some(c => c.numero === '626') ? '626' : '622');
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('521');
+                        setExpTva(true);
+                      }
+
+                      // 9. Honoraires (avocat, expert-comptable, etc.)
+                      else if (clean.includes('honoraire') || clean.includes('avocat') || clean.includes('expert-comptable') || clean.includes('notaire') || clean.includes('consultant')) {
+                        setExpCompteDebit(planComptable.some(c => c.numero === '621') ? '621' : '622');
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('521');
+                        setExpTva(true);
+                      }
+
+                      // 10. Frais bancaires, agios et commissions
+                      else if (clean.includes('bancaire') || clean.includes('agios') || clean.includes('tenue compte') || clean.includes('commission') || clean.includes('virement')) {
                         setExpCompteDebit('631'); // Frais bancaires
-                        setExpCompteTiers('401'); // Fournisseurs
-                        setExpCompteCredit('521'); // Banque
-                      } else if (clean.includes('impôt') || clean.includes('impot') || clean.includes('taxe')) {
-                        setExpCompteDebit('64');   // Impôts et taxes
-                        setExpCompteTiers('441'); // État - Impôts et Taxes
-                        setExpCompteCredit('521'); // Banque
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('521');
+                        setExpTva(false);
+                      }
+
+                      // 11. Impôts, taxes et patente
+                      else if (clean.includes('impot') || clean.includes('impôt') || clean.includes('taxe') || clean.includes('patente') || clean.includes('dgi') || clean.includes('minfi') || clean.includes('is ') || clean === 'is' || clean.includes('imf')) {
+                        setExpCompteDebit('64'); // Impôts et taxes
+                        setExpCompteTiers('441'); // État
+                        setExpCompteCredit('521');
+                        setExpTva(false);
+                      }
+
+                      // 12. Immobilisations (matériel, informatique, bureau, bâtiment, terrain)
+                      else if (clean.includes('achat matériel') || clean.includes('achat materiel') || clean.includes('acquisition') || clean.includes('ordinateur') || clean.includes('pc') || clean.includes('table') || clean.includes('banc') || clean.includes('terrain') || clean.includes('bâtiment') || clean.includes('batiment')) {
+                        if (clean.includes('ordinateur') || clean.includes('pc') || clean.includes('informatique')) {
+                          setExpCompteDebit(planComptable.some(c => c.numero === '245') ? '245' : '24');
+                        } else if (clean.includes('bureau') || clean.includes('scolaire') || clean.includes('table') || clean.includes('banc') || clean.includes('mobilier')) {
+                          setExpCompteDebit(planComptable.some(c => c.numero === '244') ? '244' : '24');
+                        } else if (clean.includes('terrain')) {
+                          setExpCompteDebit(planComptable.some(c => c.numero === '22') ? '22' : '24');
+                        } else if (clean.includes('bâtiment') || clean.includes('batiment')) {
+                          setExpCompteDebit(planComptable.some(c => c.numero === '23') ? '23' : '24');
+                        } else {
+                          setExpCompteDebit('24');
+                        }
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('521');
+                        setExpTva(true);
+                      }
+
+                      // 13. Achat de fournitures courantes / fournitures de bureau
+                      else if (clean.includes('fourniture') || clean.includes('consommable') || clean.includes('papeterie') || clean.includes('toner') || clean.includes('cartouche')) {
+                        setExpCompteDebit('601'); // Achats de fournitures
+                        setExpCompteTiers('401');
+                        setExpCompteCredit('571');
+                        setExpTva(true);
                       }
                     }} 
                     required 
