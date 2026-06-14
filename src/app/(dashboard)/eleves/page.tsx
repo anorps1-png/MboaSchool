@@ -432,7 +432,12 @@ export default function ElevesPage() {
   };
 
   const getOrCreateClass = async (classNameStr: string, resolvedAnneeScolaireId: string, sectionStr: string = 'Francophone') => {
-    const existing = classesList.find(c => c.nom.toLowerCase().trim() === classNameStr.toLowerCase().trim() || c.id.toLowerCase().trim() === classNameStr.toLowerCase().trim());
+    const existing = classesList.find(c => {
+      const cNom = c.nom || '';
+      const cId = c.id || '';
+      return cNom.toLowerCase().trim() === classNameStr.toLowerCase().trim() || 
+             cId.toLowerCase().trim() === classNameStr.toLowerCase().trim();
+    });
     if (existing) return existing.id;
 
     const newClassData = {
@@ -567,53 +572,59 @@ export default function ElevesPage() {
           let studentId = '';
           let finalStudentObj: any = null;
 
-          if (isOffline) {
-            studentId = `temp_stud_${Date.now()}_${Math.floor(Math.random()*1000)}`;
-            await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
-            finalStudentObj = {
-              id: studentId,
-              ...studentData,
-              classeId: classId,
-              anneeScolaireId: resolvedAnneeScolaireId,
-              dateNaissance,
-              lieuNaissance,
-              dateInscription: dateInscriptionVal,
-              nomParent,
-              telephoneParent,
-              emailParent,
-              paiements: [],
-              notes: []
-            };
-          } else {
-            const { data: createdData, error: createErr } = await supabase
-              .from('eleves')
-              .insert([{ ...studentData, etablissement_id: etablissementId }])
-              .select();
-            if (!createErr && createdData && createdData.length > 0) {
-              studentId = createdData[0].id;
+          try {
+            if (isOffline) {
+              studentId = `temp_stud_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+              await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
               finalStudentObj = {
                 id: studentId,
-                matricule: createdData[0].matricule,
-                nom: createdData[0].nom,
-                prenom: createdData[0].prenom,
-                sexe: createdData[0].sexe,
+                ...studentData,
                 classeId: classId,
-                nomParent: createdData[0].nom_parent,
-                telephoneParent: createdData[0].telephone_parent,
-                emailParent: createdData[0].email_parent || '',
-                dateNaissance: createdData[0].date_naissance || '',
-                lieuNaissance: createdData[0].lieu_naissance || '',
-                dateInscription: createdData[0].date_inscription || dateInscriptionVal,
-                anneeScolaireId: createdData[0].annee_scolaire_id,
-                statut: createdData[0].statut,
+                anneeScolaireId: resolvedAnneeScolaireId,
+                dateNaissance,
+                lieuNaissance,
+                dateInscription: dateInscriptionVal,
+                nomParent,
+                telephoneParent,
+                emailParent,
                 paiements: [],
                 notes: []
               };
             } else {
-              console.error("Error creating student:", createErr);
-              errorsCount++;
-              continue;
+              const { data: createdData, error: createErr } = await supabase
+                .from('eleves')
+                .insert([{ ...studentData, etablissement_id: etablissementId }])
+                .select();
+              if (!createErr && createdData && createdData.length > 0 && createdData[0]) {
+                studentId = createdData[0].id;
+                finalStudentObj = {
+                  id: studentId,
+                  matricule: createdData[0].matricule,
+                  nom: createdData[0].nom,
+                  prenom: createdData[0].prenom,
+                  sexe: createdData[0].sexe,
+                  classeId: classId,
+                  nomParent: createdData[0].nom_parent,
+                  telephoneParent: createdData[0].telephone_parent,
+                  emailParent: createdData[0].email_parent || '',
+                  dateNaissance: createdData[0].date_naissance || '',
+                  lieuNaissance: createdData[0].lieu_naissance || '',
+                  dateInscription: createdData[0].date_inscription || dateInscriptionVal,
+                  anneeScolaireId: createdData[0].annee_scolaire_id,
+                  statut: createdData[0].statut,
+                  paiements: [],
+                  notes: []
+                };
+              } else {
+                console.error("Error creating student:", createErr);
+                errorsCount++;
+                continue;
+              }
             }
+          } catch (err) {
+            console.error("Failed to create student in loop:", err);
+            errorsCount++;
+            continue;
           }
 
           const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
