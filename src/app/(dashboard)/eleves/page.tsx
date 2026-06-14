@@ -659,7 +659,7 @@ export default function ElevesPage() {
           }
 
           const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
-          if (amountPaidVal > 0 && studentId) {
+          if (amountPaidVal > 0 && studentId && finalStudentObj) {
             const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
             const reference = row.Reference || row.reference || `REC-INS-${Date.now()}-${Math.floor(Math.random()*100)}`;
             const paymentData = {
@@ -672,36 +672,44 @@ export default function ElevesPage() {
               reference: reference
             };
 
-            if (isOffline) {
-              const localPayId = `temp_pay_${Date.now()}_${Math.floor(Math.random()*100)}`;
-              await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
-              finalStudentObj.paiements.push({
-                id: localPayId,
-                eleveId: studentId,
-                montant: amountPaidVal,
-                date: paymentData.date,
-                typeFrais: 'Scolarité',
-                modePaiement: mode,
-                statut: 'paid',
-                reference
-              });
-            } else {
-              const { data: payCreated, error: payErr } = await supabase
-                .from('paiements')
-                .insert([{ ...paymentData, etablissement_id: etablissementId }])
-                .select();
-              if (!payErr && payCreated && payCreated.length > 0) {
+            try {
+              if (isOffline) {
+                const localPayId = `temp_pay_${Date.now()}_${Math.floor(Math.random()*100)}`;
+                await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
+                if (!finalStudentObj.paiements) finalStudentObj.paiements = [];
                 finalStudentObj.paiements.push({
-                  id: payCreated[0].id,
+                  id: localPayId,
                   eleveId: studentId,
-                  montant: Number(payCreated[0].montant),
-                  date: payCreated[0].date,
-                  typeFrais: payCreated[0].type_frais,
-                  modePaiement: payCreated[0].mode_paiement,
-                  statut: payCreated[0].statut,
-                  reference: payCreated[0].reference
+                  montant: amountPaidVal,
+                  date: paymentData.date,
+                  typeFrais: 'Scolarité',
+                  modePaiement: mode,
+                  statut: 'paid',
+                  reference
                 });
+              } else {
+                const { data: payCreated, error: payErr } = await supabase
+                  .from('paiements')
+                  .insert([{ ...paymentData, etablissement_id: etablissementId }])
+                  .select();
+                if (!payErr && payCreated && payCreated.length > 0 && payCreated[0]) {
+                  if (!finalStudentObj.paiements) finalStudentObj.paiements = [];
+                  finalStudentObj.paiements.push({
+                    id: payCreated[0].id,
+                    eleveId: studentId,
+                    montant: Number(payCreated[0].montant),
+                    date: payCreated[0].date,
+                    typeFrais: payCreated[0].type_frais,
+                    modePaiement: payCreated[0].mode_paiement,
+                    statut: payCreated[0].statut,
+                    reference: payCreated[0].reference
+                  });
+                } else {
+                  console.error("Error creating payment:", payErr);
+                }
               }
+            } catch (pErr) {
+              console.error("Failed to insert payment inside loop:", pErr);
             }
           }
 
