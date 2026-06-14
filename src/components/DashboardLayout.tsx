@@ -38,23 +38,79 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [isOnline, setIsOnline] = useState(true);
   const [forceOffline, setForceOffline] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isElectron, setIsElectron] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const isElectron = window.navigator.userAgent.toLowerCase().includes('electron') || 
-                          !!(window as any).process?.versions?.electron;
-      const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
+      const isEl = window.navigator.userAgent.toLowerCase().includes('electron') || 
+                   !!(window as any).process?.versions?.electron;
+      setIsElectron(isEl);
       
-      let initForceOffline = false;
-      if (storedForceOffline !== null) {
-        initForceOffline = storedForceOffline === 'true';
-      } else if (isElectron) {
-        initForceOffline = true;
-        localStorage.setItem('mboaschool_force_offline', 'true');
+      if (isEl) {
+        // Seed database if empty
+        const initLocalDb = async () => {
+          try {
+            const { mockStudents } = await import('@/mock/students');
+            const { mockPersonnel, mockFormations } = await import('@/mock/rh');
+            const { planComptableOHADA, mockEcrituresInitiales } = await import('@/mock/comptabilite');
+            
+            const seedData = {
+              eleves: mockStudents,
+              membres_personnel: mockPersonnel,
+              formations_rh: mockFormations,
+              comptes_ohada: planComptableOHADA,
+              ecritures_comptables: mockEcrituresInitiales,
+              etablissements: [{
+                id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
+                nom: 'École Privée Bilingue Mboa',
+                annee_scolaire_active_id: 'active-year-uuid-2026'
+              }],
+              annees_scolaires: [{
+                id: 'active-year-uuid-2026',
+                nom: '2025/2026',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              }],
+              profiles: [{
+                id: 'local-admin-id',
+                role: 'admin',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
+                nom_complet: 'Administrateur Local',
+                permissions: {}
+              }]
+            };
+
+            await fetch('/api/local-db', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'init',
+                payload: seedData
+              })
+            });
+          } catch (e) {
+            console.error("Failed to seed local database:", e);
+          }
+        };
+
+        initLocalDb();
+
+        const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
+        let initForceOffline = false;
+        if (storedForceOffline !== null) {
+          initForceOffline = storedForceOffline === 'true';
+        } else {
+          initForceOffline = true;
+          localStorage.setItem('mboaschool_force_offline', 'true');
+        }
+        
+        setForceOffline(initForceOffline);
+        (window as any).__forceOffline = initForceOffline;
+      } else {
+        setForceOffline(false);
+        (window as any).__forceOffline = false;
       }
-      
-      setForceOffline(initForceOffline);
-      (window as any).__forceOffline = initForceOffline;
     }
   }, []);
 
@@ -71,6 +127,77 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     setForceOffline(newVal);
     if (typeof window !== 'undefined') {
       localStorage.setItem('mboaschool_force_offline', String(newVal));
+    }
+  };
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncStatusMsg('Synchronisation...');
+    
+    try {
+      const res = await fetch('/api/local-db?action=get-queue');
+      const data = await res.json();
+      const queue = data.queue || [];
+      
+      if (queue.length === 0) {
+        setSyncStatusMsg('Déjà à jour !');
+        setTimeout(() => setSyncStatusMsg(''), 2500);
+        setIsSyncing(false);
+        return;
+      }
+
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
+      const { createBrowserClient } = await import('@supabase/ssr');
+      const onlineClient = createBrowserClient(supabaseUrl, supabaseKey);
+
+      let successCount = 0;
+      for (const task of queue) {
+        const { id, table, action, payload, filters } = task;
+        let queryBuilder = onlineClient.from(table);
+        let result: any = null;
+
+        if (action === 'insert') {
+          result = await queryBuilder.insert(payload);
+        } else if (action === 'update') {
+          let builder: any = queryBuilder.update(payload);
+          if (filters && Array.isArray(filters)) {
+            for (const filter of filters) {
+              builder = builder.eq(filter.field, filter.value);
+            }
+          }
+          result = await builder;
+        } else if (action === 'delete') {
+          let builder: any = queryBuilder.delete();
+          if (filters && Array.isArray(filters)) {
+            for (const filter of filters) {
+              builder = builder.eq(filter.field, filter.value);
+            }
+          }
+          result = await builder;
+        }
+
+        if (!result.error) {
+          successCount++;
+          await fetch('/api/local-db', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId: id })
+          });
+        } else {
+          console.error(`Sync error on table ${table}:`, result.error);
+        }
+      }
+
+      setSyncStatusMsg(`${successCount}/${queue.length} synchronisés !`);
+      setTimeout(() => setSyncStatusMsg(''), 3000);
+    } catch (e: any) {
+      console.error("Sync failed:", e);
+      setSyncStatusMsg('Erreur de synchronisation.');
+      setTimeout(() => setSyncStatusMsg(''), 3000);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -199,7 +326,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       const handleOnline = () => {
         if (!forceOffline) {
           setIsOnline(true);
-          SyncManager.syncAll();
         }
       };
       const handleOffline = () => setIsOnline(false);
@@ -210,9 +336,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       // Check initial state
       if (!forceOffline) {
         setIsOnline(navigator.onLine);
-        if (navigator.onLine) {
-          SyncManager.syncAll();
-        }
       } else {
         setIsOnline(false);
       }
@@ -315,12 +438,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Offline/Local Banner */}
-      {!isOnline && (
+      {isElectron && !isOnline && (
         <div className={`${forceOffline ? 'bg-amber-600' : 'bg-red-500'} text-white text-xs font-bold text-center py-1.5 px-4 shadow-md z-50 transition-colors duration-300`}>
           {forceOffline ? (
-            <span>💻 Mode Local actif : Vos données sont lues et modifiées localement pour une réactivité maximale. Cliquez sur le bouton "Local" en bas à gauche pour basculer en ligne.</span>
+            <span>💻 Base de données locale active sur cette machine. Cliquez sur "Synchroniser Cloud" en bas de la barre latérale pour mettre à jour Supabase.</span>
           ) : (
-            <span>⚠️ Mode Hors-ligne : Aucune connexion internet. Vos actions seront enregistrées et synchronisées automatiquement à la reconnexion.</span>
+            <span>⚠️ Mode Hors-ligne : Aucune connexion internet. Les données sont lues et écrites sur le disque local de cette machine.</span>
           )}
         </div>
       )}
@@ -415,37 +538,50 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             })}
           </nav>
 
-          {/* Sidebar Footer */}
-          <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm uppercase">
-                {userEmail ? userEmail.substring(0, 2) : 'AD'}
+            {/* Sidebar Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm uppercase">
+                  {userEmail ? userEmail.substring(0, 2) : 'AD'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-white truncate" title={userEmail}>{userEmail}</p>
+                  <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider">{userRole}</p>
+                </div>
+                {isElectron && (
+                  <button
+                    type="button"
+                    onClick={toggleForceOffline}
+                    title={forceOffline ? "Mode local actif. Cliquez pour basculer en ligne." : "Mode connecté actif. Cliquez pour forcer le mode local."}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-400 hover:text-white rounded-lg text-[10px] font-bold tracking-wide uppercase transition-all duration-200 cursor-pointer"
+                  >
+                    <span>{forceOffline ? 'Local' : (isOnline ? 'En ligne' : 'Déconnecté')}</span>
+                    <div className={`w-2 h-2 rounded-full ${
+                      forceOffline ? 'bg-amber-500 animate-pulse' : (isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500')
+                    }`}></div>
+                  </button>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-white truncate" title={userEmail}>{userEmail}</p>
-                <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider">{userRole}</p>
-              </div>
+
+              {isElectron && (
+                <button
+                  onClick={handleManualSync}
+                  disabled={isSyncing}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  <span>{syncStatusMsg || 'Synchroniser Cloud'}</span>
+                </button>
+              )}
+
               <button
-                type="button"
-                onClick={toggleForceOffline}
-                title={forceOffline ? "Mode local actif. Cliquez pour basculer en ligne." : "Mode connecté actif. Cliquez pour forcer le mode local."}
-                className="flex items-center gap-1.5 px-2 py-1 bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-400 hover:text-white rounded-lg text-[10px] font-bold tracking-wide uppercase transition-all duration-200 cursor-pointer"
+                onClick={handleLogout}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 hover:bg-rose-950/20 hover:border-rose-900/50 hover:text-rose-400 text-slate-400 rounded-xl text-xs font-bold transition-all"
               >
-                <span>{forceOffline ? 'Local' : (isOnline ? 'En ligne' : 'Déconnecté')}</span>
-                <div className={`w-2 h-2 rounded-full ${
-                  forceOffline ? 'bg-amber-500 animate-pulse' : (isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500')
-                }`}></div>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                <span>Se déconnecter</span>
               </button>
             </div>
-
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 hover:bg-rose-950/20 hover:border-rose-900/50 hover:text-rose-400 text-slate-400 rounded-xl text-xs font-bold transition-all"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              <span>Se déconnecter</span>
-            </button>
-          </div>
         </aside>
 
         {/* Mobile Menu Backdrop */}

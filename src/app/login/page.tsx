@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, isRunningInElectron } from '@/lib/supabase/client';
 
 function LoginContent() {
   const router = useRouter();
@@ -144,8 +144,9 @@ function LoginContent() {
     setIsLoading(true);
     setErrorMsg(null);
 
-    const forceOffline = typeof window !== 'undefined' && localStorage.getItem('mboaschool_force_offline') === 'true';
-    const isOfflineMode = typeof navigator !== 'undefined' && (!navigator.onLine || forceOffline);
+    const isElectron = isRunningInElectron();
+    const forceOffline = isElectron && typeof window !== 'undefined' && localStorage.getItem('mboaschool_force_offline') === 'true';
+    const isOfflineMode = isElectron && typeof navigator !== 'undefined' && (!navigator.onLine || forceOffline);
 
     if (isOfflineMode) {
       handleOfflineLogin();
@@ -163,7 +164,7 @@ function LoginContent() {
         // Clear offline session cookie if successful Supabase authentication
         document.cookie = "mboaschool_offline_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         
-        // Fetch profile and cache robustly
+        // Fetch profile and cache robustly in Electron only
         try {
           const { data: profile } = await supabase
             .from('profiles')
@@ -187,44 +188,48 @@ function LoginContent() {
             }
           }
           
-          const storedProfiles = localStorage.getItem('mboaschool_profiles');
-          let profilesList = [];
-          if (storedProfiles) {
-            try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
-          }
-          profilesList = profilesList.filter((p: any) => p.email !== email);
-          profilesList.push({
-            id: data.user.id,
-            email: email,
-            password: password, // Store password for offline local check
-            role: profile?.role || 'admin',
-            school: schoolName,
-            etablissement_id: etabId,
-            permissions: profile?.permissions || null,
-            nom_complet: profile?.nom_complet || '',
-            created_at: new Date().toISOString()
-          });
-          localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
-        } catch (profileErr) {
-          console.warn('Could not fetch/cache profile on login:', profileErr);
-          
-          // Fallback to caching basic details
-          const storedProfiles = localStorage.getItem('mboaschool_profiles');
-          let profilesList = [];
-          if (storedProfiles) {
-            try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
-          }
-          if (!profilesList.find((p: any) => p.email === email)) {
+          if (isElectron) {
+            const storedProfiles = localStorage.getItem('mboaschool_profiles');
+            let profilesList = [];
+            if (storedProfiles) {
+              try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
+            }
+            profilesList = profilesList.filter((p: any) => p.email !== email);
             profilesList.push({
               id: data.user.id,
               email: email,
-              password: password,
-              role: 'admin',
-              school: localStorage.getItem('mboaschool_current_school') || 'Mon Établissement',
-              etablissement_id: localStorage.getItem('mboaschool_etablissement_id'),
+              password: password, // Store password for offline local check
+              role: profile?.role || 'admin',
+              school: schoolName,
+              etablissement_id: etabId,
+              permissions: profile?.permissions || null,
+              nom_complet: profile?.nom_complet || '',
               created_at: new Date().toISOString()
             });
             localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+          }
+        } catch (profileErr) {
+          console.warn('Could not fetch/cache profile on login:', profileErr);
+          
+          if (isElectron) {
+            // Fallback to caching basic details
+            const storedProfiles = localStorage.getItem('mboaschool_profiles');
+            let profilesList = [];
+            if (storedProfiles) {
+              try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
+            }
+            if (!profilesList.find((p: any) => p.email === email)) {
+              profilesList.push({
+                id: data.user.id,
+                email: email,
+                password: password,
+                role: 'admin',
+                school: localStorage.getItem('mboaschool_current_school') || 'Mon Établissement',
+                etablissement_id: localStorage.getItem('mboaschool_etablissement_id'),
+                created_at: new Date().toISOString()
+              });
+              localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+            }
           }
         }
         router.push('/dashboard');
@@ -252,8 +257,12 @@ function LoginContent() {
         return;
       }
 
-      // Connection error, fallback to offline login
-      handleOfflineLogin();
+      // Connection error, fallback to offline login only in Electron
+      if (isElectron) {
+        handleOfflineLogin();
+      } else {
+        setErrorMsg("Erreur de connexion : impossible de joindre le serveur. Veuillez vérifier votre connexion internet.");
+      }
     } finally {
       setIsLoading(false);
     }
