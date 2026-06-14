@@ -431,7 +431,7 @@ export default function ElevesPage() {
     triggerToast('Export Excel généré avec succès !');
   };
 
-  const getOrCreateClass = async (classNameStr: string, resolvedAnneeScolaireId: string) => {
+  const getOrCreateClass = async (classNameStr: string, resolvedAnneeScolaireId: string, sectionStr: string = 'Francophone') => {
     const existing = classesList.find(c => c.nom.toLowerCase().trim() === classNameStr.toLowerCase().trim() || c.id.toLowerCase().trim() === classNameStr.toLowerCase().trim());
     if (existing) return existing.id;
 
@@ -439,7 +439,8 @@ export default function ElevesPage() {
       nom: classNameStr,
       niveau_id: classNameStr,
       annee_scolaire_id: resolvedAnneeScolaireId,
-      prix: 200000
+      prix: 200000,
+      section: sectionStr
     };
 
     const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
@@ -450,7 +451,8 @@ export default function ElevesPage() {
         id: tempId,
         nom: classNameStr,
         niveauId: classNameStr,
-        anneeScolaireId: resolvedAnneeScolaireId
+        anneeScolaireId: resolvedAnneeScolaireId,
+        sectionId: sectionStr
       };
       await SyncManager.addToQueue('classes', 'insert', { ...newClassData, id: tempId });
       setClassesList(prev => [...prev, newLocalClass]);
@@ -469,7 +471,8 @@ export default function ElevesPage() {
             id: created.id,
             nom: created.nom,
             niveauId: created.niveau_id,
-            anneeScolaireId: created.annee_scolaire_id
+            anneeScolaireId: created.annee_scolaire_id,
+            sectionId: created.section
           };
           setClassesList(prev => [...prev, newClassObj]);
           return created.id;
@@ -522,30 +525,27 @@ export default function ElevesPage() {
         const supabase = createClient();
 
         for (const row of data) {
-          const nom = row.Nom || row.nom || row.NOM || '';
-          const prenom = row.Prénom || row.prenom || row.Prenom || row.PRENOM || '';
-          if (!nom || !prenom) {
-            errorsCount++;
-            continue;
-          }
+          const nom = (row.Nom || row.nom || row.NOM || '').toString().trim();
+          const prenom = (row.Prénom || row.prenom || row.Prenom || row.PRENOM || '').toString().trim();
 
-          const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toUpperCase().trim() === 'F' ? 'F' : 'M';
-          const classNameStr = row.Classe || row.classe || row.CLASSE || '';
-          const nomParent = row["Nom Parent"] || row.nom_parent || row.Parent || row.parent || 'Parent Divers';
-          const telephoneParent = row["Téléphone Parent"] || row.telephone_parent || row.Tel || row.tel || '+237 600 00 00 00';
-          const emailParent = row["Email Parent"] || row.email_parent || row.Email || row.email || '';
-          const dateNaissance = row["Date Naissance"] || row.date_naissance || row.Naissance || row.naissance || '2012-01-01';
-          const lieuNaissance = row["Lieu Naissance"] || row.lieu_naissance || row.Lieu || row.lieu || 'Yaoundé';
-          const matriculeVal = row.Matricule || row.matricule || row.MATRICULE || `26YAE${Math.floor(100 + Math.random() * 900)}`;
+          const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toString().toUpperCase().trim() === 'F' ? 'F' : 'M';
+          const classNameStr = (row.Classe || row.classe || row.CLASSE || 'Non classé').toString().trim();
+          const sectionStr = (row.Section || row.section || row.SECTION || 'Francophone').toString().trim();
+          const nomParent = (row["Nom Parent"] || row.nom_parent || row.Parent || row.parent || '').toString().trim();
+          const telephoneParent = (row["Téléphone Parent"] || row.telephone_parent || row.Tel || row.tel || '').toString().trim();
+          const emailParent = (row["Email Parent"] || row.email_parent || row.Email || row.email || '').toString().trim();
+          const dateNaissance = (row["Date Naissance"] || row.date_naissance || row.Naissance || row.naissance || '').toString().trim();
+          const lieuNaissance = (row["Lieu Naissance"] || row.lieu_naissance || row.Lieu || row.lieu || '').toString().trim();
+          const dateInscriptionVal = (row["Date Inscription"] || row.date_inscription || row.inscription || row.Inscription || new Date().toISOString().split('T')[0]).toString().trim();
+          const matriculeVal = (row.Matricule || row.matricule || row.MATRICULE || `26YAE${Math.floor(100 + Math.random() * 900)}`).toString().trim();
 
           let classId = '';
           if (classNameStr) {
-            classId = await getOrCreateClass(classNameStr, resolvedAnneeScolaireId);
+            classId = await getOrCreateClass(classNameStr, resolvedAnneeScolaireId, sectionStr);
           } else if (classesList.length > 0) {
             classId = classesList[0].id;
           } else {
-            errorsCount++;
-            continue;
+            classId = await getOrCreateClass('Non classé', resolvedAnneeScolaireId, sectionStr);
           }
 
           const studentData = {
@@ -560,6 +560,7 @@ export default function ElevesPage() {
             email_parent: emailParent,
             date_naissance: dateNaissance,
             lieu_naissance: lieuNaissance,
+            date_inscription: dateInscriptionVal,
             statut: 'actif'
           };
 
@@ -576,6 +577,7 @@ export default function ElevesPage() {
               anneeScolaireId: resolvedAnneeScolaireId,
               dateNaissance,
               lieuNaissance,
+              dateInscription: dateInscriptionVal,
               nomParent,
               telephoneParent,
               emailParent,
@@ -598,16 +600,17 @@ export default function ElevesPage() {
                 classeId: classId,
                 nomParent: createdData[0].nom_parent,
                 telephoneParent: createdData[0].telephone_parent,
-                emailParent: createdData[0].email_parent || 'N/A',
-                dateNaissance: createdData[0].date_naissance || '2012-01-01',
-                lieuNaissance: createdData[0].lieu_naissance || 'Yaoundé',
-                dateInscription: createdData[0].date_inscription,
+                emailParent: createdData[0].email_parent || '',
+                dateNaissance: createdData[0].date_naissance || '',
+                lieuNaissance: createdData[0].lieu_naissance || '',
+                dateInscription: createdData[0].date_inscription || dateInscriptionVal,
                 anneeScolaireId: createdData[0].annee_scolaire_id,
                 statut: createdData[0].statut,
                 paiements: [],
                 notes: []
               };
             } else {
+              console.error("Error creating student:", createErr);
               errorsCount++;
               continue;
             }
@@ -684,6 +687,8 @@ export default function ElevesPage() {
         Prénom: 'Jean',
         Sexe: 'M',
         Classe: 'Terminale D',
+        Section: 'Francophone',
+        'Date Inscription': '2026-09-01',
         'Date Naissance': '2012-05-14',
         'Lieu Naissance': 'Yaoundé',
         'Nom Parent': 'Emmanuel Fouda',
