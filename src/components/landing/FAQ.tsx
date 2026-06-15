@@ -11,6 +11,14 @@ export default function FAQ() {
       a: "Absolument. Nous utilisons des serveurs sécurisés et vos données sont sauvegardées quotidiennement. Personne d'autre que les administrateurs autorisés de votre école ne peut y accéder."
     },
     {
+      q: "Si un autre établissement importe des données ou des fichiers Excel avec des structures similaires, y aura-t-il un conflit ?",
+      a: "Non, absolument aucun risque. MboaSchool s'appuie sur des politiques de sécurité au niveau des lignes (RLS) de Supabase. Chaque établissement dispose d'un espace hermétiquement cloisonné : il est impossible qu'un établissement accède aux données d'un autre ou provoque des conflits d'importation."
+    },
+    {
+      q: "Que se passe-t-il si je décide de supprimer mon compte ?",
+      a: "Vous êtes pleinement propriétaire de vos données. Dans vos paramètres, vous disposez d'un bouton de suppression définitive. Après double validation, ce processus efface instantanément et intégralement toutes vos données (élèves, historique de paiements, écritures comptables, bulletins, etc.) de notre base de données, ainsi que votre compte utilisateur."
+    },
+    {
       q: "Pouvez-vous adapter les bulletins à notre modèle actuel ?",
       a: "Oui, la plateforme permet de configurer le format d'impression des bulletins et des relevés de notes pour qu'ils respectent la charte graphique de votre établissement."
     },

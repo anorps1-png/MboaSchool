@@ -22,7 +22,7 @@ export default function TargetAudience() {
             </div>
             <h3 className="text-xl font-bold mb-3 text-white">Directeurs & Fondateurs</h3>
             <p className="text-indigo-200 leading-relaxed">
-              Gardez un œil sur les finances, analysez les taux de réussite et pilotez votre établissement avec des données fiables.
+              Pilotez votre établissement en temps réel. Suivez le recouvrement classe par classe avec des indicateurs visuels (donuts), analysez les moyennes générales et prenez des décisions éclairées.
             </p>
           </div>
 
@@ -34,7 +34,7 @@ export default function TargetAudience() {
             </div>
             <h3 className="text-xl font-bold mb-3 text-white">Intendants & Comptables</h3>
             <p className="text-indigo-200 leading-relaxed">
-              Fini les cahiers brouillons. Suivez les paiements Mobile Money ou espèces, et générez automatiquement le journal et la balance OHADA.
+              Fini les écarts de caisse. Distinguez le CA constaté et la trésorerie perçue, calculez les salaires avec les cotisations camerounaises (CNPS, CFC, FNE, etc.) et générez le journal comptable OHADA.
             </p>
           </div>
 

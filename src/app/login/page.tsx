@@ -369,8 +369,18 @@ function LoginContent() {
           localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
         }
 
-        // Do NOT log the user in immediately. Set signUpSuccess to true so we display the validation message.
-        setSignUpSuccess(true);
+        // If the email is auto-confirmed, we can log the user in immediately
+        if (!signUpData.session) {
+          try {
+            await supabase.auth.signInWithPassword({
+              email,
+              password
+            });
+          } catch (loginErr) {
+            console.warn("Auto login failed after signup:", loginErr);
+          }
+        }
+        router.push('/dashboard');
       }
     } catch (err: any) {
       console.warn("Supabase onboarding failed, checking error type:", err);
@@ -380,7 +390,7 @@ function LoginContent() {
       if (err.status || err.code || (err.message && !err.message.includes('fetch') && !err.message.includes('network') && !err.message.includes('Failed to fetch'))) {
         let displayMsg = err.message;
         if (err.code === 'over_email_send_rate_limit' || (err.message && err.message.toLowerCase().includes('rate limit'))) {
-          displayMsg = "Limite d'envoi d'emails de confirmation dépassée par Supabase. Veuillez réessayer plus tard ou utiliser une autre adresse email.";
+          displayMsg = "Limite d'envoi d'emails de confirmation dépassée par Supabase. Veuillez désactiver l'option 'Confirm email' dans la console Supabase (Auth > Providers > Email) ou configurer un service SMTP.";
         } else if (err.code === 'user_already_exists' || (err.message && err.message.toLowerCase().includes('already registered'))) {
           displayMsg = "Cette adresse email est déjà enregistrée. Veuillez utiliser une autre adresse ou vous connecter.";
         } else if (err.code === 'weak_password') {
@@ -562,92 +572,67 @@ function LoginContent() {
 
           {/* SIGNUP VIEW */}
           {isSignUp && (
-            signUpSuccess ? (
-              <div className="space-y-6 text-center py-6 animate-in fade-in duration-300">
-                <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full flex items-center justify-center mx-auto text-2xl mb-4">
-                  ✉️
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
+                <div>
+                  <h3 className="text-xl font-extrabold text-white">Créer mon espace</h3>
+                  <p className="text-xs text-slate-500 mt-1">Création de votre compte établissement</p>
                 </div>
-                <h3 className="text-xl font-extrabold text-white">Validation de l'adresse email</h3>
-                <p className="text-sm text-slate-400 leading-relaxed">
-                  Votre espace a été créé avec succès ! Un email de confirmation a été envoyé à l'adresse <strong className="text-indigo-300">{email}</strong>.
-                </p>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Veuillez cliquer sur le lien de confirmation présent dans ce mail pour activer votre compte. Une fois activé, vous pourrez vous connecter.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignUp(false);
-                    setSignUpSuccess(false);
-                  }}
-                  className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-bold shadow-md transition-all active:scale-95 mt-4"
+                <button 
+                  type="button" 
+                  onClick={() => setIsSignUp(false)} 
+                  className="text-xs font-bold text-slate-400 hover:text-white"
                 >
-                  Retour à la connexion
+                  Se connecter
                 </button>
               </div>
-            ) : (
-              <div>
-                <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
-                  <div>
-                    <h3 className="text-xl font-extrabold text-white">Créer mon espace</h3>
-                    <p className="text-xs text-slate-500 mt-1">Création de votre compte établissement</p>
-                  </div>
-                  <button 
-                    type="button" 
-                    onClick={() => setIsSignUp(false)} 
-                    className="text-xs font-bold text-slate-400 hover:text-white"
-                  >
-                    Se connecter
-                  </button>
+
+              <form onSubmit={handleFinalSubmit} className="space-y-6">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nom de l'Établissement *</label>
+                  <input
+                    type="text"
+                    required
+                    value={schoolName}
+                    onChange={(e) => setSchoolName(e.target.value)}
+                    placeholder="Ex: Collège Vogt, Lycée de Douala"
+                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                  />
                 </div>
 
-                <form onSubmit={handleFinalSubmit} className="space-y-6">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nom de l'Établissement *</label>
-                    <input
-                      type="text"
-                      required
-                      value={schoolName}
-                      onChange={(e) => setSchoolName(e.target.value)}
-                      placeholder="Ex: Collège Vogt, Lycée de Douala"
-                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Adresse Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="admin@mboaschool.com"
+                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                  />
+                </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Adresse Email *</label>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@mboaschool.com"
-                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Créer un Mot de passe *</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Minimum 6 caractères"
+                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                  />
+                </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Créer un Mot de passe *</label>
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Minimum 6 caractères"
-                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center disabled:opacity-50"
-                  >
-                    {isLoading ? "Création de l'Espace..." : "Finaliser et ouvrir mon Dashboard →"}
-                  </button>
-                </form>
-              </div>
-            )
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center disabled:opacity-50"
+                >
+                  {isLoading ? "Création de l'Espace..." : "Finaliser et ouvrir mon Dashboard →"}
+                </button>
+              </form>
+            </div>
           )}
 
         </div>

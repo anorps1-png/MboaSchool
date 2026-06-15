@@ -204,31 +204,11 @@ export default function ElevesPage() {
 
     // Resolve the active year UUID dynamically
     let resolvedAnneeScolaireId = null;
-
-    // 1. Try to get it from the selected class in classesList
-    const selectedClassObj = classesList.find(c => c.id === className);
-    if (selectedClassObj) {
-      resolvedAnneeScolaireId = (selectedClassObj as any).annee_scolaire_id || (selectedClassObj as any).anneeScolaireId;
-    }
-
-    // 2. Try to get it from localStorage cached ID
-    if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
-      resolvedAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
-    }
-
-    // 3. Try to extract it from loaded students list if any exist
-    if (!resolvedAnneeScolaireId && students.length > 0) {
-      const studentWithYear = students.find(s => s && s.anneeScolaireId);
-      if (studentWithYear) {
-        resolvedAnneeScolaireId = studentWithYear.anneeScolaireId;
-      }
-    }
-
-    // 4. Try online query fallback if we are online
     const isOfflineMode = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
-    if (!resolvedAnneeScolaireId && !isOfflineMode && etablissementId) {
+
+    // 1. Try online query first if we are online to guarantee validity
+    if (!isOfflineMode && etablissementId) {
       try {
-        const { createClient } = await import('@/lib/supabase/client');
         const supabase = createClient();
         const { data: etab } = await supabase
           .from('etablissements')
@@ -245,7 +225,7 @@ export default function ElevesPage() {
           const { data: years } = await supabase
             .from('annees_scolaires')
             .select('id')
-            .order('created_at', { ascending: false })
+            .eq('etablissement_id', etablissementId)
             .limit(1);
           if (years && years.length > 0) {
             resolvedAnneeScolaireId = years[0].id;
@@ -253,6 +233,25 @@ export default function ElevesPage() {
         }
       } catch (err) {
         console.error("Failed to dynamically fetch active year ID:", err);
+      }
+    }
+
+    // 2. Try to get it from the selected class in classesList
+    const selectedClassObj = classesList.find(c => c.id === className);
+    if (!resolvedAnneeScolaireId && selectedClassObj) {
+      resolvedAnneeScolaireId = (selectedClassObj as any).annee_scolaire_id || (selectedClassObj as any).anneeScolaireId;
+    }
+
+    // 3. Try to get it from localStorage cached ID
+    if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
+      resolvedAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
+    }
+
+    // 4. Try to extract it from loaded students list if any exist
+    if (!resolvedAnneeScolaireId && students.length > 0) {
+      const studentWithYear = students.find(s => s && s.anneeScolaireId);
+      if (studentWithYear) {
+        resolvedAnneeScolaireId = studentWithYear.anneeScolaireId;
       }
     }
 
@@ -407,6 +406,30 @@ export default function ElevesPage() {
     triggerToast(`L'élève ${lastName} ${firstName} a été inscrit avec succès dans Supabase.`);
   };
 
+  const handleDeleteStudent = async (id: string, name: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (confirm(`Voulez-vous vraiment supprimer l'élève ${name} définitivement ? Cette action supprimera également ses paiements et ses notes.`)) {
+      const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+      const supabase = createClient();
+
+      if (isOffline) {
+        await SyncManager.addToQueue('eleves', 'delete', { id });
+        setStudents(prev => prev.filter(s => s.id !== id));
+        triggerToast("Élève supprimé localement !");
+      } else {
+        const { error } = await supabase.from('eleves').delete().eq('id', id);
+        if (error) {
+          alert("Erreur lors de la suppression: " + error.message);
+        } else {
+          setStudents(prev => prev.filter(s => s.id !== id));
+          triggerToast("Élève supprimé avec succès !");
+        }
+      }
+    }
+  };
+
   const handleTriggerFileInput = () => {
     fileInputRef.current?.click();
   };
@@ -431,8 +454,14 @@ export default function ElevesPage() {
     triggerToast('Export Excel généré avec succès !');
   };
 
-  const getOrCreateClass = async (classNameStr: string, resolvedAnneeScolaireId: string, sectionStr: string = 'Francophone') => {
-    const existing = classesList.find(c => {
+  const getOrCreateClass = async (
+    classNameStr: string, 
+    resolvedAnneeScolaireId: string, 
+    sectionStr: string = 'Francophone', 
+    localClassesRef?: Classe[]
+  ) => {
+    const listToSearch = localClassesRef || classesList;
+    const existing = listToSearch.find(c => {
       const cNom = c.nom || '';
       const cId = c.id || '';
       return cNom.toLowerCase().trim() === classNameStr.toLowerCase().trim() || 
@@ -459,6 +488,9 @@ export default function ElevesPage() {
         sectionId: sectionStr
       };
       await SyncManager.addToQueue('classes', 'insert', { ...newClassData, id: tempId });
+      if (localClassesRef) {
+        localClassesRef.push(newLocalClass);
+      }
       setClassesList(prev => [...prev, newLocalClass]);
       return tempId;
     } else {
@@ -478,6 +510,9 @@ export default function ElevesPage() {
             anneeScolaireId: resolvedAnneeScolaireId,
             sectionId: created.section
           };
+          if (localClassesRef) {
+            localClassesRef.push(newClassObj);
+          }
           setClassesList(prev => [...prev, newClassObj]);
           return created.id;
         } else if (error) {
@@ -525,16 +560,47 @@ export default function ElevesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+    const supabase = createClient();
+
     let resolvedAnneeScolaireId = null;
-    if (typeof window !== 'undefined') {
+
+    if (!isOffline && etablissementId) {
+      try {
+        const { data: etab } = await supabase
+          .from('etablissements')
+          .select('annee_scolaire_active_id')
+          .eq('id', etablissementId)
+          .single();
+        if (etab?.annee_scolaire_active_id) {
+          resolvedAnneeScolaireId = etab.annee_scolaire_active_id;
+        }
+      } catch (err) {
+        console.error("Failed to fetch active year from DB:", err);
+      }
+
+      if (!resolvedAnneeScolaireId) {
+        try {
+          const { data: years } = await supabase
+            .from('annees_scolaires')
+            .select('id')
+            .eq('etablissement_id', etablissementId)
+            .limit(1);
+          if (years && years.length > 0) {
+            resolvedAnneeScolaireId = years[0].id;
+          }
+        } catch (err) {
+          console.error("Failed to fetch fallback year from DB:", err);
+        }
+      }
+    }
+
+    if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
       resolvedAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
     }
     if (!resolvedAnneeScolaireId && students.length > 0) {
       const studentWithYear = students.find(s => s && s.anneeScolaireId);
       if (studentWithYear) resolvedAnneeScolaireId = studentWithYear.anneeScolaireId;
-    }
-    if (!resolvedAnneeScolaireId && classesList.length > 0) {
-      resolvedAnneeScolaireId = (classesList[0] as any).annee_scolaire_id || (classesList[0] as any).anneeScolaireId;
     }
     if (!resolvedAnneeScolaireId) {
       alert("Erreur : Impossible de déterminer l'année scolaire active. Créez d'abord au moins une classe ou une année scolaire.");
@@ -557,6 +623,7 @@ export default function ElevesPage() {
 
         let importedCount = 0;
         let errorsCount = 0;
+        const localClasses = [...classesList]; // Local reference to track created classes during the loop synchronously
 
         const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
         const supabase = createClient();
@@ -564,6 +631,9 @@ export default function ElevesPage() {
         for (const row of data) {
           const nom = (row.Nom || row.nom || row.NOM || '').toString().trim();
           const prenom = (row.Prénom || row.prenom || row.Prenom || row.PRENOM || '').toString().trim();
+
+          // Skip completely empty rows
+          if (!nom && !prenom) continue;
 
           const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toString().toUpperCase().trim() === 'F' ? 'F' : 'M';
           const classNameStr = (row.Classe || row.classe || row.CLASSE || 'Non classé').toString().trim();
@@ -574,15 +644,21 @@ export default function ElevesPage() {
           const dateNaissance = parseImportDate(row["Date Naissance"] || row.date_naissance || row.Naissance || row.naissance);
           const lieuNaissance = (row["Lieu Naissance"] || row.lieu_naissance || row.Lieu || row.lieu || '').toString().trim();
           const dateInscriptionVal = parseImportDate(row["Date Inscription"] || row.date_inscription || row.inscription || row.Inscription) || new Date().toISOString().split('T')[0];
-          const matriculeVal = (row.Matricule || row.matricule || row.MATRICULE || `26YAE${Math.floor(100 + Math.random() * 900)}`).toString().trim();
+          
+          // Generate a deterministic fallback matricule based on name/surname if missing, to prevent duplicates on re-import
+          const rawMatricule = row.Matricule || row.matricule || row.MATRICULE || row["N° Matricule"];
+          const cleanNom = nom.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const cleanPrenom = prenom.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const fallbackMatricule = `MBOA-${cleanNom}-${cleanPrenom}`.substring(0, 50);
+          const matriculeVal = (rawMatricule ? rawMatricule.toString().trim() : fallbackMatricule);
 
           let classId = '';
           if (classNameStr) {
-            classId = await getOrCreateClass(classNameStr, resolvedAnneeScolaireId, sectionStr);
-          } else if (classesList.length > 0) {
-            classId = classesList[0].id;
+            classId = await getOrCreateClass(classNameStr, resolvedAnneeScolaireId, sectionStr, localClasses);
+          } else if (localClasses.length > 0) {
+            classId = localClasses[0].id;
           } else {
-            classId = await getOrCreateClass('Non classé', resolvedAnneeScolaireId, sectionStr);
+            classId = await getOrCreateClass('Non classé', resolvedAnneeScolaireId, sectionStr, localClasses);
           }
 
           const studentData = {
@@ -625,30 +701,31 @@ export default function ElevesPage() {
             } else {
               const { data: createdData, error: createErr } = await supabase
                 .from('eleves')
-                .insert([{ ...studentData, etablissement_id: etablissementId }])
+                .upsert([{ ...studentData, etablissement_id: etablissementId }], { onConflict: 'etablissement_id,matricule' })
                 .select();
               if (!createErr && createdData && createdData.length > 0 && createdData[0]) {
-                studentId = createdData[0].id;
+                const createdStudent = createdData[0];
+                studentId = createdStudent.id;
                 finalStudentObj = {
                   id: studentId,
-                  matricule: createdData[0].matricule,
-                  nom: createdData[0].nom,
-                  prenom: createdData[0].prenom,
-                  sexe: createdData[0].sexe,
+                  matricule: createdStudent.matricule || studentData.matricule || '',
+                  nom: createdStudent.nom || studentData.nom || '',
+                  prenom: createdStudent.prenom || studentData.prenom || '',
+                  sexe: createdStudent.sexe || studentData.sexe || 'M',
                   classeId: classId,
-                  nomParent: createdData[0].nom_parent,
-                  telephoneParent: createdData[0].telephone_parent,
-                  emailParent: createdData[0].email_parent || '',
-                  dateNaissance: createdData[0].date_naissance || '',
-                  lieuNaissance: createdData[0].lieu_naissance || '',
-                  dateInscription: createdData[0].date_inscription || dateInscriptionVal,
-                  anneeScolaireId: createdData[0].annee_scolaire_id,
-                  statut: createdData[0].statut,
+                  nomParent: createdStudent.nom_parent || studentData.nom_parent || '',
+                  telephoneParent: createdStudent.telephone_parent || studentData.telephone_parent || '',
+                  emailParent: createdStudent.email_parent || studentData.email_parent || '',
+                  dateNaissance: createdStudent.date_naissance || studentData.date_naissance || '',
+                  lieuNaissance: createdStudent.lieu_naissance || studentData.lieu_naissance || '',
+                  dateInscription: createdStudent.date_inscription || dateInscriptionVal,
+                  anneeScolaireId: createdStudent.annee_scolaire_id || resolvedAnneeScolaireId,
+                  statut: createdStudent.statut || 'actif',
                   paiements: [],
                   notes: []
                 };
               } else {
-                console.error("Error creating student:", createErr);
+                console.error("Error creating student in Excel import loop:", createErr || "Empty selection returned from database. Check RLS or insert payload.");
                 errorsCount++;
                 continue;
               }
@@ -662,7 +739,7 @@ export default function ElevesPage() {
           const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
           if (amountPaidVal > 0 && studentId && finalStudentObj) {
             const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
-            const reference = row.Reference || row.reference || `REC-INS-${Date.now()}-${Math.floor(Math.random()*100)}`;
+            const reference = row.Reference || row.reference || row.REFERENCE || `REC-${matriculeVal}-SCOL`;
             const paymentData = {
               eleve_id: studentId,
               montant: amountPaidVal,
@@ -691,12 +768,14 @@ export default function ElevesPage() {
               } else {
                 const { data: payCreated, error: payErr } = await supabase
                   .from('paiements')
-                  .insert([{ ...paymentData, etablissement_id: etablissementId }])
+                  .upsert([{ ...paymentData, etablissement_id: etablissementId }], { onConflict: 'etablissement_id,reference' })
                   .select();
                 if (!payErr && payCreated && payCreated.length > 0 && payCreated[0]) {
                   if (!finalStudentObj.paiements) finalStudentObj.paiements = [];
-                  finalStudentObj.paiements.push({
-                    id: payCreated[0].id,
+                  // Ensure we don't add duplicate payments in local state representation
+                  const pId = payCreated[0].id;
+                  const payObj = {
+                    id: pId,
                     eleveId: studentId,
                     montant: Number(payCreated[0].montant),
                     date: payCreated[0].date,
@@ -704,9 +783,15 @@ export default function ElevesPage() {
                     modePaiement: payCreated[0].mode_paiement,
                     statut: payCreated[0].statut,
                     reference: payCreated[0].reference
-                  });
+                  };
+                  const exists = finalStudentObj.paiements.some((p: any) => p.id === pId || p.reference === payObj.reference);
+                  if (exists) {
+                    finalStudentObj.paiements = finalStudentObj.paiements.map((p: any) => (p.id === pId || p.reference === payObj.reference) ? payObj : p);
+                  } else {
+                    finalStudentObj.paiements.push(payObj);
+                  }
                 } else {
-                  console.error("Error creating payment:", payErr);
+                  console.error("Error creating payment in Excel import loop:", payErr || "Empty selection returned from database.");
                 }
               }
             } catch (pErr) {
@@ -715,7 +800,34 @@ export default function ElevesPage() {
           }
 
           if (finalStudentObj) {
-            setStudents(prev => [finalStudentObj, ...prev]);
+            setStudents(prev => {
+              const existingIndex = prev.findIndex(s => s.id === finalStudentObj.id);
+              if (existingIndex > -1) {
+                const existingStudent = prev[existingIndex];
+                // Merge payments to preserve other historical payments
+                const mergedPaiements = [...(existingStudent.paiements || [])];
+                (finalStudentObj.paiements || []).forEach((newPay: any) => {
+                  const payIndex = mergedPaiements.findIndex(p => p.id === newPay.id || p.reference === newPay.reference);
+                  if (payIndex > -1) {
+                    mergedPaiements[payIndex] = newPay;
+                  } else {
+                    mergedPaiements.push(newPay);
+                  }
+                });
+                
+                const updatedStudent = {
+                  ...finalStudentObj,
+                  paiements: mergedPaiements,
+                  notes: existingStudent.notes || [] // Keep existing notes
+                };
+                
+                const copy = [...prev];
+                copy[existingIndex] = updatedStudent;
+                return copy;
+              } else {
+                return [finalStudentObj, ...prev];
+              }
+            });
             importedCount++;
           }
         }
@@ -1012,12 +1124,23 @@ export default function ElevesPage() {
 
                       {/* Actions */}
                       <td className="px-6 py-4 text-right">
-                        <Link
-                          href={`/eleves/${student.id}`}
-                          className="inline-flex items-center justify-center px-3 py-1.5 border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/20 hover:text-indigo-600 rounded-lg text-xs font-semibold text-slate-600 transition-all"
-                        >
-                          Fiche Élève
-                        </Link>
+                        <div className="flex items-center justify-end gap-2">
+                          <Link
+                            href={`/eleves/${student.id}`}
+                            className="inline-flex items-center justify-center px-3 py-1.5 border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/20 hover:text-indigo-600 rounded-lg text-xs font-semibold text-slate-600 transition-all"
+                          >
+                            Fiche Élève
+                          </Link>
+                          <button
+                            onClick={(e) => handleDeleteStudent(student.id, `${student.nom} ${student.prenom}`, e)}
+                            className="inline-flex items-center justify-center p-1.5 border border-slate-200 hover:border-rose-500 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer"
+                            title="Supprimer l'élève"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

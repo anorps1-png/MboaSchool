@@ -115,6 +115,21 @@ export default function FinancePage() {
         setPlanComptable(stored ? JSON.parse(stored) : planComptableOHADA);
       }
 
+      // 1.5 Fetch Classes first so we have access to class prices!
+      let loadedClasses: any[] = [];
+      try {
+        const { data: classesData, error: classesErr } = await supabase
+          .from('classes')
+          .select('*')
+          .eq('etablissement_id', etablissementId);
+        if (!classesErr && classesData) {
+          loadedClasses = classesData;
+          setClasses(classesData);
+        }
+      } catch (err) {
+        console.error('Error fetching classes in loadData:', err);
+      }
+
       // 2. Fetch Students & Payments from Supabase
       let loadedStudents: Eleve[] = [];
       let loadedPersonnel: MembrePersonnel[] = [];
@@ -266,10 +281,10 @@ export default function FinancePage() {
       const paymentEcritures: EcritureComptable[] = [];
       loadedStudents.forEach((student: Eleve) => {
         if (!student) return;
-        const paiements = student.paiements || [];
-        const totalScolarite = paiements.reduce((sum, p) => sum + p.montant, 0);
+        const matchedClass = loadedClasses.find((c: any) => c.id === student.classeId || c.nom === student.classeId);
+        const classPrice = matchedClass ? Number(matchedClass.prix || 0) : 200000;
         
-        if (totalScolarite > 0) {
+        if (classPrice > 0) {
           const dateConst = student.dateInscription ? student.dateInscription.split('T')[0] : '2025-09-01';
           paymentEcritures.push({
             id: `ecr-const-${student.id}`,
@@ -277,27 +292,28 @@ export default function FinancePage() {
             libelle: `Constatation Frais Scolaires - ${student.nom} ${student.prenom}`,
             reference: `FACT-${student.matricule}`,
             lignes: [
-              { compteNumero: '411', debit: totalScolarite, credit: 0 },
-              { compteNumero: '706', debit: 0, credit: totalScolarite }
+              { compteNumero: '411', debit: classPrice, credit: 0 },
+              { compteNumero: '706', debit: 0, credit: classPrice }
             ]
           });
-
-          paiements.forEach(p => {
-            if (p.statut === 'paid') {
-              const compTres = p.modePaiement === 'Virement Bancaire' ? '521' : '571';
-              paymentEcritures.push({
-                id: `ecr-pay-${p.id}`,
-                date: p.date.split('T')[0],
-                libelle: `Règlement ${p.typeFrais} - ${student.nom} ${student.prenom}`,
-                reference: p.reference,
-                lignes: [
-                  { compteNumero: compTres, debit: p.montant, credit: 0 },
-                  { compteNumero: '411', debit: 0, credit: p.montant }
-                ]
-              });
-            }
-          });
         }
+
+        const paiements = student.paiements || [];
+        paiements.forEach(p => {
+          if (p.statut === 'paid') {
+            const compTres = p.modePaiement === 'Virement Bancaire' ? '521' : '571';
+            paymentEcritures.push({
+              id: `ecr-pay-${p.id}`,
+              date: p.date.split('T')[0],
+              libelle: `Règlement ${p.typeFrais} - ${student.nom} ${student.prenom}`,
+              reference: p.reference,
+              lignes: [
+                { compteNumero: compTres, debit: p.montant, credit: 0 },
+                { compteNumero: '411', debit: 0, credit: p.montant }
+              ]
+            });
+          }
+        });
       });
 
       // Auto-generate salary entries dynamically
@@ -402,18 +418,7 @@ export default function FinancePage() {
       const storedBudget = localStorage.getItem('mboaschool_budget_lines');
       setBudgetLines(storedBudget ? JSON.parse(storedBudget) : []);
 
-      // 8. Fetch Classes
-      try {
-        const { data: classesData, error: classesErr } = await supabase
-          .from('classes')
-          .select('*')
-          .eq('etablissement_id', etablissementId);
-        if (!classesErr && classesData) {
-          setClasses(classesData);
-        }
-      } catch (err) {
-        console.error('Error fetching classes:', err);
-      }
+      // 8. Classes already fetched in step 1.5
 
       // Fetch Teachers
       try {
@@ -477,6 +482,13 @@ export default function FinancePage() {
   const totalCA2026 = planComptable
     .filter(c => c.numero.startsWith('7'))
     .reduce((sum, c) => sum + (accountBalances[c.numero]?.credit - accountBalances[c.numero]?.debit || 0), 0);
+
+  // Trésorerie perçue (real cash collections from student payments)
+  const totalTresoreriePercue = students.reduce((sum, student) => {
+    return sum + (student.paiements || [])
+      .filter(p => p.statut === 'paid')
+      .reduce((s, p) => s + p.montant, 0);
+  }, 0);
 
   // Masse salariale mensuelle et annuelle 2026 from ledger (account 661)
   const activeStaff = personnel.filter(p => p.statut === 'actif');
@@ -674,11 +686,13 @@ export default function FinancePage() {
 
       // Sum actual payments received on this date
       const cashReceived = students.flatMap(s => s.paiements || [])
-        .filter(p => p.date === dateStr && p.statut === 'paid')
+        .filter(p => p.date && p.date.split('T')[0] === dateStr && p.statut === 'paid')
         .reduce((sum, p) => sum + p.montant, 0);
 
-      // Recognized daily Revenue (equal distribution of monthly scolarité: total monthly scol / 25 working days)
-      const dailyCAConstated = activeStaff.length > 0 ? Math.round(totalCA2026 / 180) : 60000; // average scolarité amortization
+      // Sum of all payments (both paid and unpaid/pending) due on this date
+      const dailyCAConstated = students.flatMap(s => s.paiements || [])
+        .filter(p => p.date && p.date.split('T')[0] === dateStr)
+        .reduce((sum, p) => sum + p.montant, 0);
 
       days.push({
         date: dateStr,
@@ -1589,19 +1603,27 @@ export default function FinancePage() {
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Facturation Globale (CA Constaté)</span>
               <h2 className="text-2xl font-black text-indigo-600">{formatMoney(totalCA2026)}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">Enregistré en engagement</span>
+              <span className="text-xs text-slate-400 font-semibold block mt-1.5">Enregistré en engagement (Total frais attendus)</span>
             </div>
 
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Trésorerie Perçue (Encaissements)</span>
-              <h2 className="text-2xl font-black text-emerald-500">{formatMoney(totalCA2026)}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">100% encaissé</span>
+              <h2 className="text-2xl font-black text-emerald-500">{formatMoney(totalTresoreriePercue)}</h2>
+              <span className="text-xs text-slate-400 font-semibold block mt-1.5">
+                {totalCA2026 > 0 ? ((totalTresoreriePercue / totalCA2026) * 100).toFixed(1) : 0}% encaissé réellement
+              </span>
             </div>
 
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Écart de Rapprochement</span>
-              <h2 className="text-2xl font-black text-slate-800 text-black">0 FCFA</h2>
-              <span className="text-xs text-emerald-500 font-bold block mt-1.5">✓ Livres parfaitement équilibrés</span>
+              <h2 className="text-2xl font-black text-slate-800 text-black">{formatMoney(totalCA2026 - totalTresoreriePercue)}</h2>
+              {totalCA2026 === totalTresoreriePercue ? (
+                <span className="text-xs text-emerald-500 font-bold block mt-1.5">✓ Livres parfaitement équilibrés</span>
+              ) : (
+                <span className="text-xs text-amber-500 font-bold block mt-1.5">
+                  ⚠️ Reste à recouvrer ({totalCA2026 > 0 ? ((1 - totalTresoreriePercue / totalCA2026) * 100).toFixed(1) : 0}% en attente)
+                </span>
+              )}
             </div>
           </div>
 

@@ -18,6 +18,7 @@ CREATE TABLE public.annees_scolaires (
   nom TEXT NOT NULL, -- ex: "2025-2026"
   date_debut DATE NOT NULL,
   date_fin DATE NOT NULL,
+  etablissement_id UUID REFERENCES public.etablissements(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -345,6 +346,7 @@ ALTER TABLE public.eleves ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bulletins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.paiements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.annees_scolaires ENABLE ROW LEVEL SECURITY;
 
 -- Simple Multi-tenant RLS Policies
 CREATE POLICY "Etablissement read access" ON public.etablissements FOR SELECT TO authenticated USING (TRUE);
@@ -420,3 +422,7 @@ CREATE POLICY "Bulletins scope access" ON public.bulletins TO authenticated
       )
     )
   );
+
+CREATE POLICY "Etablissement access for ALL on annees_scolaires" ON public.annees_scolaires TO authenticated
+  USING (etablissement_id = public.current_user_etablissement_id())
+  WITH CHECK (etablissement_id = public.current_user_etablissement_id());

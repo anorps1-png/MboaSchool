@@ -48,9 +48,9 @@ BEGIN
     VALUES (meta_school_name, 10)
     RETURNING id INTO new_etab_id;
 
-    -- Créer l'année scolaire active
-    INSERT INTO public.annees_scolaires (nom, date_debut, date_fin)
-    VALUES (meta_school_year, (split_part(meta_school_year, '/', 1) || '-09-01')::DATE, (split_part(meta_school_year, '/', 2) || '-06-30')::DATE)
+    -- Créer l'année scolaire active (correctement liée à l'établissement)
+    INSERT INTO public.annees_scolaires (nom, date_debut, date_fin, etablissement_id)
+    VALUES (meta_school_year, (split_part(meta_school_year, '/', 1) || '-09-01')::DATE, (split_part(meta_school_year, '/', 2) || '-06-30')::DATE, new_etab_id)
     RETURNING id INTO new_annee_id;
 
     -- Associer l'année scolaire à l'établissement

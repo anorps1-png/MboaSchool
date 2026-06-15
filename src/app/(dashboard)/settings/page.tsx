@@ -21,6 +21,13 @@ export default function SettingsPage() {
   const [activeYearId, setActiveYearId] = useState('');
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 
+  // Bulletin customizable states
+  const [logoUrl, setLogoUrl] = useState('');
+  const [bulletinTemplate, setBulletinTemplate] = useState('classic');
+  const [bulletinSlogan, setBulletinSlogan] = useState('Excellence & Mérite');
+  const [bulletinHeaderLeft, setBulletinHeaderLeft] = useState('Ministère des Enseignements Secondaires');
+  const [bulletinHeaderRight, setBulletinHeaderRight] = useState('Ministry of Secondary Education');
+
   const [showAddYearForm, setShowAddYearForm] = useState(false);
   const [newYearName, setNewYearName] = useState('');
   const [newYearStart, setNewYearStart] = useState('');
@@ -44,6 +51,7 @@ export default function SettingsPage() {
         nom: newYearName,
         date_debut: newYearStart || `${newYearName.split('/')[0]}-09-01`,
         date_fin: newYearEnd || `${newYearName.split('/')[1]}-06-30`,
+        etablissement_id: etablissementId,
       };
 
       const { data, error } = await supabase
@@ -79,6 +87,14 @@ export default function SettingsPage() {
   const [defaultBankAcc, setDefaultBankAcc] = useState('521');
   const [defaultCashAcc, setDefaultCashAcc] = useState('571');
 
+  // Cameroon specific taxes
+  const [cnpsEmployeeRate, setCnpsEmployeeRate] = useState<number>(4.2);
+  const [cnpsEmployerRate, setCnpsEmployerRate] = useState<number>(16.2);
+  const [cfcEmployeeRate, setCfcEmployeeRate] = useState<number>(1.0);
+  const [cfcEmployerRate, setCfcEmployerRate] = useState<number>(1.5);
+  const [fneRate, setFneRate] = useState<number>(1.0);
+  const [cacRate, setCacRate] = useState<number>(10.0);
+
   const [themeColor, setThemeColor] = useState('indigo');
   const [appLanguage, setAppLanguage] = useState('fr');
 
@@ -106,6 +122,11 @@ export default function SettingsPage() {
           setSchoolName(etab.nom);
           setPassingScore(Number(etab.seuil_reussite) || 10);
           setActiveYearId(etab.annee_scolaire_active_id || '');
+          setLogoUrl(etab.logo_url || '');
+          setBulletinTemplate(etab.bulletin_template || 'classic');
+          setBulletinSlogan(etab.bulletin_slogan || 'Excellence & Mérite');
+          setBulletinHeaderLeft(etab.bulletin_header_left || 'Ministère des Enseignements Secondaires');
+          setBulletinHeaderRight(etab.bulletin_header_right || 'Ministry of Secondary Education');
         }
 
         // 2. Load academic years for selection dropdown
@@ -134,6 +155,13 @@ export default function SettingsPage() {
         setDefaultBankAcc(localStorage.getItem('setting_default_bank_acc') || '521');
         setDefaultCashAcc(localStorage.getItem('setting_default_cash_acc') || '571');
 
+        setCnpsEmployeeRate(Number(localStorage.getItem('setting_cnps_employee_rate')) || 4.2);
+        setCnpsEmployerRate(Number(localStorage.getItem('setting_cnps_employer_rate')) || 16.2);
+        setCfcEmployeeRate(Number(localStorage.getItem('setting_cfc_employee_rate')) || 1.0);
+        setCfcEmployerRate(Number(localStorage.getItem('setting_cfc_employer_rate')) || 1.5);
+        setFneRate(Number(localStorage.getItem('setting_fne_rate')) || 1.0);
+        setCacRate(Number(localStorage.getItem('setting_cac_rate')) || 10.0);
+
         setThemeColor(localStorage.getItem('setting_theme_color') || 'indigo');
         setAppLanguage(localStorage.getItem('setting_language') || 'fr');
       }
@@ -159,6 +187,11 @@ export default function SettingsPage() {
           nom: schoolName,
           seuil_reussite: passingScore,
           annee_scolaire_active_id: activeYearId || null,
+          logo_url: logoUrl || null,
+          bulletin_template: bulletinTemplate || 'classic',
+          bulletin_slogan: bulletinSlogan || 'Excellence & Mérite',
+          bulletin_header_left: bulletinHeaderLeft || 'Ministère des Enseignements Secondaires',
+          bulletin_header_right: bulletinHeaderRight || 'Ministry of Secondary Education',
         })
         .eq('id', etablissementId);
 
@@ -181,10 +214,17 @@ export default function SettingsPage() {
         localStorage.setItem('setting_school_address', schoolAddress);
         localStorage.setItem('setting_director_name', directorName);
         
-        localStorage.setItem('setting_currency', currency);
+        localStorage.setItem('setting_currency', 'XAF');
         localStorage.setItem('setting_tva_rate', tvaRate.toString());
         localStorage.setItem('setting_default_bank_acc', defaultBankAcc);
         localStorage.setItem('setting_default_cash_acc', defaultCashAcc);
+
+        localStorage.setItem('setting_cnps_employee_rate', cnpsEmployeeRate.toString());
+        localStorage.setItem('setting_cnps_employer_rate', cnpsEmployerRate.toString());
+        localStorage.setItem('setting_cfc_employee_rate', cfcEmployeeRate.toString());
+        localStorage.setItem('setting_cfc_employer_rate', cfcEmployerRate.toString());
+        localStorage.setItem('setting_fne_rate', fneRate.toString());
+        localStorage.setItem('setting_cac_rate', cacRate.toString());
 
         localStorage.setItem('setting_theme_color', themeColor);
         localStorage.setItem('setting_language', appLanguage);
@@ -199,6 +239,92 @@ export default function SettingsPage() {
       triggerToast(`Erreur d'enregistrement : ${err.message || err}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!confirm("ATTENTION : Cette action est irréversible. Êtes-vous sûr de vouloir supprimer définitivement votre compte ainsi que toutes les données associées ?")) {
+      return;
+    }
+
+    if (!confirm("CONFIRMATION FINALE : Toutes les données enregistrées (élèves, classes, écritures comptables, budget, etc.) seront supprimées définitivement. Confirmez-vous ?")) {
+      return;
+    }
+
+    try {
+      const supabase = createClient();
+      
+      // Get current user session details
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr || !user) throw new Error("Impossible de récupérer la session utilisateur.");
+
+      // Check current user role
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (profileErr || !profile) throw new Error("Impossible de charger le profil utilisateur.");
+
+      const isUserAdmin = profile.role === 'admin';
+
+      if (isUserAdmin && profile.etablissement_id) {
+        const etabId = profile.etablissement_id;
+        
+        // 1. Delete notes and bulletins
+        const eleveIds = (await supabase.from('eleves').select('id').eq('etablissement_id', etabId)).data?.map(e => e.id) || [];
+        if (eleveIds.length > 0) {
+          await supabase.from('notes').delete().in('eleve_id', eleveIds);
+          await supabase.from('bulletins').delete().in('eleve_id', eleveIds);
+          await supabase.from('discipline_incidents').delete().in('eleve_id', eleveIds);
+        }
+        
+        // 2. Delete payments, students
+        await supabase.from('paiements').delete().eq('etablissement_id', etabId);
+        await supabase.from('eleves').delete().eq('etablissement_id', etabId);
+        
+        // 3. Delete accounting lines and entries
+        const ecritureIds = (await supabase.from('ecritures_comptables').select('id').eq('etablissement_id', etabId)).data?.map(e => e.id) || [];
+        if (ecritureIds.length > 0) {
+          await supabase.from('lignes_ecritures').delete().in('ecriture_id', ecritureIds);
+        }
+        await supabase.from('ecritures_comptables').delete().eq('etablissement_id', etabId);
+        await supabase.from('comptes_ohada').delete().eq('etablissement_id', etabId);
+        
+        // 4. Delete classes, subjects, sections, years
+        await supabase.from('classes').delete().eq('etablissement_id', etabId);
+        await supabase.from('sections').delete().eq('etablissement_id', etabId);
+        await supabase.from('annees_scolaires').delete().eq('etablissement_id', etabId);
+        
+        // 5. Delete teachers and personnel
+        await supabase.from('enseignants').delete().eq('etablissement_id', etabId);
+        await supabase.from('membres_personnel').delete().eq('etablissement_id', etabId);
+        await supabase.from('formations_rh').delete().eq('etablissement_id', etabId);
+        
+        // 6. Delete other profiles
+        await supabase.from('profiles').delete().eq('etablissement_id', etabId).neq('id', user.id);
+        
+        // 7. Delete etablissement (will delete current profile via cascade, which triggers auth delete)
+        const { error: delEtabErr } = await supabase.from('etablissements').delete().eq('id', etabId);
+        if (delEtabErr) throw delEtabErr;
+      } else {
+        // If not admin, just delete their own profile (which triggers auth delete)
+        const { error: delProfErr } = await supabase.from('profiles').delete().eq('id', user.id);
+        if (delProfErr) throw delProfErr;
+      }
+
+      // Logout and redirect to login page
+      await supabase.auth.signOut();
+      
+      // Clear localStorage cache
+      localStorage.clear();
+      
+      // Redirect
+      window.location.href = '/login';
+    } catch (err: any) {
+      console.error("Erreur lors de la suppression du compte :", err);
+      alert(`Erreur de suppression : ${err.message || err}`);
     }
   };
 
@@ -410,15 +536,12 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Devise Locale</label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
-                >
-                  <option value="XAF">Franc CFA (FCFA / XAF)</option>
-                  <option value="EUR">Euro (€ / EUR)</option>
-                  <option value="USD">Dollar Américain ($ / USD)</option>
-                </select>
+                <input
+                  type="text"
+                  disabled
+                  value="Franc CFA (FCFA / XAF)"
+                  className="w-full px-3.5 py-2 border border-slate-200 bg-slate-50 rounded-lg text-sm text-slate-500 outline-none font-semibold"
+                />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Taux de TVA standard</label>
@@ -433,6 +556,109 @@ export default function SettingsPage() {
                     className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
                   />
                   <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Other Cameroon Taxes */}
+            <div className="border-t border-slate-100 pt-4">
+              <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Autres Taxes & Charges Salariales/Patronales (Cameroun)</h4>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">CNPS - Part Employé</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={cnpsEmployeeRate}
+                      onChange={(e) => setCnpsEmployeeRate(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">CNPS - Part Employeur</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={cnpsEmployerRate}
+                      onChange={(e) => setCnpsEmployerRate(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Crédit Foncier (CFC) - Part Employé</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={cfcEmployeeRate}
+                      onChange={(e) => setCfcEmployeeRate(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Crédit Foncier (CFC) - Part Employeur</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={cfcEmployerRate}
+                      onChange={(e) => setCfcEmployerRate(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Fonds National Emploi (FNE) - Part Employeur</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={fneRate}
+                      onChange={(e) => setFneRate(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Centimes Additionnels Communaux (CAC)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={cacRate}
+                      onChange={(e) => setCacRate(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -458,57 +684,78 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+
+          {/* Card 4: Bulletin Customization */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              Configuration des Bulletins Scolaires
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Style de Mise en Page du Bulletin</label>
+                <select
+                  value={bulletinTemplate}
+                  onChange={(e) => setBulletinTemplate(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold cursor-pointer"
+                >
+                  <option value="classic">Classique Camerounais (Double Entête + Drapeau)</option>
+                  <option value="modern">Design Moderne Épuré (Centré avec Logo)</option>
+                  <option value="minimal">Compact (Idéal pour impression A4 1-page)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Logo de l'Établissement (URL ou Image URL)</label>
+                <input
+                  type="text"
+                  placeholder="https://mon-ecole.com/logo.png"
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Entête Gauche du Bulletin (Ministère, Délégation...)</label>
+                <input
+                  type="text"
+                  value={bulletinHeaderLeft}
+                  onChange={(e) => setBulletinHeaderLeft(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Entête Droite du Bulletin (Traduction ou infos)</label>
+                <input
+                  type="text"
+                  value={bulletinHeaderRight}
+                  onChange={(e) => setBulletinHeaderRight(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Slogan / Devise du Bulletin</label>
+              <input
+                type="text"
+                placeholder="Ex: Excellence & Mérite"
+                value={bulletinSlogan}
+                onChange={(e) => setBulletinSlogan(e.target.value)}
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Right Side: Branding, App settings, License/SaaS */}
         <div className="space-y-6">
           
-          {/* Card 4: Localisation & Branding */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              Localisation & Personnalisation UI
-            </h3>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Langue de l'application</label>
-              <select
-                value={appLanguage}
-                onChange={(e) => setAppLanguage(e.target.value)}
-                className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
-              >
-                <option value="fr">Français (Cameroun / RDC / Afrique)</option>
-                <option value="en">English (Subsystem / International)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Couleur thématique de l'école</label>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { id: 'indigo', color: 'bg-indigo-600', text: 'Indigo' },
-                  { id: 'emerald', color: 'bg-emerald-500', text: 'Émeraude' },
-                  { id: 'violet', color: 'bg-violet-600', text: 'Violet' },
-                  { id: 'amber', color: 'bg-amber-500', text: 'Ambre' }
-                ].map((colorItem) => (
-                  <button
-                    key={colorItem.id}
-                    type="button"
-                    onClick={() => setThemeColor(colorItem.id)}
-                    className={`flex flex-col items-center p-2 rounded-xl border text-xs font-bold transition-all ${
-                      themeColor === colorItem.id 
-                        ? 'border-indigo-600 bg-indigo-50/50 text-indigo-700' 
-                        : 'border-slate-100 bg-white hover:bg-slate-50 text-slate-500'
-                    }`}
-                  >
-                    <span className={`w-6 h-6 rounded-full ${colorItem.color} shadow-sm mb-1`}></span>
-                    {colorItem.text}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
           {/* Card 5: Subscription / SaaS info */}
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
             <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
@@ -537,6 +784,27 @@ export default function SettingsPage() {
             <div className="text-[10px] text-slate-400 text-center leading-relaxed">
               Pour toute mise à niveau de licence, ajout de modules ou modification de quota d'élèves/parents, contactez le support MboaSchool.
             </div>
+          </div>
+
+          {/* Card 6: Danger Zone - Delete Account */}
+          <div className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm space-y-4 bg-rose-50/5">
+            <h3 className="text-base font-bold text-rose-600 border-b border-rose-100 pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-600"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Zone de Danger
+            </h3>
+
+            <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+              La suppression de votre compte effacera définitivement toutes vos données d'accès. Si vous êtes administrateur, toutes les données de l'établissement (élèves, paiements, écritures comptables, enseignants, etc.) seront également détruites.
+            </p>
+
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 hover:border-rose-300 text-rose-600 hover:text-rose-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              Supprimer définitivement mon compte
+            </button>
           </div>
 
         </div>
