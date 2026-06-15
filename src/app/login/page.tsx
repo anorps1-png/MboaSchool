@@ -368,8 +368,13 @@ function LoginContent() {
           localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
         }
 
-        // Do NOT log the user in immediately. Set signUpSuccess to true so we display the validation message.
-        setSignUpSuccess(true);
+        // If the Supabase project configuration has "Confirm email" disabled,
+        // it returns a valid session on signup. We log the user in and redirect directly.
+        if (signUpData.session) {
+          router.push('/dashboard');
+        } else {
+          setSignUpSuccess(true);
+        }
       }
     } catch (err: any) {
       console.warn("Supabase onboarding failed, checking error type:", err);
@@ -379,7 +384,7 @@ function LoginContent() {
       if (err.status || err.code || (err.message && !err.message.includes('fetch') && !err.message.includes('network') && !err.message.includes('Failed to fetch'))) {
         let displayMsg = err.message;
         if (err.code === 'over_email_send_rate_limit' || (err.message && err.message.toLowerCase().includes('rate limit'))) {
-          displayMsg = "Limite d'envoi d'emails de confirmation dépassée par Supabase. Veuillez réessayer plus tard ou utiliser une autre adresse email.";
+          displayMsg = "Limite d'envoi d'emails de confirmation dépassée par Supabase. Veuillez désactiver l'option 'Confirm email' dans la console Supabase (Auth > Providers > Email) ou configurer un service SMTP.";
         } else if (err.code === 'user_already_exists' || (err.message && err.message.toLowerCase().includes('already registered'))) {
           displayMsg = "Cette adresse email est déjà enregistrée. Veuillez utiliser une autre adresse ou vous connecter.";
         } else if (err.code === 'weak_password') {
@@ -573,6 +578,15 @@ function LoginContent() {
                 <p className="text-xs text-slate-500 leading-relaxed">
                   Veuillez cliquer sur le lien de confirmation présent dans ce mail pour activer votre compte. Une fois activé, vous pourrez vous connecter.
                 </p>
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-4 rounded-xl text-xs leading-relaxed text-left mt-4">
+                  <span className="font-bold">💡 Vous ne recevez pas l'email ?</span>
+                  <ul className="list-disc pl-4 mt-1.5 space-y-1 text-slate-400 font-normal">
+                    <li>Vérifiez votre dossier de courriers indésirables (spams).</li>
+                    <li>
+                      <strong>Pour les administrateurs :</strong> Les serveurs Supabase gratuits limitent l'envoi d'emails. Nous vous recommandons de <strong>désactiver la confirmation d'email</strong> dans votre console Supabase (<em>Auth &gt; Providers &gt; Email &gt; toggle "Confirm email" à OFF</em>) pour permettre aux utilisateurs de s'inscrire et de se connecter instantanément sans attente.
+                    </li>
+                  </ul>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
