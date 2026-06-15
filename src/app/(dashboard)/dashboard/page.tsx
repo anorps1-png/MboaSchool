@@ -141,6 +141,9 @@ export default function Dashboard() {
     };
   });
 
+  const activeClassStats = classStats.filter(c => c.expected > 0);
+  const displayStats = activeClassStats.length > 0 ? activeClassStats : classStats;
+
   const recentTransactions = transactions.slice(0, 5);
 
   const handleExportTransactions = () => {
@@ -275,74 +278,110 @@ export default function Dashboard() {
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart 1: Bar Chart by Class (Expected vs Paid) */}
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-base font-bold text-slate-800 text-black">Recouvrement des frais par classe</h3>
-              <p className="text-xs text-slate-400">Comparaison entre montants attendus et perçus</p>
-            </div>
-            <div className="flex items-center gap-4 text-xs font-semibold">
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-slate-200"></span>
-                <span className="text-slate-500">Attendu</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-indigo-600"></span>
-                <span className="text-slate-500">Payé</span>
-              </div>
-            </div>
+        {/* Chart 1: Donut Chart of Recovery Status (Expected vs Paid) */}
+        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm lg:col-span-2 flex flex-col justify-between">
+          <div>
+            <h3 className="text-base font-bold text-slate-800 text-black">Recouvrement Global & Par Classe</h3>
+            <p className="text-xs text-slate-400">Comparaison entre les montants attendus (facturations) et réellement perçus (encaissements)</p>
           </div>
 
-          {/* SVG Custom Bar Chart */}
-          <div className="h-64 flex flex-col justify-between">
-            <div className="flex-1 flex items-end justify-around gap-4 pb-2 border-b border-slate-100">
-              {classStats.length > 0 ? classStats.map((stat) => {
-                // Normalize heights (max is the largest expected amount)
-                const maxExpected = Math.max(...classStats.map(s => s.expected));
-                const expectedHeightPct = maxExpected > 0 ? (stat.expected / maxExpected) * 100 : 0;
-                const paidHeightPct = maxExpected > 0 ? (stat.paid / maxExpected) * 100 : 0;
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center py-4">
+            {/* Left Column: Global Donut */}
+            <div className="md:col-span-5 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-slate-100 pb-6 md:pb-0 md:pr-6">
+              <div className="relative w-40 h-40 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 160 160">
+                  {/* Background circle (En attente) */}
+                  <circle
+                    cx="80"
+                    cy="80"
+                    r="70"
+                    className="stroke-rose-100"
+                    strokeWidth="14"
+                    fill="transparent"
+                  />
+                  {/* Foreground circle (Perçu) */}
+                  {recoveryRate > 0 && (
+                    <circle
+                      cx="80"
+                      cy="80"
+                      r="70"
+                      className="stroke-indigo-600 transition-all duration-1000 ease-out"
+                      strokeWidth="14"
+                      fill="transparent"
+                      strokeDasharray={2 * Math.PI * 70}
+                      strokeDashoffset={2 * Math.PI * 70 - (recoveryRate / 100) * (2 * Math.PI * 70)}
+                      strokeLinecap="round"
+                    />
+                  )}
+                </svg>
+                <div className="absolute flex flex-col items-center justify-center text-center">
+                  <span className="text-2xl font-extrabold text-slate-800 text-black">{recoveryRate.toFixed(1)}%</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Recouvré</span>
+                </div>
+              </div>
 
-                return (
-                  <div key={stat.classeName} className="flex-1 flex flex-col items-center group relative h-full justify-end">
-                    {/* Tooltip */}
-                    <div className="absolute bottom-full mb-2 bg-slate-900 text-white text-[10px] p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 w-44">
-                      <p className="font-bold border-b border-slate-700 pb-1 mb-1">{stat.classeName}</p>
-                      <p className="flex justify-between"><span>Attendu:</span> <span className="font-medium">{formatFCFA(stat.expected)}</span></p>
-                      <p className="flex justify-between text-emerald-400"><span>Payé:</span> <span className="font-bold">{formatFCFA(stat.paid)}</span></p>
-                      <p className="flex justify-between text-indigo-300 font-semibold border-t border-slate-700 pt-1 mt-1">
-                        <span>Taux:</span> <span>{stat.rate.toFixed(1)}%</span>
-                      </p>
+              {/* Global Legend under Donut */}
+              <div className="w-full mt-4 space-y-2 text-xs">
+                <div className="flex items-center justify-between text-slate-600">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-indigo-600"></span>Payé</span>
+                  <span className="font-bold text-black">{formatFCFA(totalPaid)}</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-rose-500"></span>En Attente</span>
+                  <span className="font-bold text-rose-600">{formatFCFA(totalPending)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Class Breakdown */}
+            <div className="md:col-span-7 flex flex-col h-full justify-center">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Taux de recouvrement par classe</h4>
+              <div className="max-h-64 overflow-y-auto pr-2 space-y-2.5 scrollbar-thin scrollbar-thumb-slate-200">
+                {displayStats.map((stat) => (
+                  <div key={stat.classeName} className="flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-xl border border-slate-100/50 transition-colors">
+                    <div className="flex-1 min-w-0 pr-3">
+                      <span className="font-bold text-sm text-slate-800 block truncate text-black">{stat.classeName}</span>
+                      <span className="text-[10px] text-slate-400 font-medium block mt-0.5">
+                        Payé : <span className="font-semibold text-slate-600">{formatFCFA(stat.paid)}</span> / {formatFCFA(stat.expected)}
+                      </span>
                     </div>
 
-                    <div className="w-full flex items-end justify-center gap-1.5 h-full">
-                      {/* Expected Bar */}
-                      <div
-                        className="w-5 bg-slate-100 hover:bg-slate-200 rounded-t transition-all duration-300"
-                        style={{ height: `${expectedHeightPct}%` }}
-                      ></div>
-                      {/* Paid Bar */}
-                      <div
-                        className="w-5 bg-indigo-600 hover:bg-indigo-700 rounded-t transition-all duration-500"
-                        style={{ height: `${paidHeightPct}%` }}
-                      ></div>
+                    {/* Mini Circle Progress */}
+                    <div className="relative flex items-center justify-center w-10 h-10 flex-shrink-0">
+                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 32 32">
+                        <circle
+                          cx="16"
+                          cy="16"
+                          r="13"
+                          className="stroke-slate-100"
+                          strokeWidth="3.5"
+                          fill="transparent"
+                        />
+                        {stat.rate > 0 && (
+                          <circle
+                            cx="16"
+                            cy="16"
+                            r="13"
+                            className="stroke-indigo-600"
+                            strokeWidth="3.5"
+                            fill="transparent"
+                            strokeDasharray={2 * Math.PI * 13}
+                            strokeDashoffset={2 * Math.PI * 13 - (stat.rate / 100) * (2 * Math.PI * 13)}
+                            strokeLinecap="round"
+                          />
+                        )}
+                      </svg>
+                      <div className="absolute text-[8px] font-black text-slate-800 text-black">
+                        {stat.rate.toFixed(0)}%
+                      </div>
                     </div>
                   </div>
-                );
-              }) : (
-                <div className="text-sm text-slate-400 self-center">Aucune donnée à afficher</div>
-              )}
-            </div>
-            {/* X Axis Labels */}
-            <div className="flex justify-around pt-2 text-xs font-semibold text-slate-500">
-              {classStats.map(stat => (
-                <div key={stat.classeName} className="flex-1 text-center truncate">
-                  {stat.classeName}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
+
 
         {/* Chart 2: Distribution by Class */}
         <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between">

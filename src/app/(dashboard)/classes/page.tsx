@@ -27,6 +27,13 @@ export default function ClassesPage() {
   const [section, setSection] = useState('Francophone');
   const [prix, setPrix] = useState('');
 
+  // Edit form states
+  const [editingClass, setEditingClass] = useState<SupabaseClasse | null>(null);
+  const [editNom, setEditNom] = useState('');
+  const [editNiveau, setEditNiveau] = useState('');
+  const [editSection, setEditSection] = useState('Francophone');
+  const [editPrix, setEditPrix] = useState('');
+
   const { etablissementId } = useEtablissement();
   const supabase = useMemo(() => createClient(), []);
 
@@ -97,6 +104,43 @@ export default function ClassesPage() {
       setSection('Francophone');
       setPrix('');
       triggerToast('Classe créée avec succès !');
+    }
+    
+    setIsSubmitting(false);
+  };
+
+  const handleStartEdit = (cls: SupabaseClasse, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setEditingClass(cls);
+    setEditNom(cls.nom || '');
+    setEditNiveau(cls.niveau || '');
+    setEditSection(cls.section || 'Francophone');
+    setEditPrix(cls.prix ? cls.prix.toString() : '');
+  };
+
+  const handleEditClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingClass) return;
+    setIsSubmitting(true);
+
+    const { data, error } = await supabase
+      .from('classes')
+      .update({
+        nom: editNom,
+        niveau: editNiveau,
+        section: editSection,
+        prix: Number(editPrix) || 0
+      })
+      .eq('id', editingClass.id)
+      .select();
+
+    if (error) {
+      alert("Erreur lors de la modification de la classe: " + error.message);
+    } else if (data && data.length > 0) {
+      setClassesList(classesList.map(c => c.id === editingClass.id ? data[0] : c));
+      setEditingClass(null);
+      triggerToast('Classe modifiée avec succès !');
     }
     
     setIsSubmitting(false);
@@ -173,6 +217,14 @@ export default function ClassesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {classesList.map(cls => (
             <Link key={cls.id} href={`/classes/${encodeURIComponent(cls.id)}`} className="group block relative bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+              {/* Bouton de modification (visible au hover) */}
+              <button
+                onClick={(e) => handleStartEdit(cls, e)}
+                className="absolute top-4 right-14 w-8 h-8 flex items-center justify-center bg-indigo-50 text-indigo-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-indigo-100"
+                title="Modifier la classe"
+              >
+                ✏️
+              </button>
               {/* Bouton de suppression (visible au hover) */}
               <button
                 onClick={(e) => handleDeleteClass(cls.id, e)}
@@ -209,6 +261,63 @@ export default function ClassesPage() {
               </div>
             </Link>
           ))}
+        </div>
+      )}
+
+      {/* Modal de modification */}
+      {editingClass && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl w-full max-w-md border border-slate-100 shadow-2xl overflow-hidden">
+            <div className="bg-slate-50 p-6 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-extrabold text-slate-800">Modifier la Classe</h3>
+                <p className="text-xs text-slate-500 mt-1">Modifiez les détails de la classe</p>
+              </div>
+              <button onClick={() => setEditingClass(null)} className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors">
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleEditClass} className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Nom exact de la classe *</label>
+                  <input type="text" value={editNom} onChange={(e) => setEditNom(e.target.value)} required placeholder="Ex: 6ème A" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Niveau *</label>
+                  <input type="text" value={editNiveau} onChange={(e) => setEditNiveau(e.target.value)} required placeholder="Ex: 6ème" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Sous-système</label>
+                  <select value={editSection} onChange={(e) => setEditSection(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                    <option value="Francophone">Francophone</option>
+                    <option value="Anglophone">Anglophone</option>
+                    <option value="Bilingue">Bilingue</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Scolarité Globale (FCFA) *</label>
+                <div className="relative">
+                  <input type="number" value={editPrix} onChange={(e) => setEditPrix(e.target.value)} required placeholder="Ex: 250000" min="0" className="w-full px-4 py-3 pl-12 bg-slate-50 border border-slate-200 rounded-xl text-lg text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">💰</span>
+                </div>
+              </div>
+
+              <div className="pt-6 flex gap-3">
+                <button type="button" onClick={() => setEditingClass(null)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">
+                  Annuler
+                </button>
+                <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-200 transition-all disabled:opacity-50">
+                  {isSubmitting ? 'Modification...' : 'Enregistrer'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
