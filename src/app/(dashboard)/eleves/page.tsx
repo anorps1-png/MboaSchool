@@ -415,7 +415,7 @@ export default function ElevesPage() {
       const supabase = createClient();
 
       if (isOffline) {
-        await SyncManager.addToQueue('eleves', 'delete', null, [{ field: 'id', value: id }]);
+        await SyncManager.addToQueue('eleves', 'delete', { id });
         setStudents(prev => prev.filter(s => s.id !== id));
         triggerToast("Élève supprimé localement !");
       } else {

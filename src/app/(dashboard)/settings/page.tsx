@@ -21,6 +21,13 @@ export default function SettingsPage() {
   const [activeYearId, setActiveYearId] = useState('');
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 
+  // Bulletin customizable states
+  const [logoUrl, setLogoUrl] = useState('');
+  const [bulletinTemplate, setBulletinTemplate] = useState('classic');
+  const [bulletinSlogan, setBulletinSlogan] = useState('Excellence & Mérite');
+  const [bulletinHeaderLeft, setBulletinHeaderLeft] = useState('Ministère des Enseignements Secondaires');
+  const [bulletinHeaderRight, setBulletinHeaderRight] = useState('Ministry of Secondary Education');
+
   const [showAddYearForm, setShowAddYearForm] = useState(false);
   const [newYearName, setNewYearName] = useState('');
   const [newYearStart, setNewYearStart] = useState('');
@@ -115,6 +122,11 @@ export default function SettingsPage() {
           setSchoolName(etab.nom);
           setPassingScore(Number(etab.seuil_reussite) || 10);
           setActiveYearId(etab.annee_scolaire_active_id || '');
+          setLogoUrl(etab.logo_url || '');
+          setBulletinTemplate(etab.bulletin_template || 'classic');
+          setBulletinSlogan(etab.bulletin_slogan || 'Excellence & Mérite');
+          setBulletinHeaderLeft(etab.bulletin_header_left || 'Ministère des Enseignements Secondaires');
+          setBulletinHeaderRight(etab.bulletin_header_right || 'Ministry of Secondary Education');
         }
 
         // 2. Load academic years for selection dropdown
@@ -175,6 +187,11 @@ export default function SettingsPage() {
           nom: schoolName,
           seuil_reussite: passingScore,
           annee_scolaire_active_id: activeYearId || null,
+          logo_url: logoUrl || null,
+          bulletin_template: bulletinTemplate || 'classic',
+          bulletin_slogan: bulletinSlogan || 'Excellence & Mérite',
+          bulletin_header_left: bulletinHeaderLeft || 'Ministère des Enseignements Secondaires',
+          bulletin_header_right: bulletinHeaderRight || 'Ministry of Secondary Education',
         })
         .eq('id', etablissementId);
 
@@ -665,6 +682,73 @@ export default function SettingsPage() {
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Card 4: Bulletin Customization */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              Configuration des Bulletins Scolaires
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Style de Mise en Page du Bulletin</label>
+                <select
+                  value={bulletinTemplate}
+                  onChange={(e) => setBulletinTemplate(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold cursor-pointer"
+                >
+                  <option value="classic">Classique Camerounais (Double Entête + Drapeau)</option>
+                  <option value="modern">Design Moderne Épuré (Centré avec Logo)</option>
+                  <option value="minimal">Compact (Idéal pour impression A4 1-page)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Logo de l'Établissement (URL ou Image URL)</label>
+                <input
+                  type="text"
+                  placeholder="https://mon-ecole.com/logo.png"
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Entête Gauche du Bulletin (Ministère, Délégation...)</label>
+                <input
+                  type="text"
+                  value={bulletinHeaderLeft}
+                  onChange={(e) => setBulletinHeaderLeft(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Entête Droite du Bulletin (Traduction ou infos)</label>
+                <input
+                  type="text"
+                  value={bulletinHeaderRight}
+                  onChange={(e) => setBulletinHeaderRight(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Slogan / Devise du Bulletin</label>
+              <input
+                type="text"
+                placeholder="Ex: Excellence & Mérite"
+                value={bulletinSlogan}
+                onChange={(e) => setBulletinSlogan(e.target.value)}
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              />
             </div>
           </div>
         </div>

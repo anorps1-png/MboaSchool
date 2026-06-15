@@ -1,19 +1,13 @@
 const { Client } = require('pg');
-const fs = require('fs');
 
-const envContent = fs.readFileSync('.env.local', 'utf-8');
-const rawDbUrl = envContent.split('\n').find(l => l.startsWith('DATABASE_URL'))?.split('=')[1]?.trim();
-const dbUrlWithBrackets = rawDbUrl.replace(':[', ':').replace(']@', '@');
-
-// Extract password from URL
-const passwordMatch = dbUrlWithBrackets.match(/:([^:@]+)@/);
-const password = passwordMatch ? passwordMatch[1] : '';
-
-const dbUrl = `postgresql://postgres.fjsuhzgvoswdmwaowkcz:${encodeURIComponent(password)}@aws-0-eu-west-3.pooler.supabase.com:6543/postgres`;
+const projectRef = 'fjsuhzgvoswdmwaowkcz';
+const password = 'Deniso67*2025';
+const host = 'aws-0-eu-west-3.pooler.supabase.com';
+const connectionString = `postgresql://postgres.${projectRef}:${encodeURIComponent(password)}@${host}:6543/postgres`;
 
 async function run() {
   const client = new Client({
-    connectionString: dbUrl,
+    connectionString,
     ssl: {
       rejectUnauthorized: false
     }
@@ -42,7 +36,7 @@ async function run() {
 
     // 3. Query public.etablissements
     const etabsRes = await client.query(`
-      SELECT id, nom, seuil_reussite, created_at 
+      SELECT id, nom, created_at 
       FROM public.etablissements
     `);
     console.log("\n--- Establishments in public.etablissements ---");
