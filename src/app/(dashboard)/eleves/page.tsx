@@ -442,8 +442,7 @@ export default function ElevesPage() {
 
     const newClassData = {
       nom: classNameStr,
-      niveau_id: classNameStr,
-      annee_scolaire_id: resolvedAnneeScolaireId,
+      niveau: classNameStr,
       prix: 200000,
       section: sectionStr
     };
@@ -475,12 +474,14 @@ export default function ElevesPage() {
           const newClassObj: Classe = {
             id: created.id,
             nom: created.nom,
-            niveauId: created.niveau_id,
-            anneeScolaireId: created.annee_scolaire_id,
+            niveauId: created.niveau,
+            anneeScolaireId: resolvedAnneeScolaireId,
             sectionId: created.section
           };
           setClassesList(prev => [...prev, newClassObj]);
           return created.id;
+        } else if (error) {
+          console.error("Supabase error creating class:", error);
         }
       } catch (err) {
         console.error("Error creating class:", err);

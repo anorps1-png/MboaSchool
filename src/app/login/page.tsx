@@ -163,6 +163,7 @@ function LoginContent() {
       if (data?.user) {
         // Clear offline session cookie if successful Supabase authentication
         document.cookie = "mboaschool_offline_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        localStorage.removeItem('mboaschool_offline_session');
         
         // Fetch profile and cache robustly in Electron only
         try {

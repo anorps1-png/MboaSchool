@@ -250,9 +250,13 @@ export default function FicheElevePage({ params }: PageProps) {
   const totalPointsTrim1 = firstTermGrades.filter(g => ((g.note || 0) || 0) !== undefined).reduce((sum, g) => sum + ((((g.note || 0) || 0) || 0) * 1), 0);
   const mentionTrim1 = avgTrim1 >= 16 ? 'Très Bien' : avgTrim1 >= 14 ? 'Bien' : avgTrim1 >= 12 ? 'Assez Bien' : avgTrim1 >= 10 ? 'Passable' : 'Insuffisant';
 
-  // Handle report card download (Mocked)
+  // Handle report card download (print page)
   const handleDownloadBulletin = () => {
-    triggerToast("Génération du bulletin scolaire... Fonctionnalité bientôt disponible !");
+    if (student?.classeId) {
+      window.open(`/evaluations/${student.classeId}/bulletin/${student.id}?term=Trimestre 1`, '_blank');
+    } else {
+      triggerToast("Classe de l'élève introuvable.");
+    }
   };
 
   // Handle adding payment

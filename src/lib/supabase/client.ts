@@ -115,20 +115,23 @@ export function createClient() {
 
   const realClient = createBrowserClient(supabaseUrl, supabaseKey);
 
-  // If running in Electron (Desktop), intercept all queries and route to /api/local-db
-  if (isRunningInElectron()) {
-    return new Proxy(realClient, {
-      get(target: any, prop: string | symbol) {
-        if (prop === 'from') {
+  return new Proxy(realClient, {
+    get(target: any, prop: string | symbol) {
+      if (prop === 'from') {
+        const isOffline = () => {
+          if (typeof window === 'undefined') return false;
+          const forceOffline = localStorage.getItem('mboaschool_force_offline') === 'true';
+          const hasOfflineSession = !!localStorage.getItem('mboaschool_offline_session');
+          return isRunningInElectron() || !navigator.onLine || forceOffline || hasOfflineSession;
+        };
+
+        if (isOffline()) {
           return (table: string) => {
             return createDesktopLocalBuilder(table);
           };
         }
-        return target[prop];
       }
-    }) as typeof realClient;
-  }
-
-  // Web Version: directly return the standard Supabase client with no offline proxying
-  return realClient;
+      return target[prop];
+    }
+  }) as typeof realClient;
 }

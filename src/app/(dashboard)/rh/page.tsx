@@ -557,6 +557,49 @@ export default function RHPage() {
       const updatedList = personnelList.map(p => p.id === selectedEmployee.id ? mapped : p);
       setPersonnelList(updatedList);
       setSelectedEmployee(mapped);
+
+      // Sync with enseignants table
+      if (editEmpCategorie === 'Enseignant') {
+        const supabaseClient = createClient();
+        const { data: existingEns } = await supabaseClient
+          .from('enseignants')
+          .select('id')
+          .eq('email', selectedEmployee.email)
+          .maybeSingle();
+
+        const ensData = {
+          nom: editEmpNom,
+          prenom: editEmpPrenom,
+          email: editEmpEmail,
+          telephone: editEmpTel,
+          sexe: editEmpSexe,
+          statut: editEmpStatut === 'suspendu' ? 'en_conge' : editEmpStatut,
+          type_contrat: editEmpContrat,
+          categorie: 'Enseignant',
+          salaire_mensuel: Number(editEmpSalaire) || 0,
+          date_embauche: editEmpDateEmbauche,
+          etablissement_id: etablissementId
+        };
+
+        if (existingEns) {
+          await supabaseClient
+            .from('enseignants')
+            .update(ensData)
+            .eq('id', existingEns.id);
+        } else {
+          const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+          await supabaseClient
+            .from('enseignants')
+            .insert([{ ...ensData, matricule, matiere_principale: 'Général' }]);
+        }
+      } else if (selectedEmployee.categorie === 'Enseignant' && editEmpCategorie !== 'Enseignant') {
+        const supabaseClient = createClient();
+        await supabaseClient
+          .from('enseignants')
+          .delete()
+          .eq('email', selectedEmployee.email);
+      }
+
       triggerToast(`Fiche de ${mapped.prenom} ${mapped.nom} mise à jour !`);
     } catch (err: any) {
       alert("Erreur lors de la mise à jour : " + err.message);
@@ -709,6 +752,28 @@ export default function RHPage() {
       };
       
       setPersonnelList([...personnelList, newEmp]);
+
+      // If category is 'Enseignant', also insert into enseignants table
+      if (newCategorie === 'Enseignant') {
+        const supabaseClient = createClient();
+        const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+        const newEnsData = {
+          matricule,
+          nom: newNom,
+          prenom: newPrenom,
+          sexe: newSexe,
+          telephone: newTel || '+237 600 00 00 00',
+          email: newEmail,
+          matiere_principale: 'Général',
+          salaire_mensuel: Number(newSalaire),
+          statut: 'actif',
+          type_contrat: newContrat,
+          categorie: 'Enseignant',
+          date_embauche: newDateEmbauche,
+          etablissement_id: etablissementId
+        };
+        await supabaseClient.from('enseignants').insert([newEnsData]);
+      }
 
       // Ajouter mouvement de recrutement
       const newMouvData = {
