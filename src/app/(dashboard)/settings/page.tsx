@@ -225,6 +225,92 @@ export default function SettingsPage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!confirm("ATTENTION : Cette action est irréversible. Êtes-vous sûr de vouloir supprimer définitivement votre compte ainsi que toutes les données associées ?")) {
+      return;
+    }
+
+    if (!confirm("CONFIRMATION FINALE : Toutes les données enregistrées (élèves, classes, écritures comptables, budget, etc.) seront supprimées définitivement. Confirmez-vous ?")) {
+      return;
+    }
+
+    try {
+      const supabase = createClient();
+      
+      // Get current user session details
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
+      if (userErr || !user) throw new Error("Impossible de récupérer la session utilisateur.");
+
+      // Check current user role
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (profileErr || !profile) throw new Error("Impossible de charger le profil utilisateur.");
+
+      const isUserAdmin = profile.role === 'admin';
+
+      if (isUserAdmin && profile.etablissement_id) {
+        const etabId = profile.etablissement_id;
+        
+        // 1. Delete notes and bulletins
+        const eleveIds = (await supabase.from('eleves').select('id').eq('etablissement_id', etabId)).data?.map(e => e.id) || [];
+        if (eleveIds.length > 0) {
+          await supabase.from('notes').delete().in('eleve_id', eleveIds);
+          await supabase.from('bulletins').delete().in('eleve_id', eleveIds);
+          await supabase.from('discipline_incidents').delete().in('eleve_id', eleveIds);
+        }
+        
+        // 2. Delete payments, students
+        await supabase.from('paiements').delete().eq('etablissement_id', etabId);
+        await supabase.from('eleves').delete().eq('etablissement_id', etabId);
+        
+        // 3. Delete accounting lines and entries
+        const ecritureIds = (await supabase.from('ecritures_comptables').select('id').eq('etablissement_id', etabId)).data?.map(e => e.id) || [];
+        if (ecritureIds.length > 0) {
+          await supabase.from('lignes_ecritures').delete().in('ecriture_id', ecritureIds);
+        }
+        await supabase.from('ecritures_comptables').delete().eq('etablissement_id', etabId);
+        await supabase.from('comptes_ohada').delete().eq('etablissement_id', etabId);
+        
+        // 4. Delete classes, subjects, sections, years
+        await supabase.from('classes').delete().eq('etablissement_id', etabId);
+        await supabase.from('sections').delete().eq('etablissement_id', etabId);
+        await supabase.from('annees_scolaires').delete().eq('etablissement_id', etabId);
+        
+        // 5. Delete teachers and personnel
+        await supabase.from('enseignants').delete().eq('etablissement_id', etabId);
+        await supabase.from('membres_personnel').delete().eq('etablissement_id', etabId);
+        await supabase.from('formations_rh').delete().eq('etablissement_id', etabId);
+        
+        // 6. Delete other profiles
+        await supabase.from('profiles').delete().eq('etablissement_id', etabId).neq('id', user.id);
+        
+        // 7. Delete etablissement (will delete current profile via cascade, which triggers auth delete)
+        const { error: delEtabErr } = await supabase.from('etablissements').delete().eq('id', etabId);
+        if (delEtabErr) throw delEtabErr;
+      } else {
+        // If not admin, just delete their own profile (which triggers auth delete)
+        const { error: delProfErr } = await supabase.from('profiles').delete().eq('id', user.id);
+        if (delProfErr) throw delProfErr;
+      }
+
+      // Logout and redirect to login page
+      await supabase.auth.signOut();
+      
+      // Clear localStorage cache
+      localStorage.clear();
+      
+      // Redirect
+      window.location.href = '/login';
+    } catch (err: any) {
+      console.error("Erreur lors de la suppression du compte :", err);
+      alert(`Erreur de suppression : ${err.message || err}`);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh] text-slate-500 font-semibold">
@@ -614,6 +700,27 @@ export default function SettingsPage() {
             <div className="text-[10px] text-slate-400 text-center leading-relaxed">
               Pour toute mise à niveau de licence, ajout de modules ou modification de quota d'élèves/parents, contactez le support MboaSchool.
             </div>
+          </div>
+
+          {/* Card 6: Danger Zone - Delete Account */}
+          <div className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm space-y-4 bg-rose-50/5">
+            <h3 className="text-base font-bold text-rose-600 border-b border-rose-100 pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-600"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Zone de Danger
+            </h3>
+
+            <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+              La suppression de votre compte effacera définitivement toutes vos données d'accès. Si vous êtes administrateur, toutes les données de l'établissement (élèves, paiements, écritures comptables, enseignants, etc.) seront également détruites.
+            </p>
+
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 hover:border-rose-300 text-rose-600 hover:text-rose-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              Supprimer définitivement mon compte
+            </button>
           </div>
 
         </div>
