@@ -248,7 +248,9 @@ export async function POST(req: NextRequest) {
       const payloadArray = Array.isArray(payload) ? payload : [payload];
       const { upsertOptions } = body;
       const onConflictOpt = upsertOptions?.onConflict;
-      const conflictKeys = onConflictOpt ? onConflictOpt.split(',').map((k: string) => k.trim()) : ['id'];
+      const conflictKeys: string[] = typeof onConflictOpt === 'string'
+        ? onConflictOpt.split(',').map((k: string) => k.trim())
+        : ['id'];
 
       const insertedItems: any[] = [];
       const updatedItems: any[] = [];
@@ -280,7 +282,7 @@ export async function POST(req: NextRequest) {
           table,
           action: 'update',
           payload: item,
-          filters: conflictKeys.map(k => ({ field: k, value: item[k] })),
+          filters: conflictKeys.map((k: string) => ({ field: k, value: item[k] })),
           timestamp: Date.now()
         });
       }
