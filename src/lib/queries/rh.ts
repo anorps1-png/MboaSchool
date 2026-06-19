@@ -98,3 +98,47 @@ export async function getFormations(etablissementId: string) {
   if (error) throw error;
   return data || [];
 }
+
+// ============================================================
+// FICHES DE PAIE (Bulletins de paie)
+// ============================================================
+
+export async function getFichesDePaie(etablissementId: string, periode?: string) {
+  let query = supabase
+    .from('fiches_de_paie')
+    .select('*')
+    .eq('etablissement_id', etablissementId)
+    .order('date_paiement', { ascending: false });
+
+  if (periode) {
+    query = query.eq('periode', periode);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function insertFichesDePaie(fiches: Record<string, any>[], etablissementId: string) {
+  const fichesWithEtab = fiches.map(f => ({ ...f, etablissement_id: etablissementId }));
+
+  const { data, error } = await supabase
+    .from('fiches_de_paie')
+    .upsert(fichesWithEtab, { onConflict: 'personnel_id,periode' })
+    .select();
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateFichesDePaieStatut(ids: string[], statut: string) {
+  const { data, error } = await supabase
+    .from('fiches_de_paie')
+    .update({ statut })
+    .in('id', ids)
+    .select();
+
+  if (error) throw error;
+  return data || [];
+}
+

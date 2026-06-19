@@ -8,7 +8,8 @@ import {
   AbsenceRecord, 
   MouvementPersonnel, 
   EvaluationRH, 
-  FormationRH 
+  FormationRH,
+  FicheDePaie 
 } from '@/types/domain';
 import { 
   getPersonnel, 
@@ -19,8 +20,13 @@ import {
   updatePersonnel,
   insertAbsence,
   insertMouvement,
-  insertPersonnel
+  insertPersonnel,
+  getFichesDePaie,
+  insertFichesDePaie,
+  updateFichesDePaieStatut
 } from '@/lib/queries/rh';
+import { addEcritureComptable } from '@/lib/queries/finance';
+import { calculerFicheDePaie, calculerPrimeAnciennete, getAnneesService, getTauxFromLocalStorage, genererEcrituresComptablesPaie, PLAFOND_CNPS } from '@/lib/payroll';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { 
   mockPersonnel, 
@@ -29,6 +35,29 @@ import {
   mockEvaluationsRH, 
   mockFormations 
 } from '@/mock/rh';
+
+const isPeriodInAcademicYear = (period: string, academicYearName: string): boolean => {
+  if (!period) return false;
+  if (!academicYearName || !academicYearName.includes('/')) return true;
+  const [startYearStr, endYearStr] = academicYearName.split('/');
+  const startYear = parseInt(startYearStr, 10);
+  const endYear = parseInt(endYearStr, 10);
+  
+  const [pYearStr, pMonthStr] = period.split('-');
+  const pYear = parseInt(pYearStr, 10);
+  const pMonth = parseInt(pMonthStr, 10);
+  
+  if (pYear === startYear && pMonth >= 9) return true;
+  if (pYear === endYear && pMonth <= 8) return true;
+  return false;
+};
+
+const isDateInAcademicYear = (dateStr: string, academicYearName: string): boolean => {
+  if (!dateStr) return false;
+  if (!academicYearName || !academicYearName.includes('/')) return true;
+  const period = dateStr.slice(0, 7); // "YYYY-MM"
+  return isPeriodInAcademicYear(period, academicYearName);
+};
 
 export default function RHPage() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'personnel' | 'masse' | 'mouvements' | 'evals' | 'comptes'>('dashboard');
@@ -60,12 +89,18 @@ export default function RHPage() {
   const [newCategorie, setNewCategorie] = useState<'Administration' | 'Enseignant' | 'Personnel d\'appui' | 'Technique'>('Administration');
   const [newContrat, setNewContrat] = useState<'CDI' | 'CDD' | 'Intérimaire' | 'Stagiaire'>('CDI');
   const [newSalaire, setNewSalaire] = useState('');
+  const [newModePaiement, setNewModePaiement] = useState<'Banque' | 'Caisse'>('Banque');
   const [newDateEmbauche, setNewDateEmbauche] = useState(new Date().toISOString().split('T')[0]);
 
-  // Incentive Simulator State (Simulation d'intéressement)
-  const [interessementEnveloppe, setInteressementEnveloppe] = useState('1000000'); // 1,000,000 FCFA
-  const [simulationType, setSimulationType] = useState<'paritaire' | 'performance' | 'anciennete'>('paritaire');
-  const [simulatedPayouts, setSimulatedPayouts] = useState<Record<string, number>>({});
+  // Payroll (Paie) States
+  const [payrollPeriod, setPayrollPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [selectedForPayroll, setSelectedForPayroll] = useState<Set<string>>(new Set());
+  const [payrollPrimes, setPayrollPrimes] = useState<Record<string, { transport: number; logement: number; autres: number }>>({});
+  const [fichesDePaieCalculees, setFichesDePaieCalculees] = useState<FicheDePaie[]>([]);
+  const [fichesDePaieHistorique, setFichesDePaieHistorique] = useState<FicheDePaie[]>([]);
+  const [selectedPayslip, setSelectedPayslip] = useState<FicheDePaie | null>(null);
+  const [payrollCalculated, setPayrollCalculated] = useState(false);
+  const [payrollProcessing, setPayrollProcessing] = useState(false);
 
   // Toast notification
   const [toast, setToast] = useState<string | null>(null);
@@ -83,6 +118,7 @@ export default function RHPage() {
   const [editEmpCategorie, setEditEmpCategorie] = useState<'Administration' | 'Enseignant' | 'Personnel d\'appui' | 'Technique'>('Administration');
   const [editEmpContrat, setEditEmpContrat] = useState<'CDI' | 'CDD' | 'Intérimaire' | 'Stagiaire'>('CDI');
   const [editEmpSalaire, setEditEmpSalaire] = useState(0);
+  const [editEmpModePaiement, setEditEmpModePaiement] = useState<'Banque' | 'Caisse'>('Banque');
   const [editEmpDateEmbauche, setEditEmpDateEmbauche] = useState('');
   const [editEmpStatut, setEditEmpStatut] = useState<'actif' | 'suspendu' | 'quitte'>('actif');
 
@@ -162,7 +198,41 @@ export default function RHPage() {
     }
   };
 
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYear } = useEtablissement();
+
+  // Synchroniser la période de paie et le mois de mouvement avec l'année scolaire sélectionnée
+  useEffect(() => {
+    if (academicYear && academicYear.includes('/')) {
+      const [startYear, endYear] = academicYear.split('/');
+      const currentPeriod = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+      if (isPeriodInAcademicYear(currentPeriod, academicYear)) {
+        setPayrollPeriod(currentPeriod);
+        setMouvMonth(currentPeriod);
+      } else {
+        // Fallback à la fin de l'année scolaire
+        setPayrollPeriod(`${endYear}-06`);
+        setMouvMonth(`${endYear}-05`);
+      }
+      setPayrollCalculated(false);
+      setFichesDePaieCalculees([]);
+    }
+  }, [academicYear]);
+
+  // Filtrer les formations par année académique
+  const filteredFormations = React.useMemo(() => {
+    return formations.filter(f => isDateInAcademicYear(f.dateDebut, academicYear));
+  }, [formations, academicYear]);
+
+  // Filtrer les évaluations par année académique
+  const filteredEvaluations = React.useMemo(() => {
+    return evaluations.filter(e => isDateInAcademicYear(e.dateEvaluation, academicYear));
+  }, [evaluations, academicYear]);
+
+  // Filtrer l'historique des fiches de paie par année académique
+  const filteredFichesDePaieHistorique = React.useMemo(() => {
+    return fichesDePaieHistorique.filter(fiche => isPeriodInAcademicYear(fiche.periode, academicYear));
+  }, [fichesDePaieHistorique, academicYear]);
+
 
   const loadProfiles = async () => {
     setProfilesLoading(true);
@@ -435,10 +505,23 @@ export default function RHPage() {
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
       const loadData = async () => {
-        // 1. Personnel
         try {
           const pers = await getPersonnel(etablissementId);
-          setPersonnelList(pers || []);
+          const mapped = (pers || []).map((p: any) => ({
+            id: p.id,
+            nom: p.nom,
+            prenom: p.prenom,
+            email: p.email,
+            telephone: p.telephone,
+            sexe: p.sexe,
+            categorie: p.categorie,
+            typeContrat: p.type_contrat,
+            salaireDeBase: Number(p.salaire_de_base || 0),
+            dateEmbauche: p.date_embauche,
+            statut: p.statut,
+            modePaiementPreferentiel: p.mode_paiement_preferentiel || 'Banque'
+          }));
+          setPersonnelList(mapped);
         } catch (error) {
           console.error("Error loading personnel:", error);
           setPersonnelList([]);
@@ -518,6 +601,7 @@ export default function RHPage() {
     setEditEmpCategorie(emp.categorie);
     setEditEmpContrat(emp.typeContrat);
     setEditEmpSalaire(emp.salaireDeBase);
+    setEditEmpModePaiement(emp.modePaiementPreferentiel || 'Banque');
     setEditEmpDateEmbauche(emp.dateEmbauche);
     setEditEmpStatut(emp.statut);
   };
@@ -535,6 +619,7 @@ export default function RHPage() {
       categorie: editEmpCategorie,
       type_contrat: editEmpContrat,
       salaire_de_base: Number(editEmpSalaire) || 0,
+      mode_paiement_preferentiel: editEmpModePaiement,
       date_embauche: editEmpDateEmbauche,
       statut: editEmpStatut,
     };
@@ -551,6 +636,7 @@ export default function RHPage() {
         categorie: updated.categorie,
         typeContrat: updated.type_contrat,
         salaireDeBase: Number(updated.salaire_de_base),
+        modePaiementPreferentiel: updated.mode_paiement_preferentiel || editEmpModePaiement,
         dateEmbauche: updated.date_embauche,
         statut: updated.statut
       };
@@ -592,7 +678,7 @@ export default function RHPage() {
             .from('enseignants')
             .insert([{ ...ensData, matricule, matiere_principale: 'Général' }]);
         }
-      } else if (selectedEmployee.categorie === 'Enseignant' && editEmpCategorie !== 'Enseignant') {
+      } else if (selectedEmployee.categorie === 'Enseignant') {
         const supabaseClient = createClient();
         await supabaseClient
           .from('enseignants')
@@ -731,6 +817,7 @@ export default function RHPage() {
       categorie: newCategorie,
       type_contrat: newContrat,
       salaire_de_base: Number(newSalaire),
+      mode_paiement_preferentiel: newModePaiement,
       date_embauche: newDateEmbauche,
       statut: 'actif'
     };
@@ -747,6 +834,7 @@ export default function RHPage() {
         categorie: p.categorie,
         typeContrat: p.type_contrat,
         salaireDeBase: Number(p.salaire_de_base),
+        modePaiementPreferentiel: p.mode_paiement_preferentiel || newModePaiement,
         dateEmbauche: p.date_embauche,
         statut: p.statut
       };
@@ -805,6 +893,7 @@ export default function RHPage() {
       setNewCategorie('Administration');
       setNewContrat('CDI');
       setNewSalaire('');
+      setNewModePaiement('Banque');
       setNewDateEmbauche(new Date().toISOString().split('T')[0]);
       setShowAddModal(false);
       triggerToast(`Personnel ${newPrenom} ${newNom} ajouté avec succès !`);
@@ -837,79 +926,326 @@ export default function RHPage() {
   const avgMonthlySalary = activeStaff.length > 0 ? totalMonthlyPayroll / activeStaff.length : 0;
 
   // Training metrics
-  const totalTrainingCosts = formations.reduce((sum, f) => sum + f.coutTotal, 0);
+  const totalTrainingCosts = filteredFormations.reduce((sum, f) => sum + f.coutTotal, 0);
   const trainingPayrollRatio = totalMonthlyPayroll > 0 ? (totalTrainingCosts / (totalMonthlyPayroll * 12)) * 100 : 0; // Cost vs estimated annual payroll
 
   // Teacher evaluation averages
-  const avgTeacherScore = evaluations.length > 0 ? evaluations.reduce((sum, ev) => sum + ev.noteMoyenne, 0) / evaluations.length : 0;
-  const avgTeacherAdherenceJob = evaluations.length > 0 ? evaluations.reduce((sum, ev) => sum + ev.adherenceJobRole, 0) / evaluations.length : 0;
-  const avgTeacherAdherenceVal = evaluations.length > 0 ? evaluations.reduce((sum, ev) => sum + ev.adherenceValeurs, 0) / evaluations.length : 0;
+  const avgTeacherScore = filteredEvaluations.length > 0 ? filteredEvaluations.reduce((sum, ev) => sum + ev.noteMoyenne, 0) / filteredEvaluations.length : 0;
+  const avgTeacherAdherenceJob = filteredEvaluations.length > 0 ? filteredEvaluations.reduce((sum, ev) => sum + ev.adherenceJobRole, 0) / filteredEvaluations.length : 0;
+  const avgTeacherAdherenceVal = filteredEvaluations.length > 0 ? filteredEvaluations.reduce((sum, ev) => sum + ev.adherenceValeurs, 0) / filteredEvaluations.length : 0;
 
-  // Simulate Incentive distribution
-  const handleSimulateIncentive = () => {
-    const envValue = Number(interessementEnveloppe);
-    if (isNaN(envValue) || envValue <= 0) {
-      triggerToast("Veuillez saisir une enveloppe valide.");
+
+  // Salariés non encore payés pour la période courante
+  const unpaidStaff = React.useMemo(() => {
+    return activeStaff.filter(emp => !fichesDePaieHistorique.some(f => f.personnelId === emp.id && f.periode === payrollPeriod));
+  }, [activeStaff, fichesDePaieHistorique, payrollPeriod]);
+
+  // Si on a au moins une fiche de paie historique payée sur la période courante, ou si on a cliqué sur Calculer
+  const showCalculatedCols = React.useMemo(() => {
+    const hasAnyPaid = activeStaff.some(emp => fichesDePaieHistorique.some(f => f.personnelId === emp.id && f.periode === payrollPeriod));
+    return payrollCalculated || hasAnyPaid;
+  }, [payrollCalculated, activeStaff, fichesDePaieHistorique, payrollPeriod]);
+
+  // ============================================================
+  // PAYROLL HANDLERS
+  // ============================================================
+
+  const toggleEmployeeSelection = (id: string) => {
+    setSelectedForPayroll(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    setPayrollCalculated(false);
+  };
+
+  const toggleSelectAllPayroll = () => {
+    if (selectedForPayroll.size === unpaidStaff.length) {
+      setSelectedForPayroll(new Set());
+    } else {
+      setSelectedForPayroll(new Set(unpaidStaff.map(e => e.id)));
+    }
+    setPayrollCalculated(false);
+  };
+
+  const updatePrime = (empId: string, field: 'transport' | 'logement' | 'autres', value: number) => {
+    setPayrollPrimes(prev => ({
+      ...prev,
+      [empId]: { ...(prev[empId] || { transport: 0, logement: 0, autres: 0 }), [field]: value }
+    }));
+    setPayrollCalculated(false);
+  };
+
+  const handleCalculerPaie = () => {
+    if (selectedForPayroll.size === 0) {
+      triggerToast("Veuillez sélectionner au moins un employé.");
       return;
     }
 
-    const payouts: Record<string, number> = {};
+    const taux = getTauxFromLocalStorage();
+    const fiches: FicheDePaie[] = [];
 
-    if (simulationType === 'paritaire') {
-      const share = envValue / activeStaff.length;
-      activeStaff.forEach(emp => {
-        payouts[emp.id] = Math.round(share);
-      });
-    } else if (simulationType === 'performance') {
-      // Find evaluation or use default score (80)
-      let totalWeights = 0;
-      const weights: Record<string, number> = {};
+    unpaidStaff.filter(e => selectedForPayroll.has(e.id)).forEach(emp => {
+      const primes = payrollPrimes[emp.id] || { transport: 0, logement: 0, autres: 0 };
+      const primeAnc = calculerPrimeAnciennete(emp.salaireDeBase, emp.dateEmbauche);
 
-      activeStaff.forEach(emp => {
-        let score = 80; // default
-        if (emp.categorie === 'Enseignant') {
-          const teacherEval = evaluations.find(ev => ev.enseignantId === emp.id);
-          if (teacherEval) score = teacherEval.noteMoyenne;
-        } else {
-          // Admin/Tech evaluation approximation
-          score = emp.id === 'pers-1' || emp.id === 'pers-5' ? 90 : 85;
-        }
-        weights[emp.id] = score;
-        totalWeights += score;
+      const resultat = calculerFicheDePaie({
+        salaireDeBase: emp.salaireDeBase,
+        primeTransport: primes.transport,
+        primeLogement: primes.logement,
+        primeAnciennete: primeAnc,
+        autresPrimes: primes.autres,
+        taux,
       });
 
-      activeStaff.forEach(emp => {
-        payouts[emp.id] = Math.round((weights[emp.id] / totalWeights) * envValue);
+      fiches.push({
+        id: `paie-${emp.id}-${payrollPeriod}`,
+        personnelId: emp.id,
+        nomPersonnel: `${emp.prenom} ${emp.nom}`,
+        periode: payrollPeriod,
+        datePaiement: new Date().toISOString().split('T')[0],
+        salaireDeBase: emp.salaireDeBase,
+        primeTransport: primes.transport,
+        primeLogement: primes.logement,
+        primeAnciennete: primeAnc,
+        autresPrimes: primes.autres,
+        modePaiement: emp.modePaiementPreferentiel || 'Banque',
+        ...resultat,
+        statut: 'brouillon',
       });
-    } else if (simulationType === 'anciennete') {
-      // Calculate years of service
-      let totalYears = 0;
-      const weights: Record<string, number> = {};
+    });
 
-      activeStaff.forEach(emp => {
-        const hireDate = new Date(emp.dateEmbauche);
-        const diffMs = Date.now() - hireDate.getTime();
-        const diffYears = Math.max(0.5, diffMs / (1000 * 60 * 60 * 24 * 365.25)); // minimum weight of 0.5
-        weights[emp.id] = diffYears;
-        totalYears += diffYears;
-      });
-
-      activeStaff.forEach(emp => {
-        payouts[emp.id] = Math.round((weights[emp.id] / totalYears) * envValue);
-      });
-    }
-
-    setSimulatedPayouts(payouts);
-    triggerToast("Simulation d'intéressement calculée !");
+    setFichesDePaieCalculees(fiches);
+    setPayrollCalculated(true);
+    triggerToast(`Paie calculée pour ${fiches.length} employé(s) !`);
   };
 
-  // Run initial simulation
-  useEffect(() => {
-    if (activeStaff.length > 0) {
-      handleSimulateIncentive();
+  const handleValiderPaie = async () => {
+    if (fichesDePaieCalculees.length === 0) {
+      triggerToast("Veuillez d'abord calculer la paie.");
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personnelList, simulationType]);
+    if (!confirm(`Confirmez-vous le paiement de ${fichesDePaieCalculees.length} employé(s) pour la période ${payrollPeriod} ?`)) return;
+
+    setPayrollProcessing(true);
+    try {
+      const fichesPaye = fichesDePaieCalculees.map(f => ({ ...f, statut: 'paye' as const }));
+
+      // 1. Sauvegarder les fiches de paie en base
+      try {
+        const fichesDB = fichesPaye.map(f => ({
+          personnel_id: f.personnelId,
+          nom_personnel: f.nomPersonnel,
+          periode: f.periode,
+          date_paiement: f.datePaiement,
+          salaire_de_base: f.salaireDeBase,
+          prime_transport: f.primeTransport,
+          prime_logement: f.primeLogement,
+          prime_anciennete: f.primeAnciennete,
+          autres_primes: f.autresPrimes,
+          salaire_brut: f.salaireBrut,
+          cnps_salariale: f.cnpsSalariale,
+          cfc_salariale: f.cfcSalariale,
+          irpp: f.irpp,
+          cac: f.cac,
+          rav: f.rav,
+          total_retenues: f.totalRetenues,
+          cnps_patronale: f.cnpsPatronale,
+          cfc_patronale: f.cfcPatronale,
+          fne: f.fne,
+          total_charges_patronales: f.totalChargesPatronales,
+          net_a_payer: f.netAPayer,
+          mode_paiement: f.modePaiement,
+          statut: 'paye',
+        }));
+        await insertFichesDePaie(fichesDB, etablissementId!);
+      } catch (dbErr) {
+        console.warn('Sauvegarde DB fiches de paie échouée, fallback localStorage:', dbErr);
+      }
+
+      // 2. Sauvegarder en localStorage (fallback + historique local)
+      const storageKey = `mboaschool_fiches_paie_${etablissementId}`;
+      const stored = localStorage.getItem(storageKey);
+      const existingFiches: FicheDePaie[] = stored ? JSON.parse(stored) : [];
+      const updatedFiches = [...fichesPaye, ...existingFiches.filter(f => !fichesPaye.some(fp => fp.personnelId === f.personnelId && fp.periode === f.periode))];
+      localStorage.setItem(storageKey, JSON.stringify(updatedFiches));
+
+      // 3. Générer les écritures comptables OHADA
+      try {
+        const compteBanque = localStorage.getItem('setting_default_bank_acc') || '521';
+        const compteCaisse = localStorage.getItem('setting_default_cash_acc') || '571';
+        const { ecriture, lignes } = genererEcrituresComptablesPaie(fichesPaye, compteBanque, compteCaisse);
+        await addEcritureComptable(
+          { date: new Date().toISOString().split('T')[0], ...ecriture, partenaire: 'Personnel' },
+          lignes.map(l => ({ compteNumero: l.compteNumero, debit: l.debit, credit: l.credit })),
+          etablissementId!
+        );
+        triggerToast(`✅ ${fichesPaye.length} bulletin(s) validé(s) et comptabilité mouvementée !`);
+      } catch (comptaErr) {
+        console.warn('Écriture comptable échouée (les comptes OHADA existent-ils ?):', comptaErr);
+        triggerToast(`${fichesPaye.length} bulletin(s) validé(s). ⚠️ Écriture comptable non créée (vérifiez le plan comptable).`);
+      }
+
+      setFichesDePaieHistorique(updatedFiches);
+      setFichesDePaieCalculees([]);
+      setSelectedForPayroll(new Set());
+      setPayrollCalculated(false);
+    } catch (err: any) {
+      alert('Erreur lors de la validation : ' + err.message);
+    } finally {
+      setPayrollProcessing(false);
+    }
+  };
+
+  const handlePrintPayslip = (fiche: FicheDePaie) => {
+    const schoolName = localStorage.getItem('mboaschool_current_school') || 'Établissement';
+    const schoolAddress = localStorage.getItem('setting_school_address') || '';
+    const schoolPhone = localStorage.getItem('setting_school_phone') || '';
+    const emp = personnelList.find(e => e.id === fiche.personnelId);
+    const taux = getTauxFromLocalStorage();
+    const anneesServ = emp ? getAnneesService(emp.dateEmbauche) : 0;
+    const periodeLabel = new Date(fiche.periode + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    const fmt = (v: number) => new Intl.NumberFormat('fr-FR').format(v);
+
+    const printWindow = window.open('', '_blank', 'width=800,height=1000');
+    if (!printWindow) return;
+    printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Bulletin de Paie - ${fiche.nomPersonnel}</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; color: #1e293b; font-size: 11px; }
+      .header { display: flex; justify-content: space-between; border-bottom: 3px solid #4f46e5; padding-bottom: 15px; margin-bottom: 15px; }
+      .header-left, .header-right { max-width: 48%; }
+      .header h1 { font-size: 18px; color: #4f46e5; margin-bottom: 2px; }
+      .header h2 { font-size: 14px; color: #1e293b; }
+      .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+      .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; }
+      .info-box h3 { font-size: 9px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; font-weight: 700; }
+      .info-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+      .info-label { color: #64748b; }
+      .info-value { font-weight: 700; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+      th { background: #4f46e5; color: white; padding: 6px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+      th:last-child { text-align: right; }
+      td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; }
+      td:last-child { text-align: right; font-family: 'Courier New', monospace; font-weight: 600; }
+      .section-title { background: #f1f5f9; font-weight: 700; color: #334155; }
+      .total-row { background: #eef2ff; font-weight: 800; font-size: 12px; }
+      .net-row { background: #4f46e5; color: white; font-weight: 800; font-size: 14px; }
+      .net-row td { border: none; padding: 8px; }
+      .charges-section { margin-top: 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; }
+      .charges-section h3 { font-size: 10px; color: #92400e; text-transform: uppercase; margin-bottom: 6px; font-weight: 700; }
+      .footer { margin-top: 20px; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+      .signature-zone { margin-top: 30px; display: flex; justify-content: space-between; }
+      .signature-box { width: 45%; text-align: center; }
+      .signature-box p { font-size: 10px; color: #64748b; margin-bottom: 40px; }
+      .signature-box .line { border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 9px; color: #94a3b8; }
+      @media print { body { padding: 15px; } }
+    </style></head><body>
+    <div class="header">
+      <div class="header-left">
+        <h1>${schoolName}</h1>
+        <p>${schoolAddress}</p>
+        <p>${schoolPhone}</p>
+      </div>
+      <div class="header-right" style="text-align:right">
+        <h2>BULLETIN DE PAIE</h2>
+        <p style="font-weight:700;color:#4f46e5;font-size:13px">${periodeLabel.charAt(0).toUpperCase() + periodeLabel.slice(1)}</p>
+        <p>Date d'émission : ${new Date(fiche.datePaiement).toLocaleDateString('fr-FR')}</p>
+      </div>
+    </div>
+    <div class="info-grid">
+      <div class="info-box">
+        <h3>Informations Employeur</h3>
+        <div class="info-row"><span class="info-label">Raison sociale</span><span class="info-value">${schoolName}</span></div>
+        <div class="info-row"><span class="info-label">Adresse</span><span class="info-value">${schoolAddress}</span></div>
+      </div>
+      <div class="info-box">
+        <h3>Informations Employé</h3>
+        <div class="info-row"><span class="info-label">Nom complet</span><span class="info-value">${fiche.nomPersonnel}</span></div>
+        <div class="info-row"><span class="info-label">Catégorie</span><span class="info-value">${emp?.categorie || '—'}</span></div>
+        <div class="info-row"><span class="info-label">Contrat</span><span class="info-value">${emp?.typeContrat || '—'}</span></div>
+        <div class="info-row"><span class="info-label">Date d'embauche</span><span class="info-value">${emp ? new Date(emp.dateEmbauche).toLocaleDateString('fr-FR') : '—'}</span></div>
+        <div class="info-row"><span class="info-label">Ancienneté</span><span class="info-value">${anneesServ} an(s)</span></div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th colspan="2">Éléments de rémunération</th><th>Montant (FCFA)</th></tr></thead>
+      <tbody>
+        <tr><td colspan="2">Salaire de base</td><td>${fmt(fiche.salaireDeBase)}</td></tr>
+        <tr><td colspan="2">Prime de transport</td><td>${fmt(fiche.primeTransport)}</td></tr>
+        <tr><td colspan="2">Prime de logement</td><td>${fmt(fiche.primeLogement)}</td></tr>
+        <tr><td colspan="2">Prime d'ancienneté (${anneesServ >= 2 ? Math.min(anneesServ * 2, 30) : 0}%)</td><td>${fmt(fiche.primeAnciennete)}</td></tr>
+        <tr><td colspan="2">Autres primes et indemnités</td><td>${fmt(fiche.autresPrimes)}</td></tr>
+        <tr class="total-row"><td colspan="2">SALAIRE BRUT</td><td>${fmt(fiche.salaireBrut)}</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Retenues salariales</th><th>Base</th><th>Taux</th><th>Montant (FCFA)</th></tr></thead>
+      <tbody>
+        <tr><td>CNPS — Pension Vieillesse</td><td>${fmt(Math.min(fiche.salaireBrut, PLAFOND_CNPS))}</td><td>${taux.cnpsEmployeeRate}%</td><td>${fmt(fiche.cnpsSalariale)}</td></tr>
+        <tr><td>CFC — Crédit Foncier</td><td>${fmt(fiche.salaireBrut)}</td><td>${taux.cfcEmployeeRate}%</td><td>${fmt(fiche.cfcSalariale)}</td></tr>
+        <tr><td>IRPP — Impôt sur le Revenu</td><td colspan="2">Barème progressif</td><td>${fmt(fiche.irpp)}</td></tr>
+        <tr><td>CAC — Centimes Add. Communaux</td><td>${fmt(fiche.irpp)}</td><td>${taux.cacRate}%</td><td>${fmt(fiche.cac)}</td></tr>
+        <tr><td>RAV — Redevance Audio Visuelle</td><td colspan="2">Forfait mensuel</td><td>${fmt(fiche.rav)}</td></tr>
+        <tr class="total-row"><td colspan="3">TOTAL RETENUES</td><td>${fmt(fiche.totalRetenues)}</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <tbody>
+        <tr class="net-row"><td colspan="3">NET À PAYER</td><td>${fmt(fiche.netAPayer)} FCFA</td></tr>
+      </tbody>
+    </table>
+    <div class="charges-section">
+      <h3>Charges patronales (pour information)</h3>
+      <table style="margin:0">
+        <tr><td>CNPS Patronale</td><td style="text-align:right">${fmt(Math.min(fiche.salaireBrut, PLAFOND_CNPS))}</td><td style="text-align:right">${taux.cnpsEmployerRate}%</td><td style="text-align:right;font-family:monospace;font-weight:600">${fmt(fiche.cnpsPatronale)}</td></tr>
+        <tr><td>CFC Patronale</td><td style="text-align:right">${fmt(fiche.salaireBrut)}</td><td style="text-align:right">${taux.cfcEmployerRate}%</td><td style="text-align:right;font-family:monospace;font-weight:600">${fmt(fiche.cfcPatronale)}</td></tr>
+        <tr><td>FNE — Fonds National Emploi</td><td style="text-align:right">${fmt(fiche.salaireBrut)}</td><td style="text-align:right">${taux.fneRate}%</td><td style="text-align:right;font-family:monospace;font-weight:600">${fmt(fiche.fne)}</td></tr>
+        <tr class="total-row"><td colspan="3">TOTAL CHARGES PATRONALES</td><td style="text-align:right">${fmt(fiche.totalChargesPatronales)}</td></tr>
+      </table>
+    </div>
+    <div class="signature-zone">
+      <div class="signature-box"><p>L'Employeur</p><div class="line">Cachet et signature</div></div>
+      <div class="signature-box"><p>L'Employé</p><div class="line">Signature (Lu et approuvé)</div></div>
+    </div>
+    <div class="footer">
+      <span>Document confidentiel — Bulletin de paie conforme aux normes CNPS Cameroun</span>
+      <span>${schoolName} — ${periodeLabel}</span>
+    </div>
+    </body></html>`);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 300);
+  };
+
+  // Load payroll history on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      const storageKey = `mboaschool_fiches_paie_${etablissementId}`;
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        try { setFichesDePaieHistorique(JSON.parse(stored)); } catch (e) {}
+      }
+      // Also try to load from DB
+      getFichesDePaie(etablissementId).then(data => {
+        if (data && data.length > 0) {
+          const mapped: FicheDePaie[] = data.map((d: any) => ({
+            id: d.id, personnelId: d.personnel_id, nomPersonnel: d.nom_personnel,
+            periode: d.periode, datePaiement: d.date_paiement,
+            salaireDeBase: Number(d.salaire_de_base), primeTransport: Number(d.prime_transport),
+            primeLogement: Number(d.prime_logement), primeAnciennete: Number(d.prime_anciennete),
+            autresPrimes: Number(d.autres_primes), salaireBrut: Number(d.salaire_brut),
+            cnpsSalariale: Number(d.cnps_salariale), cfcSalariale: Number(d.cfc_salariale),
+            irpp: Number(d.irpp), cac: Number(d.cac), rav: Number(d.rav),
+            totalRetenues: Number(d.total_retenues), cnpsPatronale: Number(d.cnps_patronale),
+            cfcPatronale: Number(d.cfc_patronale), fne: Number(d.fne),
+            totalChargesPatronales: Number(d.total_charges_patronales),
+            netAPayer: Number(d.net_a_payer), statut: d.statut,
+          }));
+          setFichesDePaieHistorique(mapped);
+        }
+      }).catch(() => {});
+    }
+  }, [etablissementId]);
 
   // Format money helper
   const formatMoney = (val: number) => {
@@ -931,6 +1267,11 @@ export default function RHPage() {
     }
     return mouvements;
   };
+
+  const totalGross = fichesDePaieCalculees.reduce((sum, f) => sum + (f.salaireBrut || 0), 0);
+  const totalRetenues = fichesDePaieCalculees.reduce((sum, f) => sum + (f.totalRetenues || 0), 0);
+  const totalEmployerTaxes = fichesDePaieCalculees.reduce((sum, f) => sum + (f.totalChargesPatronales || 0), 0);
+  const totalNet = fichesDePaieCalculees.reduce((sum, f) => sum + (f.netAPayer || 0), 0);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -962,7 +1303,7 @@ export default function RHPage() {
         {[
           { id: 'dashboard', label: 'Tableau de bord RH' },
           { id: 'personnel', label: 'Effectifs & Contrats' },
-          { id: 'masse', label: 'Rémunérations & Masse salariale' },
+          { id: 'masse', label: 'Paie & Rémunérations' },
           { id: 'mouvements', label: 'Absences & Mouvements' },
           { id: 'evals', label: 'Évaluations & Formations' },
           { id: 'comptes', label: 'Comptes & Habilitations' }
@@ -1220,7 +1561,7 @@ export default function RHPage() {
                 Dernières Formations
               </h3>
               <div className="space-y-3">
-                {formations.map(f => (
+                {filteredFormations.map(f => (
                   <div key={f.id} className="flex justify-between items-center p-3 rounded-lg bg-slate-50 border border-slate-100">
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-slate-800 text-black truncate">{f.theme}</p>
@@ -1234,6 +1575,9 @@ export default function RHPage() {
                     </div>
                   </div>
                 ))}
+                {filteredFormations.length === 0 && (
+                  <div className="text-center text-slate-400 py-6 text-xs">Aucune formation enregistrée.</div>
+                )}
               </div>
             </div>
           </div>
@@ -1344,7 +1688,7 @@ export default function RHPage() {
                 ))}
                 {filteredPersonnel.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">Aucun membre de personnel ne correspond aux critères.</td>
+                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">Aucun membre du personnel trouvé.</td>
                   </tr>
                 )}
               </tbody>
@@ -1353,34 +1697,217 @@ export default function RHPage() {
         </div>
       )}
 
-      {/* -------------------- TAB: MASSE SALARIALE & REMUNERATIONS -------------------- */}
+      {/* -------------------- TAB: PAIE & RÉMUNÉRATIONS -------------------- */}
       {activeTab === 'masse' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Salaries List Table */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
-              <h3 className="font-bold text-slate-800 text-black mb-4">Grille des Rémunérations</h3>
+          {/* Period Selector + Actions Bar */}
+          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span className="text-xs font-bold text-slate-500 uppercase">Période de paie :</span>
+              </div>
+              <input
+                type="month"
+                value={payrollPeriod}
+                onChange={(e) => { setPayrollPeriod(e.target.value); setPayrollCalculated(false); setFichesDePaieCalculees([]); }}
+                className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleSelectAllPayroll}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+              >
+                {selectedForPayroll.size === unpaidStaff.length ? 'Tout désélectionner' : 'Sélectionner tous'}
+              </button>
+              <button
+                onClick={handleCalculerPaie}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors flex items-center gap-1.5"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                Calculer la paie
+              </button>
+              {payrollCalculated && (
+                <>
+                  <button
+                    onClick={handleValiderPaie}
+                    disabled={payrollProcessing}
+                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    {payrollProcessing ? 'Traitement...' : 'Valider & Payer'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Payroll Table (3 cols) */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-3">
+              <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="font-bold text-slate-800 text-black">Traitement des Salaires</h3>
+                  <p className="text-xs text-slate-500">{selectedForPayroll.size} employé(s) sélectionné(s) sur {unpaidStaff.length} à payer</p>
+                </div>
+                {payrollCalculated && (
+                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    Paie calculée
+                  </span>
+                )}
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/20">
-                      <th className="px-4 py-3">Employé</th>
-                      <th className="px-4 py-3">Type</th>
-                      <th className="px-4 py-3 text-right">Salaire Base</th>
-                      <th className="px-4 py-3 text-right">Prime (Simulée)</th>
-                      <th className="px-4 py-3 text-right">Net à payer</th>
+                      <th className="px-3 py-3 w-8">
+                        <input
+                          type="checkbox"
+                          checked={selectedForPayroll.size === unpaidStaff.length && unpaidStaff.length > 0}
+                          onChange={toggleSelectAllPayroll}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer"
+                        />
+                      </th>
+                      <th className="px-3 py-3">Employé</th>
+                      <th className="px-3 py-3 text-right">Salaire Base</th>
+                      <th className="px-3 py-3 text-right">P. Transport</th>
+                      <th className="px-3 py-3 text-right">P. Logement</th>
+                      <th className="px-3 py-3 text-right">Autres</th>
+                      {showCalculatedCols && (
+                        <>
+                          <th className="px-3 py-3 text-right">Brut</th>
+                          <th className="px-3 py-3 text-right">Retenues</th>
+                          <th className="px-3 py-3 text-right text-indigo-600">Net à Payer</th>
+                        </>
+                      )}
+                      {showCalculatedCols && <th className="px-3 py-3 text-center">Fiche</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {activeStaff.map(emp => {
-                      const prime = simulatedPayouts[emp.id] || 0;
+                      // Chercher d'abord si une fiche de paie a déjà été validée et enregistrée pour cet employé et ce mois
+                      const ficheHistorique = fichesDePaieHistorique.find(
+                        f => f.personnelId === emp.id && f.periode === payrollPeriod
+                      );
+                      const estPaye = !!ficheHistorique;
+                      const fiche = estPaye ? ficheHistorique : fichesDePaieCalculees.find(f => f.personnelId === emp.id);
+                      
+                      const primes = payrollPrimes[emp.id] || { transport: 0, logement: 0, autres: 0 };
+                      const isSelected = selectedForPayroll.has(emp.id);
                       return (
-                        <tr key={emp.id} className="hover:bg-slate-50/30">
-                          <td className="px-4 py-3 font-semibold text-slate-800 text-black">{emp.nom} {emp.prenom}</td>
-                          <td className="px-4 py-3 text-xs text-slate-400 font-bold">{emp.typeContrat}</td>
-                          <td className="px-4 py-3 text-right font-mono text-black font-semibold">{formatMoney(emp.salaireDeBase)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-indigo-600 font-semibold">+ {formatMoney(prime)}</td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-black">{formatMoney(emp.salaireDeBase + prime)}</td>
+                        <tr key={emp.id} className={`transition-colors ${estPaye ? 'bg-emerald-50/10' : (isSelected ? 'bg-indigo-50/30' : 'hover:bg-slate-50/30')}`}>
+                          <td className="px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={estPaye ? true : isSelected}
+                              disabled={estPaye}
+                              onChange={() => !estPaye && toggleEmployeeSelection(emp.id)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            />
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="font-semibold text-slate-800 text-black text-xs">{emp.nom} {emp.prenom}</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                emp.categorie === 'Enseignant' ? 'bg-indigo-50 text-indigo-700' :
+                                emp.categorie === 'Administration' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                              }`}>{emp.categorie}</span>
+                              <span>{emp.typeContrat}</span>
+                              {getAnneesService(emp.dateEmbauche) >= 2 && (
+                                <span className="text-emerald-600 font-bold">+{Math.min(getAnneesService(emp.dateEmbauche) * 2, 30)}% anc.</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono text-black font-semibold text-xs">{formatMoney(emp.salaireDeBase)}</td>
+                          <td className="px-3 py-2">
+                            {estPaye ? (
+                              <div className="w-20 px-2 py-1 text-xs text-slate-500 text-right font-mono font-semibold">
+                                {formatMoney(fiche?.primeTransport || 0)}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                min="0"
+                                value={primes.transport || ''}
+                                onChange={(e) => updatePrime(emp.id, 'transport', Number(e.target.value) || 0)}
+                                placeholder="0"
+                                className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black text-right font-mono outline-none focus:border-indigo-500"
+                              />
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {estPaye ? (
+                              <div className="w-20 px-2 py-1 text-xs text-slate-500 text-right font-mono font-semibold">
+                                {formatMoney(fiche?.primeLogement || 0)}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                min="0"
+                                value={primes.logement || ''}
+                                onChange={(e) => updatePrime(emp.id, 'logement', Number(e.target.value) || 0)}
+                                placeholder="0"
+                                className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black text-right font-mono outline-none focus:border-indigo-500"
+                              />
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {estPaye ? (
+                              <div className="w-20 px-2 py-1 text-xs text-slate-500 text-right font-mono font-semibold">
+                                {formatMoney(fiche?.autresPrimes || 0)}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                min="0"
+                                value={primes.autres || ''}
+                                onChange={(e) => updatePrime(emp.id, 'autres', Number(e.target.value) || 0)}
+                                placeholder="0"
+                                className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black text-right font-mono outline-none focus:border-indigo-500"
+                              />
+                            )}
+                          </td>
+                          {showCalculatedCols && fiche && (
+                            <>
+                              <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-slate-700">{formatMoney(fiche.salaireBrut)}</td>
+                              <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-rose-600">-{formatMoney(fiche.totalRetenues)}</td>
+                              <td className="px-3 py-3 text-right font-mono text-xs font-black text-indigo-700">
+                                <div className="flex flex-col items-end">
+                                  <span>{formatMoney(fiche.netAPayer)}</span>
+                                  {estPaye && (
+                                    <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded font-bold uppercase mt-0.5">Payé</span>
+                                  )}
+                                </div>
+                              </td>
+                            </>
+                          )}
+                          {showCalculatedCols && fiche && (
+                            <td className="px-3 py-3 text-center flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPayslip(fiche)}
+                                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-[10px] font-bold transition-colors cursor-pointer"
+                              >
+                                Voir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintPayslip(fiche)}
+                                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[10px] font-bold transition-colors cursor-pointer"
+                              >
+                                Imprimer
+                              </button>
+                            </td>
+                          )}
+                          {showCalculatedCols && !fiche && (
+                            <>
+                              <td className="px-3 py-3 text-center text-slate-300 text-xs" colSpan={4}>—</td>
+                            </>
+                          )}
                         </tr>
                       );
                     })}
@@ -1389,81 +1916,60 @@ export default function RHPage() {
               </div>
             </div>
 
-            {/* Incentive profit sharing Simulator (Intéressement) */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+            {/* Résumé de la Paie Sidebar */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between h-fit">
               <div>
                 <div className="border-b border-slate-100 pb-3 mb-4">
-                  <h3 className="font-bold text-slate-800 text-black">Simulateur d'Intéressement</h3>
-                  <p className="text-xs text-slate-500">Distribuez dynamiquement une enveloppe de primes au personnel</p>
+                  <h3 className="font-bold text-slate-800 text-black">Résumé de la Paie</h3>
+                  <p className="text-xs text-slate-500">Période: {payrollPeriod}</p>
                 </div>
 
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Enveloppe à partager (FCFA)</label>
-                    <input
-                      type="number"
-                      value={interessementEnveloppe}
-                      onChange={(e) => setInteressementEnveloppe(e.target.value)}
-                      placeholder="Ex: 1000000"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20"
-                    />
+                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                    <span className="text-slate-500 font-semibold">Employés sélectionnés</span>
+                    <span className="font-bold text-slate-800 text-black">{selectedForPayroll.size}</span>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Règle de Répartition</label>
-                    <div className="flex flex-col gap-2">
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-slate-50 border border-slate-100 text-slate-700 text-sm font-semibold select-none">
-                        <input
-                          type="radio"
-                          name="rule"
-                          checked={simulationType === 'paritaire'}
-                          onChange={() => setSimulationType('paritaire')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <div>
-                          <span>Répartition Paritaire</span>
-                          <span className="block text-[10px] text-slate-400 font-normal">Part égale pour tous ({formatMoney(Math.round(Number(interessementEnveloppe) / activeStaff.length))} par personne)</span>
-                        </div>
-                      </label>
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-slate-50 border border-slate-100 text-slate-700 text-sm font-semibold select-none">
-                        <input
-                          type="radio"
-                          name="rule"
-                          checked={simulationType === 'performance'}
-                          onChange={() => setSimulationType('performance')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <div>
-                          <span>Selon Note d'Évaluation</span>
-                          <span className="block text-[10px] text-slate-400 font-normal">Favorise les enseignants avec de meilleurs résultats</span>
-                        </div>
-                      </label>
-                      <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-slate-50 border border-slate-100 text-slate-700 text-sm font-semibold select-none">
-                        <input
-                          type="radio"
-                          name="rule"
-                          checked={simulationType === 'anciennete'}
-                          onChange={() => setSimulationType('anciennete')}
-                          className="text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <div>
-                          <span>Selon l'Ancienneté</span>
-                          <span className="block text-[10px] text-slate-400 font-normal">Favorise le personnel fidèle avec plus d'années de service</span>
-                        </div>
-                      </label>
-                    </div>
+                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                    <span className="text-slate-500 font-semibold">Masse Brute Totale</span>
+                    <span className="font-mono font-bold text-slate-800 text-black">{formatMoney(totalGross)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                    <span className="text-slate-500 font-semibold">Retenues Salariales</span>
+                    <span className="font-mono font-bold text-rose-600">-{formatMoney(totalRetenues)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                    <span className="text-slate-500 font-semibold">Charges Patronales</span>
+                    <span className="font-mono font-bold text-slate-800 text-black">{formatMoney(totalEmployerTaxes)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                    <span className="text-slate-500 font-semibold">Coût Total Employeur</span>
+                    <span className="font-mono font-bold text-slate-800 text-black">{formatMoney(totalGross + totalEmployerTaxes)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-base pt-2 font-black border-t border-slate-100">
+                    <span className="text-indigo-600">Net Total à Payer</span>
+                    <span className="font-mono text-indigo-700">{formatMoney(totalNet)}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="pt-6 border-t border-slate-100 mt-4">
-                <button
-                  onClick={handleSimulateIncentive}
-                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors"
-                >
-                  Recalculer les primes
-                </button>
-              </div>
+              {payrollCalculated && fichesDePaieCalculees.length > 0 && (
+                <div className="pt-6 mt-4 border-t border-slate-100">
+                  <button
+                    onClick={() => {
+                      fichesDePaieCalculees.forEach(f => handlePrintPayslip(f));
+                    }}
+                    className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                    Imprimer les fiches de paie
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1592,7 +2098,7 @@ export default function RHPage() {
             </h3>
 
             <div className="space-y-6">
-              {evaluations.map(ev => (
+              {filteredEvaluations.map(ev => (
                 <div key={ev.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-4">
                   <div className="flex justify-between items-start">
                     <div>
@@ -1620,6 +2126,9 @@ export default function RHPage() {
                   </div>
                 </div>
               ))}
+              {filteredEvaluations.length === 0 && (
+                <div className="text-center text-slate-400 py-12">Aucune évaluation enregistrée pour cette année scolaire.</div>
+              )}
             </div>
           </div>
 
@@ -1642,7 +2151,7 @@ export default function RHPage() {
             </div>
 
             <div className="space-y-4">
-              {formations.map(f => (
+              {filteredFormations.map(f => (
                 <div key={f.id} className="p-4 rounded-xl border border-slate-100 space-y-3">
                   <div className="flex justify-between items-start">
                     <div>
@@ -1664,6 +2173,9 @@ export default function RHPage() {
                   </div>
                 </div>
               ))}
+              {filteredFormations.length === 0 && (
+                <div className="text-center text-slate-400 py-12">Aucune formation enregistrée pour cette année scolaire.</div>
+              )}
             </div>
           </div>
         </div>
@@ -1977,6 +2489,20 @@ export default function RHPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Mode de Paiement Préféré</label>
+                  <select
+                    value={newModePaiement}
+                    onChange={(e) => setNewModePaiement(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                  >
+                    <option value="Banque">Virement Bancaire</option>
+                    <option value="Caisse">Espèces (Caisse)</option>
+                  </select>
+                </div>
+              </div>
+
               <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -2167,6 +2693,20 @@ export default function RHPage() {
                         <option value="actif">Actif</option>
                         <option value="suspendu">Suspendu</option>
                         <option value="quitte">Quitté</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Mode de Paiement Préféré</label>
+                      <select
+                        value={editEmpModePaiement}
+                        onChange={(e) => setEditEmpModePaiement(e.target.value as any)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                      >
+                        <option value="Banque">Virement Bancaire</option>
+                        <option value="Caisse">Espèces (Caisse)</option>
                       </select>
                     </div>
                   </div>
@@ -2418,6 +2958,184 @@ export default function RHPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Selected Payslip Detail Modal */}
+      {selectedPayslip && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto print:p-0 print:bg-white print:static print:h-screen print:w-screen">
+          <div className="bg-white rounded-2xl w-full max-w-2xl border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200 print:shadow-none print:border-none print:p-0 print:w-full">
+            
+            {/* Modal Controls (Hide during print) */}
+            <div className="absolute right-4 top-4 flex gap-2 print:hidden">
+              <button
+                type="button"
+                onClick={() => handlePrintPayslip(selectedPayslip)}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Imprimer
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPayslip(null)}
+                className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full font-bold transition-all text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="border-b border-slate-200 pb-4 mb-4 text-center">
+              <span className="text-3xl">🏫</span>
+              <h2 className="text-xl font-black text-slate-800 text-black mt-1 uppercase">Bulletin de Paie Individuel</h2>
+              <p className="text-xs text-slate-500 font-bold mt-1">Période : {selectedPayslip.periode} • Date de paiement : {new Date(selectedPayslip.datePaiement).toLocaleDateString('fr-FR')}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100 mb-4 print:bg-white print:border-none print:p-2">
+              <div>
+                <span className="text-slate-400 block font-bold uppercase tracking-wider text-[9px]">Employeur</span>
+                <strong className="text-slate-800 text-black text-sm">{localStorage.getItem('mboaschool_current_school') || 'Mon Établissement'}</strong>
+                <span className="block mt-1 text-[10px] text-slate-500">Yaoundé, Cameroun</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block font-bold uppercase tracking-wider text-[9px]">Salarié</span>
+                <strong className="text-slate-800 text-black text-sm">{selectedPayslip.nomPersonnel}</strong>
+                <span className="block mt-1 text-[10px] text-slate-500">ID Salarié: {selectedPayslip.personnelId.slice(0, 8)}</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse border border-slate-200 text-slate-700 print:text-black print:border-slate-400">
+                <thead>
+                  <tr className="bg-slate-50 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 print:bg-white print:border-slate-400">
+                    <th className="px-3 py-2 border-r border-slate-200">Rubrique / Désignation</th>
+                    <th className="px-3 py-2 text-right border-r border-slate-200">Base</th>
+                    <th className="px-3 py-2 text-right border-r border-slate-200">Retenues Employé</th>
+                    <th className="px-3 py-2 text-right">Charges Patronales</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                  <tr>
+                    <td className="px-3 py-2 font-semibold border-r border-slate-200">Salaire de Base</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireDeBase)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                    <td className="px-3 py-2 text-right font-mono">—</td>
+                  </tr>
+                  {(selectedPayslip.primeTransport > 0) && (
+                    <tr>
+                      <td className="px-3 py-2 border-r border-slate-200">Prime de Transport</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.primeTransport)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 text-right font-mono">—</td>
+                    </tr>
+                  )}
+                  {(selectedPayslip.primeLogement > 0) && (
+                    <tr>
+                      <td className="px-3 py-2 border-r border-slate-200">Prime de Logement</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.primeLogement)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 text-right font-mono">—</td>
+                    </tr>
+                  )}
+                  {(selectedPayslip.primeAnciennete > 0) && (
+                    <tr>
+                      <td className="px-3 py-2 border-r border-slate-200">Prime d'Ancienneté</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.primeAnciennete)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 text-right font-mono">—</td>
+                    </tr>
+                  )}
+                  {(selectedPayslip.autresPrimes > 0) && (
+                    <tr>
+                      <td className="px-3 py-2 border-r border-slate-200">Autres Primes</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.autresPrimes)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 text-right font-mono">—</td>
+                    </tr>
+                  )}
+                  <tr className="bg-slate-50 font-semibold print:bg-white">
+                    <td className="px-3 py-2 border-r border-slate-200 uppercase">Salaire Brut</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireBrut)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                    <td className="px-3 py-2 text-right font-mono">—</td>
+                  </tr>
+                  
+                  {/* CNPS */}
+                  <tr>
+                    <td className="px-3 py-2 border-r border-slate-200">CNPS (Sociale)</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireBrut)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.cnpsSalariale)}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatMoney(selectedPayslip.cnpsPatronale)}</td>
+                  </tr>
+
+                  {/* CFC */}
+                  <tr>
+                    <td className="px-3 py-2 border-r border-slate-200">CFC (Crédit Foncier)</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireBrut)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.cfcSalariale)}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatMoney(selectedPayslip.cfcPatronale)}</td>
+                  </tr>
+
+                  {/* FNE */}
+                  <tr>
+                    <td className="px-3 py-2 border-r border-slate-200">FNE (Fonds National Emploi)</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatMoney(selectedPayslip.fne)}</td>
+                  </tr>
+
+                  {/* Impôts (IRPP + CAC) */}
+                  {(selectedPayslip.irpp > 0) && (
+                    <tr>
+                      <td className="px-3 py-2 border-r border-slate-200">IRPP (Impôt sur le Revenu)</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.irpp)}</td>
+                      <td className="px-3 py-2 text-right font-mono">—</td>
+                    </tr>
+                  )}
+                  {(selectedPayslip.cac > 0) && (
+                    <tr>
+                      <td className="px-3 py-2 border-r border-slate-200">CAC (Centimes Add. Communaux)</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.cac)}</td>
+                      <td className="px-3 py-2 text-right font-mono">—</td>
+                    </tr>
+                  )}
+                  {(selectedPayslip.rav > 0) && (
+                    <tr>
+                      <td className="px-3 py-2 border-r border-slate-200">RAV (Redevance Audio-Visuelle)</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.rav)}</td>
+                      <td className="px-3 py-2 text-right font-mono">—</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100 text-xs text-slate-700">
+              <div className="space-y-1.5">
+                <div className="flex justify-between">
+                  <span>Total Retenues Salariales :</span>
+                  <span className="font-mono font-bold text-rose-600">-{formatMoney(selectedPayslip.totalRetenues)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Total Charges Patronales :</span>
+                  <span className="font-mono font-bold">{formatMoney(selectedPayslip.totalChargesPatronales)}</span>
+                </div>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex flex-col justify-center items-center text-center print:bg-white print:border-none">
+                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Net à payer</span>
+                <span className="text-lg font-black text-indigo-700 font-mono mt-0.5">{formatMoney(selectedPayslip.netAPayer)}</span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-[10px] text-slate-400 mt-6 pt-4 border-t border-slate-100 print:text-black">
+              <span>MboaSchool Cameroon - Gestion Scolaire</span>
+              <span>Signature Employé & Cachet Établissement</span>
+            </div>
+
           </div>
         </div>
       )}

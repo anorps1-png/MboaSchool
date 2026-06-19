@@ -14,10 +14,21 @@ import { useEtablissement } from '@/contexts/etablissement-context';
 import { createClient } from '@/lib/supabase/client';
 
 export default function ElevesPage() {
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // Filter students and classes by active academic year
+  const studentsOfActiveYear = useMemo(() => {
+    if (!academicYearId) return students;
+    return students.filter(s => s.anneeScolaireId === academicYearId);
+  }, [students, academicYearId]);
+
+  const classesOfActiveYear = useMemo(() => {
+    if (!academicYearId) return classesList;
+    return classesList.filter(c => c.anneeScolaireId === academicYearId);
+  }, [classesList, academicYearId]);
 
   // Form states for adding student
   const [showAddModal, setShowAddModal] = useState(false);
@@ -140,7 +151,7 @@ export default function ElevesPage() {
   // Filter students
   const filteredStudents = useMemo(() => {
     if (!isLoaded) return [];
-    return students.filter(student => {
+    return studentsOfActiveYear.filter(student => {
       if (!student) return false;
       // 1. Search term (Name or Matricule)
       const fullName = `${student.nom || ''} ${student.prenom || ''}`.toLowerCase();
@@ -159,7 +170,7 @@ export default function ElevesPage() {
 
       return matchesSearch && matchesClass && matchesPayment && matchesGender;
     });
-  }, [students, searchTerm, selectedClass, selectedPaymentStatus, selectedGender, isLoaded, getStudentPaymentStats]);
+  }, [studentsOfActiveYear, searchTerm, selectedClass, selectedPaymentStatus, selectedGender, isLoaded, getStudentPaymentStats]);
 
   // Total counts for widgets
   const widgetStats = useMemo(() => {
@@ -168,7 +179,7 @@ export default function ElevesPage() {
     let partialCount = 0;
     let unpaidCount = 0;
 
-    students.forEach(s => {
+    studentsOfActiveYear.forEach(s => {
       if (!s) return;
       const { status } = getStudentPaymentStats(s);
       if (status === 'paid') paidCount++;
@@ -176,8 +187,9 @@ export default function ElevesPage() {
       else unpaidCount++;
     });
 
-    return { paidCount, partialCount, unpaidCount, total: students.length };
-  }, [students, isLoaded, getStudentPaymentStats]);
+    return { paidCount, partialCount, unpaidCount, total: studentsOfActiveYear.length };
+  }, [studentsOfActiveYear, isLoaded, getStudentPaymentStats]);
+
 
   // Pagination Logic
   const totalItems = filteredStudents.length;
@@ -202,12 +214,23 @@ export default function ElevesPage() {
       return;
     }
 
+    if (!className) {
+      alert("Veuillez d'abord configurer au moins une classe dans le menu 'Classes' avant de pouvoir inscrire un élève.");
+      return;
+    }
+
     // Resolve the active year UUID dynamically
     let resolvedAnneeScolaireId = null;
-    const isOfflineMode = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
 
-    // 1. Try online query first if we are online to guarantee validity
-    if (!isOfflineMode && etablissementId) {
+    // 1. Try to get it from the selected class in classesList (strongest source of truth for the student's year)
+    const selectedClassObj = classesList.find(c => c.id === className);
+    if (selectedClassObj) {
+      resolvedAnneeScolaireId = (selectedClassObj as any).annee_scolaire_id || (selectedClassObj as any).anneeScolaireId;
+    }
+
+    // 2. Try online query if still not resolved
+    const isOfflineMode = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+    if (!resolvedAnneeScolaireId && !isOfflineMode && etablissementId) {
       try {
         const supabase = createClient();
         const { data: etab } = await supabase
@@ -236,15 +259,14 @@ export default function ElevesPage() {
       }
     }
 
-    // 2. Try to get it from the selected class in classesList
-    const selectedClassObj = classesList.find(c => c.id === className);
-    if (!resolvedAnneeScolaireId && selectedClassObj) {
-      resolvedAnneeScolaireId = (selectedClassObj as any).annee_scolaire_id || (selectedClassObj as any).anneeScolaireId;
-    }
-
     // 3. Try to get it from localStorage cached ID
     if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
-      resolvedAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
+      const cachedYearId = localStorage.getItem('mboaschool_active_year_id');
+      // Only use the cached year if we are offline or if it exists in years (i.e. not a random mock UUID)
+      const isMockUuid = cachedYearId && (cachedYearId.startsWith('local_') || (cachedYearId.includes('-') && !isOfflineMode && classesList.length > 0 && !classesList.some(c => ((c as any).annee_scolaire_id || (c as any).anneeScolaireId) === cachedYearId)));
+      if (!isMockUuid) {
+        resolvedAnneeScolaireId = cachedYearId;
+      }
     }
 
     // 4. Try to extract it from loaded students list if any exist
@@ -282,13 +304,13 @@ export default function ElevesPage() {
       nom: lastName.toUpperCase(),
       prenom: firstName,
       sexe: gender,
-      classe_id: className,
+      classe_id: className || null,
       annee_scolaire_id: resolvedAnneeScolaireId,
       nom_parent: parentName,
       telephone_parent: parentPhone,
-      email_parent: parentEmail,
-      date_naissance: dateOfBirth,
-      lieu_naissance: birthPlace,
+      email_parent: parentEmail || null,
+      date_naissance: dateOfBirth || null,
+      lieu_naissance: birthPlace || null,
       statut: 'actif'
     };
 
@@ -983,7 +1005,7 @@ export default function ElevesPage() {
                 className="w-full sm:w-auto appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-2 rounded-lg text-xs font-semibold text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
               >
                 <option value="All">Toutes les classes</option>
-                {classesList.map(c => (
+                {classesOfActiveYear.map(c => (
                   <option key={c.id} value={c.id}>{c.nom}</option>
                 ))}
               </select>
@@ -1286,8 +1308,8 @@ export default function ElevesPage() {
                     onChange={(e) => setClassName(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
                   >
-                    {classesList.length === 0 && <option value="">Aucune classe disponible</option>}
-                    {classesList.map(c => (
+                    {classesOfActiveYear.length === 0 && <option value="">Aucune classe disponible</option>}
+                    {classesOfActiveYear.map(c => (
                       <option key={c.id} value={c.id}>{c.nom}</option>
                     ))}
                   </select>

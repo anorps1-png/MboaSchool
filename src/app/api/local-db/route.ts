@@ -243,6 +243,62 @@ export async function POST(req: NextRequest) {
       resultData = updatedItems;
     }
 
+    // D. UPSERT
+    else if (action === 'upsert') {
+      const payloadArray = Array.isArray(payload) ? payload : [payload];
+      const { upsertOptions } = body;
+      const onConflictOpt = upsertOptions?.onConflict;
+      const conflictKeys = onConflictOpt ? onConflictOpt.split(',').map((k: string) => k.trim()) : ['id'];
+
+      const insertedItems: any[] = [];
+      const updatedItems: any[] = [];
+
+      for (const item of payloadArray) {
+        const conflictIndex = db[table].findIndex((existingItem: any) => {
+          return conflictKeys.every((key: string) => existingItem[key] !== undefined && existingItem[key] === item[key]);
+        });
+
+        if (conflictIndex !== -1) {
+          const updated = { ...db[table][conflictIndex], ...item };
+          db[table][conflictIndex] = updated;
+          updatedItems.push(updated);
+        } else {
+          if (!item.id) {
+            item.id = `local_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+          }
+          db[table].push(item);
+          insertedItems.push(item);
+        }
+      }
+
+      writeDb(db);
+
+      const queue = readQueue();
+      for (const item of updatedItems) {
+        queue.push({
+          id: `task_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+          table,
+          action: 'update',
+          payload: item,
+          filters: conflictKeys.map(k => ({ field: k, value: item[k] })),
+          timestamp: Date.now()
+        });
+      }
+      for (const item of insertedItems) {
+        queue.push({
+          id: `task_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+          table,
+          action: 'insert',
+          payload: item,
+          timestamp: Date.now()
+        });
+      }
+      writeQueue(queue);
+
+      resultData = Array.isArray(payload) ? [...updatedItems, ...insertedItems] : (updatedItems[0] || insertedItems[0]);
+    }
+
+
     // C. DELETE
     else if (action === 'delete') {
       if (!filters || !Array.isArray(filters)) {

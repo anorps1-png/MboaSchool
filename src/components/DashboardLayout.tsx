@@ -20,15 +20,16 @@ import {
   SettingsIcon
 } from './icons';
 
+import { createClient } from '@/lib/supabase/client';
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
-  const { etablissementId, setEtablissementId } = useEtablissement();
+  const { etablissementId, setEtablissementId, academicYear, setAcademicYear, academicYearId, setAcademicYearId } = useEtablissement();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [academicYear, setAcademicYear] = useState('');
   const [selectedSchool, setSelectedSchool] = useState('');
   const [subscriptionPlan, setSubscriptionPlan] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState('admin@mboaschool.com');
@@ -48,69 +49,64 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                    !!(window as any).process?.versions?.electron;
       setIsElectron(isEl);
       
-      if (isEl) {
-        // Seed database if empty
-        const initLocalDb = async () => {
-          try {
-            const { mockStudents } = await import('@/mock/students');
-            const { mockPersonnel, mockFormations } = await import('@/mock/rh');
-            const { planComptableOHADA, mockEcrituresInitiales } = await import('@/mock/comptabilite');
-            
-            const seedData = {
-              eleves: mockStudents,
-              membres_personnel: mockPersonnel,
-              formations_rh: mockFormations,
-              comptes_ohada: planComptableOHADA,
-              ecritures_comptables: mockEcrituresInitiales,
-              etablissements: [{
-                id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
-                nom: 'École Privée Bilingue Mboa',
-                annee_scolaire_active_id: 'active-year-uuid-2026'
-              }],
-              annees_scolaires: [{
-                id: 'active-year-uuid-2026',
-                nom: '2025/2026',
-                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
-              }],
-              profiles: [{
-                id: 'local-admin-id',
-                role: 'admin',
-                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
-                nom_complet: 'Administrateur Local',
-                permissions: {}
-              }]
-            };
+      // Seed database if empty and initialize offline settings
+      const initLocalDb = async () => {
+        try {
+          const { mockStudents } = await import('@/mock/students');
+          const { mockPersonnel, mockFormations } = await import('@/mock/rh');
+          const { planComptableOHADA, mockEcrituresInitiales } = await import('@/mock/comptabilite');
+          
+          const seedData = {
+            eleves: mockStudents,
+            membres_personnel: mockPersonnel,
+            formations_rh: mockFormations,
+            comptes_ohada: planComptableOHADA,
+            ecritures_comptables: mockEcrituresInitiales,
+            etablissements: [{
+              id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
+              nom: 'École Privée Bilingue Mboa',
+              annee_scolaire_active_id: 'active-year-uuid-2026'
+            }],
+            annees_scolaires: [{
+              id: 'active-year-uuid-2026',
+              nom: '2025/2026',
+              etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+            }],
+            profiles: [{
+              id: 'local-admin-id',
+              role: 'admin',
+              etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
+              nom_complet: 'Administrateur Local',
+              permissions: {}
+            }]
+          };
 
-            await fetch('/api/local-db', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                action: 'init',
-                payload: seedData
-              })
-            });
-          } catch (e) {
-            console.error("Failed to seed local database:", e);
-          }
-        };
-
-        initLocalDb();
-
-        const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
-        let initForceOffline = false;
-        if (storedForceOffline !== null) {
-          initForceOffline = storedForceOffline === 'true';
-        } else {
-          initForceOffline = true;
-          localStorage.setItem('mboaschool_force_offline', 'true');
+          await fetch('/api/local-db', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'init',
+              payload: seedData
+            })
+          });
+        } catch (e) {
+          console.error("Failed to seed local database:", e);
         }
-        
-        setForceOffline(initForceOffline);
-        (window as any).__forceOffline = initForceOffline;
+      };
+
+      initLocalDb();
+
+      const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
+      let initForceOffline = false;
+      if (storedForceOffline !== null) {
+        initForceOffline = storedForceOffline === 'true';
       } else {
-        setForceOffline(false);
-        (window as any).__forceOffline = false;
+        initForceOffline = true;
+        localStorage.setItem('mboaschool_force_offline', 'true');
       }
+      
+      setForceOffline(initForceOffline);
+      (window as any).__forceOffline = initForceOffline;
     }
   }, []);
 
@@ -257,12 +253,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   setSelectedSchool(etab.nom);
                   localStorage.setItem('mboaschool_current_school', etab.nom);
                   
-                  if (etab.annee_scolaire_active_id) {
-                    localStorage.setItem('mboaschool_active_year_id', etab.annee_scolaire_active_id);
+                  let activeYearId = etab.annee_scolaire_active_id;
+                  
+                  // Fallback: If no active year is set in the establishment, query the first school year from the database
+                  if (!activeYearId && profile.etablissement_id) {
+                    const { data: years } = await supabase
+                      .from('annees_scolaires')
+                      .select('id')
+                      .eq('etablissement_id', profile.etablissement_id)
+                      .limit(1);
+                    if (years && years.length > 0) {
+                      activeYearId = years[0].id;
+                    }
+                  }
+
+                  if (activeYearId) {
+                    localStorage.setItem('mboaschool_active_year_id', activeYearId);
                     const { data: annee } = await supabase
                       .from('annees_scolaires')
                       .select('nom')
-                      .eq('id', etab.annee_scolaire_active_id)
+                      .eq('id', activeYearId)
                       .single();
 
                     if (annee) {
@@ -320,6 +330,66 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       loadProfileAndSchool();
     }
   }, [refreshTrigger]);
+
+  const [availableYears, setAvailableYears] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      const fetchYears = async () => {
+        try {
+          const supabase = createClient();
+          const { data, error } = await supabase
+            .from('annees_scolaires')
+            .select('*')
+            .eq('etablissement_id', etablissementId)
+            .order('nom', { ascending: false });
+
+          if (!error && data && data.length > 0) {
+            setAvailableYears(data);
+            
+            const currentYear = localStorage.getItem('mboaschool_current_year') || academicYear;
+            const currentYearId = localStorage.getItem('mboaschool_active_year_id') || academicYearId;
+            const match = data.find(y => y.nom === currentYear || y.id === currentYearId);
+            if (match) {
+              if (academicYear !== match.nom) setAcademicYear(match.nom);
+              if (academicYearId !== match.id) setAcademicYearId(match.id);
+            } else {
+              setAcademicYear(data[0].nom);
+              setAcademicYearId(data[0].id);
+            }
+          } else {
+            const stored = localStorage.getItem('offline_cache_annees_scolaires');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setAvailableYears(parsed);
+                const match = parsed.find(y => y.nom === academicYear || y.id === academicYearId);
+                if (match) {
+                  if (academicYear !== match.nom) setAcademicYear(match.nom);
+                  if (academicYearId !== match.id) setAcademicYearId(match.id);
+                } else {
+                  setAcademicYear(parsed[0].nom);
+                  setAcademicYearId(parsed[0].id);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Error fetching years in DashboardLayout:", e);
+        }
+      };
+
+      fetchYears();
+
+      window.addEventListener('school_settings_updated', fetchYears);
+      window.addEventListener('academic_year_changed', fetchYears);
+      return () => {
+        window.removeEventListener('school_settings_updated', fetchYears);
+        window.removeEventListener('academic_year_changed', fetchYears);
+      };
+    }
+  }, [etablissementId, refreshTrigger]);
+
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -605,12 +675,25 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <div className="relative">
                 <select
                   value={academicYear}
-                  onChange={(e) => setAcademicYear(e.target.value)}
+                  onChange={(e) => {
+                    const selectedYearNom = e.target.value;
+                    const matched = availableYears.find(y => y.nom === selectedYearNom);
+                    if (matched) {
+                      setAcademicYear(matched.nom);
+                      setAcademicYearId(matched.id);
+                    } else {
+                      setAcademicYear(selectedYearNom);
+                    }
+                  }}
                   className="appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-1.5 rounded-lg text-sm font-medium text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
                 >
-                  <option value={academicYear}>Année {academicYear}</option>
-                  {academicYear !== '2025/2026' && <option value="2025/2026">Année 2025/2026</option>}
-                  {academicYear !== '2024/2025' && <option value="2024/2025">Année 2024/2025</option>}
+                  {availableYears.length === 0 ? (
+                    <option value={academicYear}>Année {academicYear || 'Non spécifiée'}</option>
+                  ) : (
+                    availableYears.map(y => (
+                      <option key={y.id} value={y.nom}>Année {y.nom}</option>
+                    ))
+                  )}
                 </select>
                 <ChevronDownIcon size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
               </div>

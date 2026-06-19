@@ -601,6 +601,20 @@ function LoginContent() {
                 </div>
 
                 <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Année Scolaire de Départ *</label>
+                  <select
+                    value={schoolYear}
+                    onChange={(e) => setSchoolYear(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all cursor-pointer"
+                  >
+                    <option value="2024/2025">2024/2025</option>
+                    <option value="2025/2026">2025/2026</option>
+                    <option value="2026/2027">2026/2027</option>
+                    <option value="2027/2028">2027/2028</option>
+                  </select>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Adresse Email *</label>
                   <input
                     type="email"

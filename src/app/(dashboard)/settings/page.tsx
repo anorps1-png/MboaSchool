@@ -67,6 +67,12 @@ export default function SettingsPage() {
         setActiveYearId(createdYear.id);
         setShowAddYearForm(false);
         setNewYearName('');
+        
+        // Dispatch event so that DashboardLayout updates the global years selector immediately
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('school_settings_updated'));
+        }
+
         triggerToast(`Année scolaire ${createdYear.nom} créée et sélectionnée !`);
       }
     } catch (err: any) {
@@ -94,6 +100,11 @@ export default function SettingsPage() {
   const [cfcEmployerRate, setCfcEmployerRate] = useState<number>(1.5);
   const [fneRate, setFneRate] = useState<number>(1.0);
   const [cacRate, setCacRate] = useState<number>(10.0);
+  const [ravMensuel, setRavMensuel] = useState<number>(1083);
+  const [irppTaux1, setIrppTaux1] = useState<number>(10.0);
+  const [irppTaux2, setIrppTaux2] = useState<number>(15.0);
+  const [irppTaux3, setIrppTaux3] = useState<number>(25.0);
+  const [irppTaux4, setIrppTaux4] = useState<number>(35.0);
 
   const [themeColor, setThemeColor] = useState('indigo');
   const [appLanguage, setAppLanguage] = useState('fr');
@@ -161,6 +172,11 @@ export default function SettingsPage() {
         setCfcEmployerRate(Number(localStorage.getItem('setting_cfc_employer_rate')) || 1.5);
         setFneRate(Number(localStorage.getItem('setting_fne_rate')) || 1.0);
         setCacRate(Number(localStorage.getItem('setting_cac_rate')) || 10.0);
+        setRavMensuel(Number(localStorage.getItem('setting_rav_mensuel')) || 1083);
+        setIrppTaux1(Number(localStorage.getItem('setting_irpp_taux1')) || 10.0);
+        setIrppTaux2(Number(localStorage.getItem('setting_irpp_taux2')) || 15.0);
+        setIrppTaux3(Number(localStorage.getItem('setting_irpp_taux3')) || 25.0);
+        setIrppTaux4(Number(localStorage.getItem('setting_irpp_taux4')) || 35.0);
 
         setThemeColor(localStorage.getItem('setting_theme_color') || 'indigo');
         setAppLanguage(localStorage.getItem('setting_language') || 'fr');
@@ -225,6 +241,11 @@ export default function SettingsPage() {
         localStorage.setItem('setting_cfc_employer_rate', cfcEmployerRate.toString());
         localStorage.setItem('setting_fne_rate', fneRate.toString());
         localStorage.setItem('setting_cac_rate', cacRate.toString());
+        localStorage.setItem('setting_rav_mensuel', ravMensuel.toString());
+        localStorage.setItem('setting_irpp_taux1', irppTaux1.toString());
+        localStorage.setItem('setting_irpp_taux2', irppTaux2.toString());
+        localStorage.setItem('setting_irpp_taux3', irppTaux3.toString());
+        localStorage.setItem('setting_irpp_taux4', irppTaux4.toString());
 
         localStorage.setItem('setting_theme_color', themeColor);
         localStorage.setItem('setting_language', appLanguage);
@@ -660,6 +681,57 @@ export default function SettingsPage() {
                     <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Redevance Audio Visuelle (RAV) — Montant mensuel</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={ravMensuel}
+                      onChange={(e) => setRavMensuel(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">FCFA</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">13 000 FCFA/an soit ~1 083 FCFA/mois par défaut</p>
+                </div>
+                
+                <div className="md:col-span-2 mt-4 pt-4 border-t border-slate-100">
+                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Barème IRPP (Impôt sur le Revenu)</label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">0 - 2M FCFA</label>
+                      <div className="relative">
+                        <input type="number" step="0.1" value={irppTaux1} onChange={(e) => setIrppTaux1(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">2M - 3M FCFA</label>
+                      <div className="relative">
+                        <input type="number" step="0.1" value={irppTaux2} onChange={(e) => setIrppTaux2(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">3M - 5M FCFA</label>
+                      <div className="relative">
+                        <input type="number" step="0.1" value={irppTaux3} onChange={(e) => setIrppTaux3(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">&gt; 5M FCFA</label>
+                      <div className="relative">
+                        <input type="number" step="0.1" value={irppTaux4} onChange={(e) => setIrppTaux4(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
 

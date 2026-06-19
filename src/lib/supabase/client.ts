@@ -14,7 +14,8 @@ function createDesktopLocalBuilder(table: string): any {
     action: 'select',
     payload: null,
     filters: [] as { field: string; value: any }[],
-    isSingle: false
+    isSingle: false,
+    upsertOptions: null as any
   };
 
   const proxy: any = new Proxy(queryState, {
@@ -34,15 +35,23 @@ function createDesktopLocalBuilder(table: string): any {
               table: target.table,
               payload: target.payload,
               filters: target.filters,
-              isSingle: target.isSingle
+              isSingle: target.isSingle,
+              upsertOptions: target.upsertOptions
             };
             return fetch('/api/local-db', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body)
             })
-              .then(res => res.json())
-              .then(onfulfilled)
+              .then(res => {
+                const json = res.json();
+                return json.then((data: any) => {
+                  if (target.isSingle && data.data && Array.isArray(data.data)) {
+                    data.data = data.data[0] || null;
+                  }
+                  return onfulfilled(data);
+                });
+              })
               .catch(onrejected);
           }
         };
@@ -50,7 +59,9 @@ function createDesktopLocalBuilder(table: string): any {
 
       if (prop === 'select') {
         return () => {
-          target.action = 'select';
+          if (target.action !== 'insert' && target.action !== 'update' && target.action !== 'upsert') {
+            target.action = 'select';
+          }
           return proxy;
         };
       }
@@ -61,6 +72,14 @@ function createDesktopLocalBuilder(table: string): any {
           return proxy;
         };
       }
+      if (prop === 'upsert') {
+        return (values: any, options?: any) => {
+          target.action = 'upsert';
+          target.payload = values;
+          target.upsertOptions = options;
+          return proxy;
+        };
+      }
       if (prop === 'update') {
         return (values: any) => {
           target.action = 'update';
@@ -68,6 +87,7 @@ function createDesktopLocalBuilder(table: string): any {
           return proxy;
         };
       }
+
       if (prop === 'delete') {
         return () => {
           target.action = 'delete';

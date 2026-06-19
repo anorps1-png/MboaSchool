@@ -213,6 +213,7 @@ export interface MembrePersonnel {
   salaireDeBase: number;
   dateEmbauche: string;
   statut: 'actif' | 'suspendu' | 'quitte';
+  modePaiementPreferentiel?: 'Banque' | 'Caisse';
 }
 
 export interface MasseSalarialeHistorique {
@@ -265,3 +266,42 @@ export interface FormationRH {
   organisme: string;
   statut: 'planifié' | 'en_cours' | 'terminé';
 }
+
+// Bulletin de paie conforme CNPS Cameroun
+export interface FicheDePaie {
+  id: string;
+  personnelId: string;
+  nomPersonnel: string;
+  periode: string; // ex: "2026-06"
+  datePaiement: string;
+
+  // Éléments de rémunération
+  salaireDeBase: number;
+  primeTransport: number;
+  primeLogement: number;
+  primeAnciennete: number;
+  autresPrimes: number;
+  salaireBrut: number;
+
+  // Retenues salariales (part employé)
+  cnpsSalariale: number;       // Pension Vieillesse — défaut 4.2%
+  cfcSalariale: number;        // Crédit Foncier — défaut 1.0%
+  irpp: number;                // Impôt sur le Revenu — barème progressif
+  cac: number;                 // Centimes Additionnels Communaux — 10% de l'IRPP
+  rav: number;                 // Redevance Audio Visuelle — 13 000 FCFA/an
+  totalRetenues: number;
+
+  // Charges patronales
+  cnpsPatronale: number;       // défaut 16.2% (AF + AT/MP + PV)
+  cfcPatronale: number;        // défaut 1.5%
+  fne: number;                 // Fonds National Emploi — défaut 1.0%
+  totalChargesPatronales: number;
+
+  // Net
+  netAPayer: number;
+
+  modePaiement?: 'Banque' | 'Caisse';
+
+  statut: 'brouillon' | 'valide' | 'paye';
+}
+

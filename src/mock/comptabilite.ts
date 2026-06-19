@@ -16,6 +16,7 @@ export const planComptableOHADA: CompteOHADA[] = [
   { numero: '441', libelle: 'État - Impôts et Taxes', classe: 4 },
   { numero: '443', libelle: 'État - TVA facturée', classe: 4 },
   { numero: '445', libelle: 'État - TVA récupérable', classe: 4 },
+  { numero: '4472', libelle: 'État, IRPP retenu à la source', classe: 4 },
 
   // Classe 5 : Trésorerie
   { numero: '521', libelle: 'Banque - Compte Principal', classe: 5 },
@@ -30,6 +31,8 @@ export const planComptableOHADA: CompteOHADA[] = [
   { numero: '631', libelle: 'Frais bancaires', classe: 6 },
   { numero: '64', libelle: 'Impôts et taxes', classe: 6 },
   { numero: '661', libelle: 'Rémunérations directes (Salaires)', classe: 6 },
+  { numero: '6611', libelle: 'Appointements et salaires', classe: 6 },
+  { numero: '6641', libelle: 'Charges sociales patronales', classe: 6 },
 
   // Classe 7 : Produits
   { numero: '706', libelle: 'Services vendus (Frais de scolarité)', classe: 7 },
