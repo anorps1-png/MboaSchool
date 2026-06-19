@@ -104,15 +104,44 @@ export default function FinancePage() {
           .eq('etablissement_id', etablissementId)
           .order('numero', { ascending: true });
         
+        let loadedPlan = planComptableOHADA;
         if (!error && storedPlan && storedPlan.length > 0) {
-          setPlanComptable(storedPlan);
+          loadedPlan = storedPlan;
         } else {
           const stored = localStorage.getItem('mboaschool_plancomptable');
-          setPlanComptable(stored ? JSON.parse(stored) : planComptableOHADA);
+          if (stored) {
+            try {
+              loadedPlan = JSON.parse(stored);
+            } catch (e) {}
+          }
         }
+        
+        // Merge missing accounts from planComptableOHADA dynamically
+        const mergedPlan = [...loadedPlan];
+        planComptableOHADA.forEach(mockAcc => {
+          if (!mergedPlan.some(p => p.numero === mockAcc.numero)) {
+            mergedPlan.push(mockAcc);
+          }
+        });
+        
+        const sortedPlan = mergedPlan.sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true }));
+        setPlanComptable(sortedPlan);
       } catch (err) {
         const stored = localStorage.getItem('mboaschool_plancomptable');
-        setPlanComptable(stored ? JSON.parse(stored) : planComptableOHADA);
+        let loadedPlan = planComptableOHADA;
+        if (stored) {
+          try {
+            loadedPlan = JSON.parse(stored);
+          } catch (e) {}
+        }
+        const mergedPlan = [...loadedPlan];
+        planComptableOHADA.forEach(mockAcc => {
+          if (!mergedPlan.some(p => p.numero === mockAcc.numero)) {
+            mergedPlan.push(mockAcc);
+          }
+        });
+        const sortedPlan = mergedPlan.sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true }));
+        setPlanComptable(sortedPlan);
       }
 
       // 1.5 Fetch Classes first so we have access to class prices!

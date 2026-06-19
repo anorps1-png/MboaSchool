@@ -181,7 +181,7 @@ export interface Cours {
 export interface CompteOHADA {
   numero: string;
   libelle: string;
-  classe: 2 | 4 | 5 | 6 | 7;
+  classe: 1 | 2 | 3 | 4 | 5 | 6 | 7;
 }
 
 export interface LigneEcriture {
