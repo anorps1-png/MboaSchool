@@ -1081,9 +1081,10 @@ export default function RHPage() {
           etablissementId!
         );
         triggerToast(`✅ ${fichesPaye.length} bulletin(s) validé(s) et comptabilité mouvementée !`);
-      } catch (comptaErr) {
+      } catch (comptaErr: any) {
         console.warn('Écriture comptable échouée (les comptes OHADA existent-ils ?):', comptaErr);
-        triggerToast(`${fichesPaye.length} bulletin(s) validé(s). ⚠️ Écriture comptable non créée (vérifiez le plan comptable).`);
+        const errMsg = comptaErr?.message || (typeof comptaErr === 'object' ? JSON.stringify(comptaErr) : String(comptaErr));
+        triggerToast(`${fichesPaye.length} bulletin(s) validé(s). ⚠️ Écriture comptable non créée : ${errMsg}`);
       }
 
       setFichesDePaieHistorique(updatedFiches);
