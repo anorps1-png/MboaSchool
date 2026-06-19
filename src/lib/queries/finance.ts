@@ -1,4 +1,5 @@
 import { createClient } from '../supabase/client';
+import { planComptableOHADA } from '../../mock/comptabilite';
 
 const supabase = createClient();
 
@@ -24,6 +25,33 @@ export async function getEcrituresComptables(etablissementId: string) {
 }
 
 export async function addEcritureComptable(ecriture: Record<string, any>, lignes: any[], etablissementId: string) {
+  // Ensure all accounts in 'lignes' exist in comptes_ohada to prevent foreign key errors
+  try {
+    const { data: existingAccounts } = await supabase
+      .from('comptes_ohada')
+      .select('numero')
+      .eq('etablissement_id', etablissementId);
+      
+    const existingSet = new Set((existingAccounts || []).map((a: any) => a.numero));
+    const uniqueCompteNums = Array.from(new Set(lignes.map(l => l.compteNumero)));
+    const missingAccounts = uniqueCompteNums.filter(num => num && !existingSet.has(num));
+      
+    if (missingAccounts.length > 0) {
+      const toInsert = missingAccounts.map(num => {
+        const mockAcc = planComptableOHADA.find(a => a.numero === num);
+        return {
+          numero: num,
+          libelle: mockAcc ? mockAcc.libelle : `Compte ${num}`,
+          classe: mockAcc ? mockAcc.classe : Number(num.charAt(0)),
+          etablissement_id: etablissementId
+        };
+      });
+      await supabase.from('comptes_ohada').insert(toInsert);
+    }
+  } catch (err) {
+    console.warn("Failed to self-heal comptes_ohada:", err);
+  }
+
   const { data, error } = await supabase
     .from('ecritures_comptables')
     .insert([{ ...ecriture, etablissement_id: etablissementId }])
