@@ -267,9 +267,9 @@ export function calculerFicheDePaie(params: {
  * Génère les lignes comptables OHADA pour une série de fiches de paie.
  * 
  * Comptes utilisés (Plan Comptable OHADA) :
- * - 6611 : Appointements et salaires (Débit : salaire brut)
+ * - 661  : Rémunérations directes (Salaires) (Débit : salaire brut)
  * - 6641 : Charges sociales sur salaires (Débit : charges patronales)
- * - 421  : Personnel — Rémunérations dues (Crédit : net à payer)
+ * - 421  : Personnel — Rémunérations dues (Crédit : net à payer lors de la constatation, Débit lors du règlement)
  * - 431  : Sécurité sociale — CNPS (Crédit : cotisations salariales + patronales CNPS + CFC)
  * - 4472 : État, IRPP retenu à la source (Crédit : IRPP + CAC + RAV)
  * - 521/571 : Banque/Caisse (Crédit lors du décaissement)
@@ -328,19 +328,26 @@ export function genererEcrituresComptablesPaie(
 
   const totalCotisationsSociales = totalCNPSSalariale + totalCFCSalariale + totalCNPSPatronale + totalCFCPatronale + totalFNE;
   const totalImpots = totalIRPP + totalCAC + totalRAV;
+  const totalNet = totalNetBanque + totalNetCaisse;
 
   const now = new Date();
   const reference = `PAIE-${now.toISOString().slice(0, 7)}-${Date.now().toString(36).toUpperCase()}`;
 
   const lignes: LigneComptable[] = [
     // DÉBITS
-    { compteNumero: '6611', debit: totalBrut, credit: 0 },               // Appointements et salaires
+    { compteNumero: '661', debit: totalBrut, credit: 0 },                // Rémunérations directes (Salaires)
     { compteNumero: '6641', debit: totalChargesPatronales, credit: 0 },   // Charges sociales patronales
 
     // CRÉDITS
     { compteNumero: '431', debit: 0, credit: totalCotisationsSociales },  // CNPS + CFC + FNE à reverser
     { compteNumero: '4472', debit: 0, credit: totalImpots },             // IRPP + CAC + RAV à reverser à l'État
+    { compteNumero: '421', debit: 0, credit: totalNet },                 // Constatation du Net à payer (Crédit)
   ];
+
+  // RÈGLEMENT (Débit 421 et Crédit Banque/Caisse)
+  if (totalNet > 0) {
+    lignes.push({ compteNumero: '421', debit: totalNet, credit: 0 });    // Règlement du Net à payer (Débit)
+  }
 
   if (totalNetBanque > 0) {
     lignes.push({ compteNumero: compteBanque, debit: 0, credit: totalNetBanque });
