@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Eleve, Classe } from '@/types/domain';
 import { getDashboardData } from '@/lib/queries/dashboard';
@@ -15,6 +15,11 @@ export default function Dashboard() {
   const [teachersList, setTeachersList] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // Date range filter states
+  const [dateFilterType, setDateFilterType] = useState<string>('all');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
 
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
@@ -32,6 +37,7 @@ export default function Dashboard() {
             sexe: d.sexe,
             classeId: d.classe_id,
             statut: d.statut,
+            dateInscription: d.date_inscription ? d.date_inscription.split('T')[0] : '',
             paiements: d.paiements?.map((p: any) => ({
               id: p.id,
               eleveId: p.eleve_id,
@@ -84,6 +90,90 @@ export default function Dashboard() {
     }
   }, [etablissementId]);
 
+  // Helper to parse dates locally without timezone shift issues (noon normalization)
+  const parseLocalDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return null;
+    const cleanStr = dateStr.split('T')[0];
+    const parts = cleanStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      return new Date(year, month, day, 12, 0, 0, 0);
+    }
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+    return null;
+  };
+
+  // Helper to get start and end boundaries for the current local timezone
+  const getDateRange = (type: string, start: string, end: string) => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    switch (type) {
+      case 'today':
+        return { start: startOfToday, end: endOfToday };
+      case 'week': {
+        const day = now.getDay();
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(now.getFullYear(), now.getMonth(), diff, 0, 0, 0, 0);
+        return { start: monday, end: endOfToday };
+      }
+      case 'month': {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        return { start: startOfMonth, end: endOfToday };
+      }
+      case 'quarter': {
+        const currentQuarterMonth = Math.floor(now.getMonth() / 3) * 3;
+        const startOfQuarter = new Date(now.getFullYear(), currentQuarterMonth, 1, 0, 0, 0, 0);
+        return { start: startOfQuarter, end: endOfToday };
+      }
+      case 'year': {
+        const startOfYear = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        return { start: startOfYear, end: endOfToday };
+      }
+      case 'custom': {
+        let startDate = new Date(0);
+        if (start) {
+          const parts = start.split('-');
+          startDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 0, 0, 0, 0);
+        }
+        let endDate = new Date(9999, 11, 31, 23, 59, 59, 999);
+        if (end) {
+          const parts = end.split('-');
+          endDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 23, 59, 59, 999);
+        }
+        return { start: startDate, end: endDate };
+      }
+      case 'all':
+      default:
+        return { start: new Date(0), end: new Date(9999, 11, 31, 23, 59, 59, 999) };
+    }
+  };
+
+  const dateRange = useMemo(() => {
+    return getDateRange(dateFilterType, customStartDate, customEndDate);
+  }, [dateFilterType, customStartDate, customEndDate]);
+
+  // Filtered students (registrations) during the period
+  const filteredStudentsForExpected = useMemo(() => {
+    if (dateFilterType === 'all') {
+      return students;
+    }
+    return students.filter(s => {
+      const d = parseLocalDate(s.dateInscription);
+      return d && d >= dateRange.start && d <= dateRange.end;
+    });
+  }, [students, dateRange, dateFilterType]);
+
+  const newInscriptionsCount = useMemo(() => {
+    return filteredStudentsForExpected.length;
+  }, [filteredStudentsForExpected]);
+
   // 1. Calculations
   const totalStudents = students.length;
   const activeStudents = students.filter(s => s.statut === 'actif').length;
@@ -100,22 +190,67 @@ export default function Dashboard() {
   });
   const globalSuccessRate = studentsWithGrades.length > 0 ? ((studentsPassed.length / studentsWithGrades.length) * 100).toFixed(1) : '--';
 
-  // Total paid
-  const totalPaid = students.reduce((sum, student) => {
-    const studentPaid = (((student.paiements || []) || []) || [])
-      .filter(p => p.statut === 'paid')
-      .reduce((s, p) => s + p.montant, 0);
-    return sum + studentPaid;
-  }, 0);
+  // Total expected (Frais attendus pour ces élèves)
+  const totalExpected = useMemo(() => {
+    const activeList = dateFilterType === 'all' ? students : filteredStudentsForExpected;
+    return activeList.reduce((sum, student) => {
+      const classObj = classesList.find(c => c.id === student.classeId);
+      return sum + (classObj?.prix || 0);
+    }, 0);
+  }, [students, filteredStudentsForExpected, classesList, dateFilterType]);
 
-  // Total expected
-  const totalExpected = students.reduce((sum, student) => {
-    const classObj = classesList.find(c => c.id === student.classeId);
-    return sum + (classObj?.prix || 0);
-  }, 0);
+  // Total paid in the selected period (all payments received during the period)
+  const totalPaid = useMemo(() => {
+    return students.reduce((sum, student) => {
+      const studentPaid = (student.paiements || [])
+        .filter(p => {
+          if (p.statut !== 'paid') return false;
+          if (dateFilterType === 'all') return true;
+          const pd = parseLocalDate(p.date);
+          return pd && pd >= dateRange.start && pd <= dateRange.end;
+        })
+        .reduce((s, p) => s + p.montant, 0);
+      return sum + studentPaid;
+    }, 0);
+  }, [students, dateRange, dateFilterType]);
 
-  const totalPending = totalExpected - totalPaid;
-  const recoveryRate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 0;
+  // Payments made by the filtered (new) students in the period
+  const totalPaidByFilteredStudents = useMemo(() => {
+    return filteredStudentsForExpected.reduce((sum, student) => {
+      const studentPaid = (student.paiements || [])
+        .filter(p => {
+          if (p.statut !== 'paid') return false;
+          if (dateFilterType === 'all') return true;
+          const pd = parseLocalDate(p.date);
+          return pd && pd >= dateRange.start && pd <= dateRange.end;
+        })
+        .reduce((s, p) => s + p.montant, 0);
+      return sum + studentPaid;
+    }, 0);
+  }, [filteredStudentsForExpected, dateRange, dateFilterType]);
+
+  // Montant en attente
+  const totalPending = useMemo(() => {
+    if (dateFilterType === 'all') {
+      const allPaid = students.reduce((sum, student) => {
+        const studentPaid = (student.paiements || [])
+          .filter(p => p.statut === 'paid')
+          .reduce((s, p) => s + p.montant, 0);
+        return sum + studentPaid;
+      }, 0);
+      const allExpected = students.reduce((sum, student) => {
+        const classObj = classesList.find(c => c.id === student.classeId);
+        return sum + (classObj?.prix || 0);
+      }, 0);
+      return Math.max(0, allExpected - allPaid);
+    }
+    return Math.max(0, totalExpected - totalPaidByFilteredStudents);
+  }, [dateFilterType, students, classesList, totalExpected, totalPaidByFilteredStudents]);
+
+  // Recovery Rate
+  const recoveryRate = useMemo(() => {
+    return totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 0;
+  }, [totalPaid, totalExpected]);
 
   // Format currency helper
   const formatFCFA = (amount: number) => {
@@ -123,31 +258,100 @@ export default function Dashboard() {
   };
 
   // Group by class for charts
-  const classStats = classesList.map(c => {
-    const studentsInClass = students.filter(s => s.classeId === c.id);
-    const count = studentsInClass.length;
-    const expected = count * (c.prix || 0);
-    const paid = studentsInClass.reduce((sum, s) => {
-      return sum + (((s.paiements || []) || []) || [])?.filter(p => p.statut === 'paid').reduce((ps, p) => ps + p.montant, 0);
-    }, 0);
-    const pending = expected - paid;
+  const classStats = useMemo(() => {
+    return classesList.map(c => {
+      // Filter students in class by registration date if period active
+      const studentsInClass = students.filter(s => {
+        if (s.classeId !== c.id) return false;
+        if (dateFilterType === 'all') return true;
+        const d = parseLocalDate(s.dateInscription);
+        return d && d >= dateRange.start && d <= dateRange.end;
+      });
+
+      const count = studentsInClass.length;
+      const expected = count * (c.prix || 0);
+
+      // Payments received in the period for all students in this class
+      const studentsAllInClass = students.filter(s => s.classeId === c.id);
+      const paid = studentsAllInClass.reduce((sum, s) => {
+        const studentPaidInPeriod = (s.paiements || [])
+          .filter(p => {
+            if (p.statut !== 'paid') return false;
+            if (dateFilterType === 'all') return true;
+            const pd = parseLocalDate(p.date);
+            return pd && pd >= dateRange.start && pd <= dateRange.end;
+          })
+          .reduce((ps, p) => ps + p.montant, 0);
+        return sum + studentPaidInPeriod;
+      }, 0);
+
+      // Payments made by the new students in the period for pending calculation
+      const paidByNewStudentsInPeriod = studentsInClass.reduce((sum, s) => {
+        const studentPaidInPeriod = (s.paiements || [])
+          .filter(p => {
+            if (p.statut !== 'paid') return false;
+            if (dateFilterType === 'all') return true;
+            const pd = parseLocalDate(p.date);
+            return pd && pd >= dateRange.start && pd <= dateRange.end;
+          })
+          .reduce((ps, p) => ps + p.montant, 0);
+        return sum + studentPaidInPeriod;
+      }, 0);
+
+      const pending = dateFilterType === 'all' ? Math.max(0, expected - paid) : Math.max(0, expected - paidByNewStudentsInPeriod);
+
+      return {
+        classeName: c.nom,
+        studentCount: count,
+        expected,
+        paid,
+        pending,
+        rate: expected > 0 ? (paid / expected) * 100 : 0
+      };
+    });
+  }, [classesList, students, dateFilterType, dateRange]);
+
+  const activeClassStats = useMemo(() => {
+    return classStats.filter(c => c.expected > 0);
+  }, [classStats]);
+
+  const displayStats = useMemo(() => {
+    return activeClassStats.length > 0 ? activeClassStats : classStats;
+  }, [activeClassStats, classStats]);
+
+  // Filtered transactions for active period
+  const filteredTransactions = useMemo(() => {
+    if (dateFilterType === 'all') return transactions;
+    return transactions.filter(tx => {
+      const d = parseLocalDate(tx.date);
+      return d && d >= dateRange.start && d <= dateRange.end;
+    });
+  }, [transactions, dateFilterType, dateRange]);
+
+  const recentTransactions = useMemo(() => {
+    return filteredTransactions.slice(0, 5);
+  }, [filteredTransactions]);
+
+  // Denominator for student percentage distribution in level charts
+  const totalStudentsInPeriod = useMemo(() => {
+    if (dateFilterType === 'all') return students.length;
+    return filteredStudentsForExpected.length;
+  }, [students, filteredStudentsForExpected, dateFilterType]);
+
+  // Gender statistics for the active period
+  const genderStats = useMemo(() => {
+    const activeList = dateFilterType === 'all' ? students : filteredStudentsForExpected;
+    const total = activeList.length;
+    const girls = activeList.filter(s => s.sexe === 'F').length;
+    const boys = activeList.filter(s => s.sexe === 'M').length;
     return {
-      classeName: c.nom,
-      studentCount: count,
-      expected,
-      paid,
-      pending,
-      rate: expected > 0 ? (paid / expected) * 100 : 0
+      girlsPct: total > 0 ? ((girls / total) * 100).toFixed(0) : '0',
+      boysPct: total > 0 ? ((boys / total) * 100).toFixed(0) : '0'
     };
-  });
-
-  const activeClassStats = classStats.filter(c => c.expected > 0);
-  const displayStats = activeClassStats.length > 0 ? activeClassStats : classStats;
-
-  const recentTransactions = transactions.slice(0, 5);
+  }, [students, filteredStudentsForExpected, dateFilterType]);
 
   const handleExportTransactions = () => {
-    const dataToExport = transactions.map(tx => ({
+    const dataToExport = filteredTransactions.map(tx => ({
       Référence: tx.reference,
       Date: tx.date,
       'Élève': tx.nomEleve,
@@ -168,20 +372,61 @@ export default function Dashboard() {
       </div>
     );
   }
-
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 pb-6 border-b border-slate-100">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 tracking-tight text-black">Vue d&apos;ensemble</h1>
           <p className="text-sm text-slate-500 mt-1">
             Statistiques clés et aperçu financier de l&apos;établissement en temps réel.
           </p>
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mt-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Connecté à Supabase en direct</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>Connecté à Supabase en direct</span>
+
+        {/* Date Filter Controls */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm w-full md:w-auto">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 p-1.5 bg-slate-50 rounded-lg">
+              <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </span>
+            <select
+              value={dateFilterType}
+              onChange={(e) => setDateFilterType(e.target.value)}
+              className="text-sm font-semibold text-slate-700 bg-transparent border-0 focus:ring-0 focus:outline-none cursor-pointer pr-8"
+            >
+              <option value="all">Toutes les périodes</option>
+              <option value="today">Aujourd&apos;hui</option>
+              <option value="week">Cette semaine</option>
+              <option value="month">Ce mois-ci</option>
+              <option value="quarter">Ce trimestre</option>
+              <option value="year">Cette année</option>
+              <option value="custom">Période personnalisée</option>
+            </select>
+          </div>
+
+          {dateFilterType === 'custom' && (
+            <div className="flex items-center gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+              />
+              <span className="text-xs text-slate-400 font-bold">au</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -199,15 +444,21 @@ export default function Dashboard() {
           </div>
           <div className="mt-4">
             <h3 className="text-3xl font-extrabold text-slate-800 text-black">{totalStudents}</h3>
-            <p className="text-xs text-slate-500 mt-1 flex flex-col gap-1">
+            <div className="text-xs text-slate-500 mt-1 flex flex-col gap-1.5">
               <span className="flex items-center gap-1">
                 <span className="text-emerald-500 font-semibold">{activeStudents} actifs</span>
                 <span>• {totalStudents - activeStudents} suspendus</span>
               </span>
+              {dateFilterType !== 'all' && (
+                <span className="text-xs font-semibold text-indigo-600 bg-indigo-50/70 border border-indigo-100/50 px-2.5 py-1 rounded-xl inline-flex items-center gap-1.5 w-fit">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                  dont {newInscriptionsCount} nouveau{newInscriptionsCount !== 1 ? 'x' : ''} inscrit{newInscriptionsCount !== 1 ? 's' : ''}
+                </span>
+              )}
               <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded inline-flex w-fit mt-1">
                 Taux de réussite : {globalSuccessRate !== '--' ? `${globalSuccessRate}%` : '--'}
               </span>
-            </p>
+            </div>
           </div>
         </div>
 
@@ -244,13 +495,13 @@ export default function Dashboard() {
             <h3 className="text-2xl font-extrabold text-slate-800 truncate text-black">{formatFCFA(totalPaid)}</h3>
             <div className="mt-2">
               <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
-                <span>Taux de recouvrement</span>
+                <span>Taux de recouvrement {dateFilterType !== 'all' ? 'sur la période' : ''}</span>
                 <span className="font-semibold text-indigo-600">{recoveryRate.toFixed(1)}%</span>
               </div>
               <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                 <div
                   className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${recoveryRate}%` }}
+                  style={{ width: `${Math.min(100, recoveryRate)}%` }}
                 ></div>
               </div>
             </div>
@@ -309,7 +560,7 @@ export default function Dashboard() {
                       strokeWidth="14"
                       fill="transparent"
                       strokeDasharray={2 * Math.PI * 70}
-                      strokeDashoffset={2 * Math.PI * 70 - (recoveryRate / 100) * (2 * Math.PI * 70)}
+                      strokeDashoffset={2 * Math.PI * 70 - (Math.min(100, recoveryRate) / 100) * (2 * Math.PI * 70)}
                       strokeLinecap="round"
                     />
                   )}
@@ -366,7 +617,7 @@ export default function Dashboard() {
                             strokeWidth="3.5"
                             fill="transparent"
                             strokeDasharray={2 * Math.PI * 13}
-                            strokeDashoffset={2 * Math.PI * 13 - (stat.rate / 100) * (2 * Math.PI * 13)}
+                            strokeDashoffset={2 * Math.PI * 13 - (Math.min(100, stat.rate) / 100) * (2 * Math.PI * 13)}
                             strokeLinecap="round"
                           />
                         )}
@@ -393,7 +644,7 @@ export default function Dashboard() {
           <div className="space-y-4">
             {classStats.length > 0 ? classStats.map((stat) => {
               const maxStudents = Math.max(...classStats.map(s => s.studentCount));
-              const pct = maxStudents > 0 ? (stat.studentCount / totalStudents) * 100 : 0;
+              const pct = totalStudentsInPeriod > 0 ? (stat.studentCount / totalStudentsInPeriod) * 100 : 0;
               return (
                 <div key={stat.classeName} className="space-y-1">
                   <div className="flex items-center justify-between text-xs font-medium text-slate-700">
@@ -415,10 +666,10 @@ export default function Dashboard() {
 
           <div className="border-t border-slate-100 pt-4 mt-6 flex justify-between text-[11px] text-slate-500">
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Filles ({totalStudents > 0 ? ((students.filter(s => s.sexe === 'F').length / totalStudents) * 100).toFixed(0) : 0}%)
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Filles ({genderStats.girlsPct}%)
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Garçons ({totalStudents > 0 ? ((students.filter(s => s.sexe === 'M').length / totalStudents) * 100).toFixed(0) : 0}%)
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Garçons ({genderStats.boysPct}%)
             </span>
           </div>
         </div>
