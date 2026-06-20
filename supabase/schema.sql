@@ -218,7 +218,8 @@ CREATE TABLE public.enquetes_historique (
 CREATE TABLE public.comptes_ohada (
   numero TEXT PRIMARY KEY,
   libelle TEXT NOT NULL,
-  classe INTEGER CHECK (classe IN (2, 4, 5, 6, 7))
+  classe INTEGER CHECK (classe IN (1, 2, 3, 4, 5, 6, 7)),
+  etablissement_id UUID REFERENCES public.etablissements(id) ON DELETE CASCADE
 );
 
 CREATE TABLE public.ecritures_comptables (
@@ -226,6 +227,8 @@ CREATE TABLE public.ecritures_comptables (
   date DATE NOT NULL DEFAULT CURRENT_DATE,
   libelle TEXT NOT NULL,
   reference TEXT UNIQUE NOT NULL,
+  partenaire TEXT,
+  etablissement_id UUID REFERENCES public.etablissements(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -347,6 +350,9 @@ ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bulletins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.paiements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.annees_scolaires ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.comptes_ohada ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ecritures_comptables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lignes_ecritures ENABLE ROW LEVEL SECURITY;
 
 -- Simple Multi-tenant RLS Policies
 CREATE POLICY "Etablissement read access" ON public.etablissements FOR SELECT TO authenticated USING (TRUE);
@@ -426,3 +432,23 @@ CREATE POLICY "Bulletins scope access" ON public.bulletins TO authenticated
 CREATE POLICY "Etablissement access for ALL on annees_scolaires" ON public.annees_scolaires TO authenticated
   USING (etablissement_id = public.current_user_etablissement_id())
   WITH CHECK (etablissement_id = public.current_user_etablissement_id());
+
+CREATE POLICY "Comptes OHADA access for authenticated" ON public.comptes_ohada TO authenticated
+  USING (etablissement_id = public.current_user_etablissement_id())
+  WITH CHECK (etablissement_id = public.current_user_etablissement_id());
+
+CREATE POLICY "Ecritures comptables access for authenticated" ON public.ecritures_comptables TO authenticated
+  USING (etablissement_id = public.current_user_etablissement_id())
+  WITH CHECK (etablissement_id = public.current_user_etablissement_id());
+
+CREATE POLICY "Lignes ecritures access for authenticated" ON public.lignes_ecritures TO authenticated
+  USING (
+    ecriture_id IN (
+      SELECT id FROM public.ecritures_comptables WHERE etablissement_id = public.current_user_etablissement_id()
+    )
+  )
+  WITH CHECK (
+    ecriture_id IN (
+      SELECT id FROM public.ecritures_comptables WHERE etablissement_id = public.current_user_etablissement_id()
+    )
+  );

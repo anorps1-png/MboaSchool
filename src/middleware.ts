@@ -9,47 +9,50 @@ export async function middleware(request: NextRequest) {
     },
   });
 
+  const offlineSession = request.cookies.get('mboaschool_offline_session');
+  
   let user = null;
-  try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!offlineSession) {
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (supabaseUrl && supabaseKey) {
-      const supabase = createServerClient(supabaseUrl, supabaseKey, {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll().map((cookie) => ({
-              name: cookie.name,
-              value: cookie.value,
-            }));
+      if (supabaseUrl && supabaseKey) {
+        const supabase = createServerClient(supabaseUrl, supabaseKey, {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll().map((cookie) => ({
+                name: cookie.name,
+                value: cookie.value,
+              }));
+            },
+            setAll(cookiesToSet) {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                request.cookies.set(name, value)
+              );
+              response = NextResponse.next({
+                request,
+              });
+              cookiesToSet.forEach(({ name, value, options }) =>
+                response.cookies.set(name, value, options)
+              );
+            },
           },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              request.cookies.set(name, value)
-            );
-            response = NextResponse.next({
-              request,
-            });
-            cookiesToSet.forEach(({ name, value, options }) =>
-              response.cookies.set(name, value, options)
-            );
-          },
-        },
-      });
+        });
 
-      const {
-        data: { user: supabaseUser },
-      } = await supabase.auth.getUser();
-      user = supabaseUser;
+        const {
+          data: { user: supabaseUser },
+        } = await supabase.auth.getUser();
+        user = supabaseUser;
+      }
+    } catch (err) {
+      console.error("Middleware Supabase auth error:", err);
     }
-  } catch (err) {
-    console.error("Middleware Supabase auth error:", err);
   }
 
   const path = request.nextUrl.pathname;
 
   // Check if there is an active offline/simulated session cookie
-  const offlineSession = request.cookies.get('mboaschool_offline_session');
   
   // Check if the browser holds a valid-looking Supabase auth cookie.
   // This prevents sudden logouts on navigation when the Supabase API is slow or offline.

@@ -6,12 +6,11 @@ const supabase = createClient();
 export async function getPlanComptable(etablissementId: string) {
   const { data, error } = await supabase
     .from('comptes_ohada')
-    .select('*')
-    .eq('etablissement_id', etablissementId)
-    .order('numero', { ascending: true });
+    .select('*');
 
   if (error) throw error;
-  return data || [];
+  const filtered = (data || []).filter((a: any) => !a.etablissement_id || a.etablissement_id === etablissementId);
+  return filtered.sort((a: any, b: any) => a.numero.localeCompare(b.numero, undefined, { numeric: true }));
 }
 
 export async function getEcrituresComptables(etablissementId: string) {
@@ -29,10 +28,11 @@ export async function addEcritureComptable(ecriture: Record<string, any>, lignes
   try {
     const { data: existingAccounts } = await supabase
       .from('comptes_ohada')
-      .select('numero')
-      .eq('etablissement_id', etablissementId);
+      .select('numero, etablissement_id');
       
-    const existingSet = new Set((existingAccounts || []).map((a: any) => a.numero));
+    const existingSet = new Set((existingAccounts || [])
+      .filter((a: any) => !a.etablissement_id || a.etablissement_id === etablissementId)
+      .map((a: any) => a.numero));
     const uniqueCompteNums = Array.from(new Set(lignes.map(l => l.compteNumero)));
     const missingAccounts = uniqueCompteNums.filter(num => num && !existingSet.has(num));
       
