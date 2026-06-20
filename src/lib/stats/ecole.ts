@@ -88,33 +88,72 @@ export async function computeEcoleStats(
   const tauxReussiteGlobal = validClasses > 0 ? parseFloat((reussiteSum / validClasses).toFixed(1)) : 0;
   const moyenneGenerale = validClasses > 0 ? parseFloat((moyenneSum / validClasses).toFixed(2)) : 0;
 
-  // 4. Calculer le recouvrement financier
-  // Récupérer tous les paiements des élèves de ces classes
-  const { data: students } = await supabase
-    .from('eleves')
-    .select('id, classe_id')
-    .in('classe_id', ecoleClasses.map(c => c.id));
+  // 4. Calculer le recouvrement financier with pagination
+  let allStudents: any[] = [];
+  let from = 0;
+  const step = 1000;
+  let hasMore = true;
+  const classIds = ecoleClasses.map(c => c.id);
+
+  while (hasMore) {
+    const { data: students, error } = await supabase
+      .from('eleves')
+      .select('id, classe_id')
+      .in('classe_id', classIds)
+      .range(from, from + step - 1);
+
+    if (error) {
+      console.error('[Stats Ecole] Error fetching students:', error);
+      return null;
+    }
+
+    if (students && students.length > 0) {
+      allStudents = allStudents.concat(students);
+      from += step;
+      if (students.length < step) hasMore = false;
+    } else {
+      hasMore = false;
+    }
+  }
 
   let totalExpected = 0;
   let totalPaid = 0;
 
-  if (students && students.length > 0) {
+  if (allStudents.length > 0) {
     // Somme des frais attendus (prix de la classe pour chaque élève)
-    students.forEach(s => {
+    allStudents.forEach(s => {
       const cls = ecoleClasses.find(c => c.id === s.classe_id);
       totalExpected += cls?.prix ? Number(cls.prix) : 0;
     });
 
-    // Somme des paiements réels
-    const { data: paiements } = await supabase
-      .from('paiements')
-      .select('montant')
-      .in('eleve_id', students.map(s => s.id))
-      .eq('statut', 'paid');
-
-    if (paiements) {
-      totalPaid = paiements.reduce((sum, p) => sum + Number(p.montant), 0);
+    // Somme des paiements réels with pagination
+    let allPaiements: any[] = [];
+    let pFrom = 0;
+    const pStep = 1000;
+    let pHasMore = true;
+    while (pHasMore) {
+      const { data: paiements, error: pErr } = await supabase
+        .from('paiements')
+        .select('montant, eleve_id')
+        .eq('etablissement_id', etablissementId)
+        .eq('statut', 'paid')
+        .range(pFrom, pFrom + pStep - 1);
+      if (pErr) {
+        console.error('[Stats Ecole] Error fetching payments:', pErr);
+        return null;
+      }
+      if (paiements && paiements.length > 0) {
+        allPaiements = allPaiements.concat(paiements);
+        pFrom += pStep;
+        if (paiements.length < pStep) pHasMore = false;
+      } else {
+        pHasMore = false;
+      }
     }
+
+    const studentIdsSet = new Set(allStudents.map(s => s.id));
+    const schoolPaiements = allPaiements.filter(p => studentIdsSet.has(p.eleve_id));
+    totalPaid = schoolPaiements.reduce((sum, p) => sum + Number(p.montant), 0);
   }
 
   const tauxRecouvrement = totalExpected > 0 ? parseFloat(((totalPaid / totalExpected) * 100).toFixed(1)) : 0;

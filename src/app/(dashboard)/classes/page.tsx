@@ -57,17 +57,33 @@ export default function ClassesPage() {
       setClassesList(classesData);
     }
 
-    // Fetch eleves to count them per class (filtered by etablissement)
-    const { data: elevesData } = await supabase.from('eleves').select('classe_id').eq('etablissement_id', etablissementId);
-    if (elevesData) {
-      const counts: Record<string, number> = {};
-      elevesData.forEach(e => {
-        if (e.classe_id) {
-          counts[e.classe_id] = (counts[e.classe_id] || 0) + 1;
-        }
-      });
-      setElevesCount(counts);
+    // Fetch eleves to count them per class (filtered by etablissement) with pagination
+    let allElevesData: any[] = [];
+    let from = 0;
+    const step = 1000;
+    let hasMore = true;
+    while (hasMore) {
+      const { data } = await supabase
+        .from('eleves')
+        .select('classe_id')
+        .eq('etablissement_id', etablissementId)
+        .range(from, from + step - 1);
+      if (data && data.length > 0) {
+        allElevesData = allElevesData.concat(data);
+        from += step;
+        if (data.length < step) hasMore = false;
+      } else {
+        hasMore = false;
+      }
     }
+    
+    const counts: Record<string, number> = {};
+    allElevesData.forEach(e => {
+      if (e.classe_id) {
+        counts[e.classe_id] = (counts[e.classe_id] || 0) + 1;
+      }
+    });
+    setElevesCount(counts);
 
     setIsLoading(false);
   };

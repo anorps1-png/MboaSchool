@@ -24,7 +24,7 @@ export default function Dashboard() {
           setClassesList(classes);
           setTeachersList(teachers);
 
-          const mappedStudents = studentsData.map(d => ({
+          const mappedStudents = studentsData.map((d: any) => ({
             id: d.id,
             matricule: d.matricule,
             nom: d.nom,
@@ -51,7 +51,7 @@ export default function Dashboard() {
 
           // Build transactions list from all payments
           const allTx: any[] = [];
-          studentsData.forEach(student => {
+          studentsData.forEach((student: any) => {
             if (student.paiements) {
               student.paiements.forEach((p: any) => {
                 const classObj = classes.find(c => c.id === student.classe_id);

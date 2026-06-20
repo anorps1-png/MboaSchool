@@ -164,10 +164,31 @@ export default function FinancePage() {
       let loadedPersonnel: MembrePersonnel[] = [];
       let loadedFormations: FormationRH[] = [];
       try {
-        const { data: elevesData, error } = await supabase
-          .from('eleves')
-          .select('*, paiements(*)')
-          .eq('etablissement_id', etablissementId);
+        let allElevesData: any[] = [];
+        let from = 0;
+        const step = 1000;
+        let hasMore = true;
+        let fetchError: any = null;
+        while (hasMore) {
+          const { data, error: err } = await supabase
+            .from('eleves')
+            .select('*, paiements(*)')
+            .eq('etablissement_id', etablissementId)
+            .range(from, from + step - 1);
+          if (err) {
+            fetchError = err;
+            break;
+          }
+          if (data && data.length > 0) {
+            allElevesData = allElevesData.concat(data);
+            from += step;
+            if (data.length < step) hasMore = false;
+          } else {
+            hasMore = false;
+          }
+        }
+        const elevesData = allElevesData;
+        const error = fetchError;
         
         if (!error && elevesData) {
           // Map to domain format

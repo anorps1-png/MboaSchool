@@ -43,8 +43,26 @@ export default function CommunauteQHSEPage() {
     const fetchData = async () => {
       const supabase = createClient();
       
-      // Fetch Eleves -> Extract Parents (filtered by etablissement)
-      const { data: eleves } = await supabase.from('eleves').select('*').eq('etablissement_id', etablissementId);
+      // Fetch Eleves -> Extract Parents (filtered by etablissement) with pagination
+      let allEleves: any[] = [];
+      let from = 0;
+      const step = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data } = await supabase
+          .from('eleves')
+          .select('*')
+          .eq('etablissement_id', etablissementId)
+          .range(from, from + step - 1);
+        if (data && data.length > 0) {
+          allEleves = allEleves.concat(data);
+          from += step;
+          if (data.length < step) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+      }
+      const eleves = allEleves;
       if (eleves) {
         const parentsMap = new Map<string, ParentProfile>();
         eleves.forEach(student => {
