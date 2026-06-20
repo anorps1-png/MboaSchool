@@ -5,11 +5,25 @@ import os from 'os';
 
 // Path helpers
 const getDbDir = () => {
-  const dir = path.join(os.homedir(), '.mboaschool');
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  let dir = path.join(os.homedir(), '.mboaschool');
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    // Verify write permissions
+    const testPath = path.join(dir, '.write_test');
+    fs.writeFileSync(testPath, 'test', 'utf8');
+    fs.unlinkSync(testPath);
+    return dir;
+  } catch (e) {
+    // Homedir is read-only (e.g. Vercel serverless environment)
+    // Fall back to system tmp directory which is writeable
+    const tmpDir = path.join(os.tmpdir(), '.mboaschool');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    return tmpDir;
   }
-  return dir;
 };
 
 const getDbPath = () => path.join(getDbDir(), 'local_db.json');
