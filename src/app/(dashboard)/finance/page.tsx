@@ -174,6 +174,8 @@ export default function FinancePage() {
             .from('eleves')
             .select('*, paiements(*)')
             .eq('etablissement_id', etablissementId)
+            .order('nom', { ascending: true })
+            .order('id', { ascending: true })
             .range(from, from + step - 1);
           if (err) {
             fetchError = err;

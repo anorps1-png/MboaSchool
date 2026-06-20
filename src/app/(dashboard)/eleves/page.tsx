@@ -15,7 +15,7 @@ import { createClient, isRunningInElectron } from '@/lib/supabase/client';
 
 export default function ElevesPage() {
   const isElectron = isRunningInElectron();
-  const { etablissementId, academicYearId } = useEtablissement();
+  const { etablissementId, academicYearId, setAcademicYearId } = useEtablissement();
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -242,8 +242,8 @@ export default function ElevesPage() {
 
         if (etab?.annee_scolaire_active_id) {
           resolvedAnneeScolaireId = etab.annee_scolaire_active_id;
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('mboaschool_active_year_id', resolvedAnneeScolaireId);
+          if (setAcademicYearId) {
+            setAcademicYearId(resolvedAnneeScolaireId);
           }
         } else {
           const { data: years } = await supabase

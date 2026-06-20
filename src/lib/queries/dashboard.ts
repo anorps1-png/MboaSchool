@@ -25,6 +25,8 @@ export async function getDashboardData(etablissementId: string) {
       .from('eleves')
       .select('*, paiements(*), notes(*)')
       .eq('etablissement_id', etablissementId)
+      .order('nom', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, from + step - 1);
 
     if (studentsError) throw studentsError;

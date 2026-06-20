@@ -53,6 +53,8 @@ export default function CommunauteQHSEPage() {
           .from('eleves')
           .select('*')
           .eq('etablissement_id', etablissementId)
+          .order('nom', { ascending: true })
+          .order('id', { ascending: true })
           .range(from, from + step - 1);
         if (data && data.length > 0) {
           allEleves = allEleves.concat(data);

@@ -14,6 +14,7 @@ export async function getStudents(etablissementId: string) {
       .select('*, paiements(*)')
       .eq('etablissement_id', etablissementId)
       .order('nom', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, from + step - 1);
 
     if (error) throw error;

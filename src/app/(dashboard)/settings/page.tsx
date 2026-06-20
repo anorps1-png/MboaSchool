@@ -10,7 +10,12 @@ interface AcademicYear {
 }
 
 export default function SettingsPage() {
-  const { etablissementId, setEtablissementId } = useEtablissement();
+  const { 
+    etablissementId, 
+    setEtablissementId, 
+    setAcademicYearId, 
+    setAcademicYear 
+  } = useEtablissement();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -217,11 +222,11 @@ export default function SettingsPage() {
       if (typeof window !== 'undefined') {
         localStorage.setItem('mboaschool_current_school', schoolName);
         if (activeYearId) {
-          localStorage.setItem('mboaschool_active_year_id', activeYearId);
+          setAcademicYearId(activeYearId);
         }
         const activeYearObj = academicYears.find(y => y.id === activeYearId);
         if (activeYearObj) {
-          localStorage.setItem('mboaschool_current_year', activeYearObj.nom);
+          setAcademicYear(activeYearObj.nom);
         }
 
         localStorage.setItem('setting_school_motto', schoolMotto);

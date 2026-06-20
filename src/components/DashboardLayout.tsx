@@ -270,7 +270,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   }
 
                   if (activeYearId) {
-                    localStorage.setItem('mboaschool_active_year_id', activeYearId);
+                    setAcademicYearId(activeYearId);
                     const { data: annee } = await supabase
                       .from('annees_scolaires')
                       .select('nom')
@@ -304,7 +304,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         const activeYearVal = localYear || academicYear;
         if (!localActiveYearId && activeYearVal) {
           localActiveYearId = typeof crypto !== 'undefined' ? crypto.randomUUID() : `local_year_${Date.now()}`;
-          localStorage.setItem('mboaschool_active_year_id', localActiveYearId);
+          setAcademicYearId(localActiveYearId);
           
           const storedYears = localStorage.getItem('offline_cache_annees_scolaires');
           if (!storedYears) {

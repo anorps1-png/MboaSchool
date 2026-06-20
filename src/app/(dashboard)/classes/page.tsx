@@ -67,6 +67,7 @@ export default function ClassesPage() {
         .from('eleves')
         .select('classe_id')
         .eq('etablissement_id', etablissementId)
+        .order('id', { ascending: true })
         .range(from, from + step - 1);
       if (data && data.length > 0) {
         allElevesData = allElevesData.concat(data);

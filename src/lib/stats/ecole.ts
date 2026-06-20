@@ -100,6 +100,7 @@ export async function computeEcoleStats(
       .from('eleves')
       .select('id, classe_id')
       .in('classe_id', classIds)
+      .order('id', { ascending: true })
       .range(from, from + step - 1);
 
     if (error) {
@@ -137,6 +138,7 @@ export async function computeEcoleStats(
         .select('montant, eleve_id')
         .eq('etablissement_id', etablissementId)
         .eq('statut', 'paid')
+        .order('id', { ascending: true })
         .range(pFrom, pFrom + pStep - 1);
       if (pErr) {
         console.error('[Stats Ecole] Error fetching payments:', pErr);
