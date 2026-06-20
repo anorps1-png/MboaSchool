@@ -908,7 +908,8 @@ export default function FinancePage() {
         .insert([{
           numero: newAcc.numero,
           libelle: newAcc.libelle,
-          classe: newAcc.classe
+          classe: newAcc.classe,
+          etablissement_id: etablissementId
         }]);
       if (!error) savedToSupabase = true;
     } catch (err) {

@@ -43,7 +43,7 @@ export async function addEcritureComptable(ecriture: Record<string, any>, lignes
           numero: num,
           libelle: mockAcc ? mockAcc.libelle : `Compte ${num}`,
           classe: mockAcc ? mockAcc.classe : Number(num.charAt(0)),
-          etablissement_id: etablissementId
+          etablissement_id: mockAcc ? null : etablissementId
         };
       });
       await supabase.from('comptes_ohada').insert(toInsert);
