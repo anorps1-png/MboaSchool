@@ -140,9 +140,10 @@ export function createClient() {
       if (prop === 'from') {
         const isOffline = () => {
           if (typeof window === 'undefined') return false;
+          if (!isRunningInElectron()) return false; // Force online mode on standard web browsers
           const forceOffline = localStorage.getItem('mboaschool_force_offline') === 'true';
           const hasOfflineSession = !!localStorage.getItem('mboaschool_offline_session');
-          return isRunningInElectron() || !navigator.onLine || forceOffline || hasOfflineSession;
+          return !navigator.onLine || forceOffline || hasOfflineSession;
         };
 
         if (isOffline()) {

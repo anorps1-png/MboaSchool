@@ -11,9 +11,10 @@ import SyncManager from '@/lib/syncManager';
 import { getStudents, createStudent, addPayment } from '@/lib/queries/eleves';
 import { getClasses } from '@/lib/queries/classes';
 import { useEtablissement } from '@/contexts/etablissement-context';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, isRunningInElectron } from '@/lib/supabase/client';
 
 export default function ElevesPage() {
+  const isElectron = isRunningInElectron();
   const { etablissementId, academicYearId } = useEtablissement();
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
@@ -229,7 +230,7 @@ export default function ElevesPage() {
     }
 
     // 2. Try online query if still not resolved
-    const isOfflineMode = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+    const isOfflineMode = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
     if (!resolvedAnneeScolaireId && !isOfflineMode && etablissementId) {
       try {
         const supabase = createClient();
@@ -433,7 +434,7 @@ export default function ElevesPage() {
     event.stopPropagation();
 
     if (confirm(`Voulez-vous vraiment supprimer l'élève ${name} définitivement ? Cette action supprimera également ses paiements et ses notes.`)) {
-      const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+      const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
       const supabase = createClient();
 
       if (isOffline) {
@@ -498,7 +499,7 @@ export default function ElevesPage() {
       section: sectionStr
     };
 
-    const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+    const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
 
     if (isOffline) {
       const tempId = `temp_cls_${Date.now()}_${Math.floor(Math.random()*1000)}`;
@@ -582,7 +583,7 @@ export default function ElevesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+    const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
     const supabase = createClient();
 
     let resolvedAnneeScolaireId = null;
@@ -647,7 +648,7 @@ export default function ElevesPage() {
         let errorsCount = 0;
         const localClasses = [...classesList]; // Local reference to track created classes during the loop synchronously
 
-        const isOffline = !navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline);
+        const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
         const supabase = createClient();
 
         for (const row of data) {

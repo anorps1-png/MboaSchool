@@ -94,7 +94,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         }
       };
 
-      initLocalDb();
+      if (isEl) {
+        initLocalDb();
+      }
 
       const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
       let initForceOffline = false;
