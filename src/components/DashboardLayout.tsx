@@ -98,11 +98,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
       const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
       let initForceOffline = false;
-      if (storedForceOffline !== null) {
+      if (storedForceOffline !== null && isEl) {
         initForceOffline = storedForceOffline === 'true';
       } else {
-        initForceOffline = true;
-        localStorage.setItem('mboaschool_force_offline', 'true');
+        initForceOffline = false;
+        localStorage.setItem('mboaschool_force_offline', 'false');
       }
       
       setForceOffline(initForceOffline);
