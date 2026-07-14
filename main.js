@@ -31,6 +31,10 @@ function log(msg) {
 function startNextServer() {
   return new Promise((resolve, reject) => {
     log("Starting Next.js initialization...");
+    // Identifie ce serveur comme le runtime desktop embarqué : débloque le mode
+    // hors-ligne (cookie de session offline, API /api/local-db). Jamais défini
+    // sur un déploiement web, où ces mécanismes doivent rester inaccessibles.
+    process.env.MBOASCHOOL_DESKTOP = '1';
     const dev = false;
     const nextApp = next({ dev, dir: __dirname });
     const handle = nextApp.getRequestHandler();

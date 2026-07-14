@@ -9,8 +9,14 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const offlineSession = request.cookies.get('mboaschool_offline_session');
-  
+  // Le cookie de session hors-ligne n'est honoré que dans l'application desktop
+  // (serveur Next embarqué par Electron, qui définit MBOASCHOOL_DESKTOP=1).
+  // Sur le web, ce cookie est posé côté client et serait donc forgeable.
+  const isDesktopRuntime = process.env.MBOASCHOOL_DESKTOP === '1';
+  const offlineSession = isDesktopRuntime
+    ? request.cookies.get('mboaschool_offline_session')
+    : undefined;
+
   let user = null;
   if (!offlineSession) {
     try {
@@ -52,15 +58,10 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
 
-  // Check if there is an active offline/simulated session cookie
-  
-  // Check if the browser holds a valid-looking Supabase auth cookie.
-  // This prevents sudden logouts on navigation when the Supabase API is slow or offline.
-  const hasAuthCookie = request.cookies.getAll().some(
-    (c) => c.name.includes('auth-token') || c.name.startsWith('sb-')
-  );
-  
-  const hasAccess = user || offlineSession || hasAuthCookie;
+  // Seule une session Supabase vérifiée (ou une session offline dans l'app
+  // desktop) donne accès. La simple présence d'un cookie n'est jamais suffisante :
+  // un cookie se forge librement depuis le navigateur.
+  const hasAccess = user || offlineSession;
 
   // Protected routes check
   // Allow landing page (/), login (/login), SW/manifests, and static assets
@@ -78,9 +79,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Redirect to dashboard if already logged in and hitting login page
-  // We require a verified Supabase user or active offline session. We do not use the soft hasAccess (which includes cookie presence) here to avoid redirect loops during logout.
-  const hasRealAccess = user || offlineSession;
-  if (hasRealAccess && path === '/login') {
+  if (hasAccess && path === '/login') {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

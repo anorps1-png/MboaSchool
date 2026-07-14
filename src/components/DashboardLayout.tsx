@@ -153,7 +153,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       let successCount = 0;
       for (const task of queue) {
         const { id, table, action, payload, filters } = task;
-        let queryBuilder = onlineClient.from(table);
+        const queryBuilder = onlineClient.from(table);
         let result: any = null;
 
         if (action === 'insert') {

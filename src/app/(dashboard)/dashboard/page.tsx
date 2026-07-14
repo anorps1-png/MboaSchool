@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Eleve, Classe } from '@/types/domain';
-import { getDashboardData } from '@/lib/queries/dashboard';
+import { getDashboardData, getDashboardStats, type DashboardStats } from '@/lib/queries/dashboard';
 import { downloadExcel } from '@/lib/excel';
 import { DownloadIcon } from '@/components/icons';
 import { useEtablissement } from '@/contexts/etablissement-context';
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [teachersList, setTeachersList] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [serverStats, setServerStats] = useState<DashboardStats | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Date range filter states
@@ -25,9 +26,18 @@ export default function Dashboard() {
     if (typeof window !== 'undefined' && etablissementId) {
       const fetchData = async () => {
         try {
-          const { classes, students: studentsData, teachers } = await getDashboardData(etablissementId);
+          // Indicateurs globaux calculés en base (agrégats SQL) en parallèle
+          // du chargement détaillé nécessaire aux vues filtrées par date.
+          const [{ classes, students: studentsData, teachers }, stats] = await Promise.all([
+            getDashboardData(etablissementId),
+            getDashboardStats(etablissementId).catch((e) => {
+              console.error('Dashboard stats RPC error:', e);
+              return null;
+            }),
+          ]);
           setClassesList(classes);
           setTeachersList(teachers);
+          setServerStats(stats);
 
           const mappedStudents = studentsData.map((d: any) => ({
             id: d.id,
@@ -47,10 +57,6 @@ export default function Dashboard() {
               statut: p.statut,
               reference: p.reference,
               modePaiement: p.mode_paiement
-            })) || [],
-            notes: d.notes?.map((n: any) => ({
-              id: n.id,
-              note: Number(n.note)
             })) || []
           }));
           setStudents(mappedStudents as any);
@@ -180,15 +186,11 @@ export default function Dashboard() {
   const totalTeachers = teachersList.length;
   const activeTeachers = teachersList.filter(t => t.statut === 'actif').length;
 
-  // Calcul du Taux de Réussite Global
-  const studentsWithGrades = students.filter(s => s.notes && (s.notes || []).length > 0);
-  const studentsPassed = studentsWithGrades.filter(s => {
-    const grades = (s.notes || []).filter(g => ((g.note || 0) || 0) !== undefined);
-    if(grades.length === 0) return false;
-    const avg = grades.reduce((sum, g) => sum + (((g.note || 0) || 0) || 0), 0) / grades.length;
-    return avg >= 10;
-  });
-  const globalSuccessRate = studentsWithGrades.length > 0 ? ((studentsPassed.length / studentsWithGrades.length) * 100).toFixed(1) : '--';
+  // Taux de Réussite Global : calculé en base (getDashboardStats) plutôt que
+  // sur les notes chargées côté client.
+  const globalSuccessRate = serverStats?.success_rate != null
+    ? serverStats.success_rate.toFixed(1)
+    : '--';
 
   // Total expected (Frais attendus pour ces élèves)
   const totalExpected = useMemo(() => {

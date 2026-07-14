@@ -3,9 +3,22 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+// Cette API sert de base de données locale pour l'application desktop (Electron).
+// Elle lit/écrit des fichiers sur la machine et n'a AUCUNE authentification :
+// elle ne doit donc jamais être exposée sur un déploiement web, où elle serait
+// partagée entre tous les visiteurs. Le runtime desktop est identifié par la
+// variable MBOASCHOOL_DESKTOP définie par le process principal Electron (main.js).
+const isDesktopRuntime = () => process.env.MBOASCHOOL_DESKTOP === '1';
+
+const desktopOnlyResponse = () =>
+  NextResponse.json(
+    { data: null, error: { message: "Cette API n'est disponible que dans l'application desktop." } },
+    { status: 403 }
+  );
+
 // Path helpers
 const getDbDir = () => {
-  let dir = path.join(os.homedir(), '.mboaschool');
+  const dir = path.join(os.homedir(), '.mboaschool');
   try {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -114,6 +127,7 @@ function resolveRelations(table: string, records: any[], db: Record<string, any[
 
 // GET handler
 export async function GET(req: NextRequest) {
+  if (!isDesktopRuntime()) return desktopOnlyResponse();
   try {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get('action');
@@ -159,6 +173,7 @@ export async function GET(req: NextRequest) {
 
 // POST handler (Insert / Update / Delete / Init)
 export async function POST(req: NextRequest) {
+  if (!isDesktopRuntime()) return desktopOnlyResponse();
   try {
     const body = await req.json();
     const { action, table, payload, filters, taskId } = body;
@@ -366,6 +381,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE handler (Acknowledge task from queue)
 export async function DELETE(req: NextRequest) {
+  if (!isDesktopRuntime()) return desktopOnlyResponse();
   try {
     const { taskId } = await req.json();
     if (!taskId) {

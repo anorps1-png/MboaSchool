@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Eleve, Classe } from '@/types/domain';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { getClassRankings, type ClassRanking } from '@/lib/queries/evaluations';
 
 interface PageProps {
   params: Promise<{ classeId: string; eleveId: string }>;
@@ -21,6 +22,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
   const [classInfo, setClassInfo] = useState<any | null>(null);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [notesList, setNotesList] = useState<any[]>([]);
+  const [rankings, setRankings] = useState<ClassRanking[]>([]);
   const [etabInfo, setEtabInfo] = useState<any | null>(null);
   const [yearName, setYearName] = useState('2025/2026');
   const [isLoaded, setIsLoaded] = useState(false);
@@ -78,6 +80,15 @@ export default function BulletinImpressionPage({ params }: PageProps) {
           if (notesData) setNotesList(notesData);
         }
 
+        // 3b. Classement de la classe calculé en base (moyenne/rang/mention).
+        try {
+          const rk = await getClassRankings(classeId, term);
+          setRankings(rk);
+        } catch (rkErr) {
+          console.warn('Classement serveur indisponible, repli client:', rkErr);
+          setRankings([]);
+        }
+
         // 4. Fetch establishment details
         const { data: etabData } = await supabase
           .from('etablissements')
@@ -131,10 +142,18 @@ export default function BulletinImpressionPage({ params }: PageProps) {
     return totalCoefs > 0 ? totalPoints / totalCoefs : 0;
   };
 
-  const myAvg = calculateAvg(student);
-  const allAvgs = allStudents.map(calculateAvg).sort((a,b) => b - a);
-  const myRank = myAvg > 0 ? allAvgs.indexOf(myAvg) + 1 : '-';
-  const totalPoints = termNotes.reduce((sum, n) => sum + ((n.note || 0) * (n.coefficient || 1)), 0);
+  // Classement serveur (RPC) prioritaire ; repli sur le calcul client hors-ligne.
+  const serverRow = rankings.find(r => r.eleve_id === student.id);
+  const clientAvg = calculateAvg(student);
+  const clientAllAvgs = allStudents.map(calculateAvg).sort((a, b) => b - a);
+  const clientRank = clientAvg > 0 ? clientAllAvgs.indexOf(clientAvg) + 1 : '-';
+
+  const myAvg = serverRow ? Number(serverRow.moyenne) : clientAvg;
+  const myRank = serverRow ? (serverRow.rang ?? '-') : clientRank;
+  const classeEffectif = serverRow ? serverRow.effectif : allStudents.length;
+  const totalPoints = serverRow
+    ? Number(serverRow.total_points)
+    : termNotes.reduce((sum, n) => sum + ((n.note || 0) * (n.coefficient || 1)), 0);
 
   const getMention = (avg: number) => {
     if (avg >= 16) return 'Très Bien';
@@ -310,7 +329,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
               <div className="font-black text-right text-sm">{isMaternelle ? 'N/A' : (myAvg > 0 ? myAvg.toFixed(2) + ' / 20' : '-')}</div>
               
               <div className="font-bold text-slate-500 uppercase text-[10px]">Rang :</div>
-              <div className="font-black text-right">{isMaternelle ? '-' : myRank + ' / ' + allStudents.length}</div>
+              <div className="font-black text-right">{isMaternelle ? '-' : myRank + ' / ' + classeEffectif}</div>
               
               <div className="font-bold text-slate-500 uppercase text-[10px]">Appréciation Globale :</div>
               <div className="font-black text-right text-[11px]">{isMaternelle ? 'EN PROGRESSION' : getMention(myAvg).toUpperCase()}</div>

@@ -24,54 +24,29 @@ export async function getEcrituresComptables(etablissementId: string) {
 }
 
 export async function addEcritureComptable(ecriture: Record<string, any>, lignes: any[], etablissementId: string) {
-  // Ensure all accounts in 'lignes' exist in comptes_ohada to prevent foreign key errors
-  try {
-    const { data: existingAccounts } = await supabase
-      .from('comptes_ohada')
-      .select('numero, etablissement_id');
-      
-    const existingSet = new Set((existingAccounts || [])
-      .filter((a: any) => !a.etablissement_id || a.etablissement_id === etablissementId)
-      .map((a: any) => a.numero));
-    const uniqueCompteNums = Array.from(new Set(lignes.map(l => l.compteNumero)));
-    const missingAccounts = uniqueCompteNums.filter(num => num && !existingSet.has(num));
-      
-    if (missingAccounts.length > 0) {
-      const toInsert = missingAccounts.map(num => {
-        const mockAcc = planComptableOHADA.find(a => a.numero === num);
-        return {
-          numero: num,
-          libelle: mockAcc ? mockAcc.libelle : `Compte ${num}`,
-          classe: mockAcc ? mockAcc.classe : Number(num.charAt(0)),
-          etablissement_id: mockAcc ? null : etablissementId
-        };
-      });
-      await supabase.from('comptes_ohada').insert(toInsert);
-    }
-  } catch (err) {
-    console.warn("Failed to self-heal comptes_ohada:", err);
-  }
+  // Insertion atomique via une fonction Postgres (RPC) : en-tête + lignes dans
+  // une seule transaction, avec vérification de l'équilibre débit = crédit et
+  // création à la volée des comptes OHADA manquants. Fini les en-têtes orphelins.
+  const lignesPayload = lignes.map((l) => {
+    const mockAcc = planComptableOHADA.find((a) => a.numero === l.compteNumero);
+    return {
+      compte_numero: l.compteNumero,
+      libelle: mockAcc ? mockAcc.libelle : `Compte ${l.compteNumero}`,
+      classe: mockAcc ? mockAcc.classe : Number(String(l.compteNumero).charAt(0)),
+      debit: l.debit || 0,
+      credit: l.credit || 0,
+    };
+  });
 
-  const { data, error } = await supabase
-    .from('ecritures_comptables')
-    .insert([{ ...ecriture, etablissement_id: etablissementId }])
-    .select()
-    .single();
+  const { data: ecritureId, error } = await supabase.rpc('create_ecriture_comptable', {
+    p_libelle: ecriture.libelle,
+    p_reference: ecriture.reference,
+    p_date: ecriture.date ?? null,
+    p_partenaire: ecriture.partenaire ?? null,
+    p_lignes: lignesPayload,
+  });
 
   if (error) throw error;
 
-  const lignesData = lignes.map(l => ({
-    ecriture_id: data.id,
-    compte_numero: l.compteNumero,
-    debit: l.debit || 0,
-    credit: l.credit || 0
-  }));
-
-  const { error: linesError } = await supabase
-    .from('lignes_ecritures')
-    .insert(lignesData);
-
-  if (linesError) throw linesError;
-
-  return data;
+  return { id: ecritureId as string, ...ecriture, etablissement_id: etablissementId };
 }

@@ -3,6 +3,8 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient, isRunningInElectron } from '@/lib/supabase/client';
+import { hashPassword, verifyPassword } from '@/lib/utils/offlineAuth';
+import { validatePasswordStrength } from '@/lib/validation/password';
 
 function LoginContent() {
   const router = useRouter();
@@ -63,31 +65,31 @@ function LoginContent() {
     }
   }, [searchParams]);
 
-  const handleOfflineLogin = () => {
-    // Check if we have a simulated active account session
-    const storedOffline = localStorage.getItem('mboaschool_offline_session');
-    if (storedOffline) {
-      try {
-        const parsed = JSON.parse(storedOffline);
-        if (parsed.email === email) {
-          document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
-          router.push('/dashboard');
-          return;
-        }
-      } catch (e) {
-        console.warn("Parsing offline session failed", e);
-      }
-    }
-
-    // Check in mboaschool_profiles for simulated accounts cached during online login
+  const handleOfflineLogin = async () => {
+    // Check in mboaschool_profiles for accounts cached during a previous online login.
+    // Le mot de passe est TOUJOURS vérifié (hash PBKDF2) : un profil sans empreinte
+    // de mot de passe ne permet pas de se connecter hors-ligne.
     const storedProfiles = localStorage.getItem('mboaschool_profiles');
     if (storedProfiles) {
       try {
         const profilesList = JSON.parse(storedProfiles);
         const matchedProfile = profilesList.find((p: any) => p.email === email);
         if (matchedProfile) {
-          // Verify password if it is stored in the profile
-          if (matchedProfile.password && matchedProfile.password !== password) {
+          let passwordOk = false;
+          if (matchedProfile.passwordHash && matchedProfile.passwordSalt) {
+            passwordOk = await verifyPassword(password, matchedProfile.passwordSalt, matchedProfile.passwordHash);
+          } else if (matchedProfile.password) {
+            // Ancienne entrée stockée en clair : on vérifie puis on migre vers le hash.
+            passwordOk = matchedProfile.password === password;
+            if (passwordOk) {
+              const { hash, salt } = await hashPassword(password);
+              delete matchedProfile.password;
+              matchedProfile.passwordHash = hash;
+              matchedProfile.passwordSalt = salt;
+              localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+            }
+          }
+          if (!passwordOk) {
             setErrorMsg("Mot de passe incorrect.");
             setIsLoading(false);
             return;
@@ -112,8 +114,10 @@ function LoginContent() {
       }
     }
 
-    // General fallback demo login
-    if (email === 'admin@mboaschool.com' || email === 'directeur@mboaschool.com') {
+    // Comptes de démonstration : uniquement dans les builds de développement.
+    // En production, aucun compte codé en dur ne doit donner accès à l'application.
+    if (process.env.NODE_ENV === 'development' &&
+        (email === 'admin@mboaschool.com' || email === 'directeur@mboaschool.com')) {
       const demoEtabId = 'd3b07384-d113-4ee7-a496-c67b8a74e50d';
       const demoYearId = 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d';
       document.cookie = "mboaschool_offline_session=true; path=/; max-age=86400";
@@ -149,7 +153,7 @@ function LoginContent() {
     const isOfflineMode = isElectron && typeof navigator !== 'undefined' && (!navigator.onLine || forceOffline);
 
     if (isOfflineMode) {
-      handleOfflineLogin();
+      await handleOfflineLogin();
       return;
     }
 
@@ -174,7 +178,7 @@ function LoginContent() {
             .single();
             
           let schoolName = 'Mon Établissement';
-          let etabId = profile?.etablissement_id || null;
+          const etabId = profile?.etablissement_id || null;
           
           if (etabId) {
             localStorage.setItem('mboaschool_etablissement_id', etabId);
@@ -196,10 +200,12 @@ function LoginContent() {
               try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
             }
             profilesList = profilesList.filter((p: any) => p.email !== email);
+            const { hash: passwordHash, salt: passwordSalt } = await hashPassword(password);
             profilesList.push({
               id: data.user.id,
               email: email,
-              password: password, // Store password for offline local check
+              passwordHash, // Empreinte PBKDF2 pour le login hors-ligne — jamais le mot de passe en clair
+              passwordSalt,
               role: profile?.role || 'admin',
               school: schoolName,
               etablissement_id: etabId,
@@ -220,10 +226,12 @@ function LoginContent() {
               try { profilesList = JSON.parse(storedProfiles); } catch (e) {}
             }
             if (!profilesList.find((p: any) => p.email === email)) {
+              const { hash: passwordHash, salt: passwordSalt } = await hashPassword(password);
               profilesList.push({
                 id: data.user.id,
                 email: email,
-                password: password,
+                passwordHash,
+                passwordSalt,
                 role: 'admin',
                 school: localStorage.getItem('mboaschool_current_school') || 'Mon Établissement',
                 etablissement_id: localStorage.getItem('mboaschool_etablissement_id'),
@@ -260,7 +268,7 @@ function LoginContent() {
 
       // Connection error, fallback to offline login only in Electron
       if (isElectron) {
-        handleOfflineLogin();
+        await handleOfflineLogin();
       } else {
         setErrorMsg("Erreur de connexion : impossible de joindre le serveur. Veuillez vérifier votre connexion internet.");
       }
@@ -273,8 +281,13 @@ function LoginContent() {
     e.preventDefault();
     setErrorMsg(null);
     if (signupStep === 1) {
-      if (!email || !password || password.length < 6) {
-        setErrorMsg("Le mot de passe doit faire au moins 6 caractères.");
+      if (!email || !password) {
+        setErrorMsg("Veuillez renseigner votre email et un mot de passe.");
+        return;
+      }
+      const pwdError = validatePasswordStrength(password);
+      if (pwdError) {
+        setErrorMsg(pwdError);
         return;
       }
       setSignupStep(2);
@@ -346,27 +359,32 @@ function LoginContent() {
           localStorage.setItem('mboaschool_etablissement_id', etabId);
         }
 
-        // Update local profiles list so they can log back in
-        const storedProfiles = localStorage.getItem('mboaschool_profiles');
-        let profilesList = [];
-        if (storedProfiles) {
-          try {
-            profilesList = JSON.parse(storedProfiles);
-          } catch (e) {
-            profilesList = [];
+        // Cache local du profil pour le login hors-ligne : desktop uniquement,
+        // avec empreinte de mot de passe (jamais en clair).
+        if (isRunningInElectron()) {
+          const storedProfiles = localStorage.getItem('mboaschool_profiles');
+          let profilesList = [];
+          if (storedProfiles) {
+            try {
+              profilesList = JSON.parse(storedProfiles);
+            } catch (e) {
+              profilesList = [];
+            }
           }
-        }
-        if (!profilesList.find((p: any) => p.email === email)) {
-          profilesList.push({
-            id: signUpData?.user?.id || `offline-${Date.now()}`,
-            email: email,
-            password: password,
-            role: 'admin',
-            school: schoolName,
-            etablissement_id: etabId,
-            created_at: new Date().toISOString()
-          });
-          localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+          if (!profilesList.find((p: any) => p.email === email)) {
+            const { hash: passwordHash, salt: passwordSalt } = await hashPassword(password);
+            profilesList.push({
+              id: signUpData?.user?.id || `offline-${Date.now()}`,
+              email: email,
+              passwordHash,
+              passwordSalt,
+              role: 'admin',
+              school: schoolName,
+              etablissement_id: etabId,
+              created_at: new Date().toISOString()
+            });
+            localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
+          }
         }
 
         // If the email is auto-confirmed, we can log the user in immediately
@@ -403,7 +421,14 @@ function LoginContent() {
         return;
       }
       
-      // Local Fallback Mode (only when completely offline or server unreachable)
+      // Local Fallback Mode : uniquement dans l'application desktop. Sur le web,
+      // on ne crée jamais de session simulée (le middleware la refuserait de
+      // toute façon) — on affiche une erreur de connexion.
+      if (!isRunningInElectron()) {
+        setErrorMsg("Impossible de joindre le serveur pour créer votre compte. Veuillez vérifier votre connexion internet et réessayer.");
+        setIsLoading(false);
+        return;
+      }
       const offlineEtabId = crypto.randomUUID();
       const offlineYearId = crypto.randomUUID();
       localStorage.setItem('mboaschool_current_school', schoolName);
@@ -427,10 +452,12 @@ function LoginContent() {
         }
       }
       if (!profilesList.find((p: any) => p.email === email)) {
+        const { hash: passwordHash, salt: passwordSalt } = await hashPassword(password);
         profilesList.push({
           id: `offline-${Date.now()}`,
           email: email,
-          password: password,
+          passwordHash,
+          passwordSalt,
           role: 'admin',
           school: schoolName,
           etablissement_id: offlineEtabId,

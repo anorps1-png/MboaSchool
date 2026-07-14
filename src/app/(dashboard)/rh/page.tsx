@@ -27,6 +27,7 @@ import {
 } from '@/lib/queries/rh';
 import { addEcritureComptable } from '@/lib/queries/finance';
 import { calculerFicheDePaie, calculerPrimeAnciennete, getAnneesService, getTauxFromLocalStorage, genererEcrituresComptablesPaie, PLAFOND_CNPS } from '@/lib/payroll';
+import { validatePasswordStrength } from '@/lib/validation/password';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { 
   mockPersonnel, 
@@ -297,8 +298,13 @@ export default function RHPage() {
 
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAccNom || !newAccEmail || !newAccPassword || newAccPassword.length < 6) {
-      triggerToast("Veuillez renseigner un nom complet, un email valide et un mot de passe d'au moins 6 caractères.");
+    if (!newAccNom || !newAccEmail || !newAccPassword) {
+      triggerToast("Veuillez renseigner un nom complet, un email valide et un mot de passe.");
+      return;
+    }
+    const pwdError = validatePasswordStrength(newAccPassword);
+    if (pwdError) {
+      triggerToast(pwdError);
       return;
     }
     setCreateAccLoading(true);
@@ -319,14 +325,26 @@ export default function RHPage() {
         }
       );
 
+      // Créer d'abord l'invitation côté serveur : le trigger de signup ne
+      // rattache un compte à l'établissement QUE si une invitation valide
+      // existe pour cet email (les métadonnées client ne sont plus fiables).
+      const { error: invError } = await supabase
+        .from('invitations')
+        .insert([{
+          etablissement_id: adminEtabId,
+          email: newAccEmail,
+          role: newAccRole,
+          permissions: newAccPermissions,
+          nom_complet: newAccNom
+        }]);
+      if (invError) throw invError;
+
       // Sign up the new user
       const { data: signUpData, error: authError } = await tempSupabase.auth.signUp({
         email: newAccEmail,
         password: newAccPassword,
         options: {
           data: {
-            role: newAccRole,
-            permissions: newAccPermissions,
             etablissement_id: adminEtabId,
             nom_complet: newAccNom
           }

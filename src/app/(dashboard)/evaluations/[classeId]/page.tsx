@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Eleve, Classe, NoteMatiere } from '@/types/domain';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { getClassRankings, type ClassRanking } from '@/lib/queries/evaluations';
 
 interface PageProps {
   params: Promise<{ classeId: string }>;
@@ -30,6 +31,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   
   const [notesList, setNotesList] = useState<any[]>([]);
+  const [rankings, setRankings] = useState<ClassRanking[]>([]);
 
   // Buffer for currently edited grades in Saisie
   const [gradesBuffer, setGradesBuffer] = useState<Record<string, string | number>>({});
@@ -76,6 +78,16 @@ export default function EvaluationsClassePage({ params }: PageProps) {
           }
         } else {
           setNotesList([]);
+        }
+
+        // Classement de la classe calculé en base (moyennes/rangs).
+        // Repli silencieux sur le calcul client si indisponible (hors-ligne).
+        try {
+          const rk = await getClassRankings(decodeURIComponent(classeId), term);
+          setRankings(rk);
+        } catch (rkErr) {
+          console.warn('Classement serveur indisponible, repli client:', rkErr);
+          setRankings([]);
         }
 
         // 4. Subjects
@@ -220,10 +232,23 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     return totalCoefs > 0 ? totalPoints / totalCoefs : 0;
   };
 
-  const sortedStudents = [...studentsList].map(s => ({
-    ...s,
-    avg: calculateStudentAvg(s)
-  })).sort((a, b) => b.avg - a.avg);
+  // Lignes de synthèse : on privilégie le classement serveur (RPC) ; en repli
+  // (hors-ligne), on recalcule côté client comme auparavant.
+  const syntheseRows = React.useMemo(() => {
+    if (rankings.length > 0) {
+      return rankings.map(r => ({
+        id: r.eleve_id,
+        nom: r.nom,
+        prenom: r.prenom,
+        avg: Number(r.moyenne),
+        rang: r.rang,
+      }));
+    }
+    const computed = studentsList
+      .map(s => ({ id: s.id, nom: s.nom, prenom: s.prenom, avg: calculateStudentAvg(s) }))
+      .sort((a, b) => b.avg - a.avg);
+    return computed.map((s, idx) => ({ ...s, rang: s.avg > 0 ? idx + 1 : null }));
+  }, [rankings, studentsList, notesList]);
 
   if (!classInfo) {
     return <div className="p-8 text-center text-slate-500">Chargement...</div>;
@@ -385,10 +410,10 @@ export default function EvaluationsClassePage({ params }: PageProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {sortedStudents.map((student, idx) => (
+                {syntheseRows.map((student) => (
                   <tr key={student.id} className="hover:bg-slate-50/30">
                     <td className="px-6 py-4 font-bold text-slate-400 text-center w-16">
-                      {isMaternelle ? '-' : (student.avg > 0 ? idx + 1 : '-')}
+                      {isMaternelle ? '-' : (student.rang ?? '-')}
                     </td>
                     <td className="px-6 py-4 font-semibold text-slate-800 text-black">{student.nom} {student.prenom}</td>
                     <td className="px-6 py-4 text-center font-bold text-indigo-600">

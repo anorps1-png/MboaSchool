@@ -1,5 +1,6 @@
 import { get, set, update } from 'idb-keyval';
 import { createClient } from '@/lib/supabase/client';
+import { captureError } from '@/lib/observability/logger';
 
 export interface SyncTask {
   id: string;
@@ -67,7 +68,7 @@ class SyncManager {
         }
         console.log(`[SyncManager] Tâche ${task.id} synchronisée avec succès.`);
       } catch (err) {
-        console.error(`[SyncManager] Échec de la tâche ${task.id}:`, err);
+        captureError(err, { layer: 'sync', taskId: task.id, table: task.table, action: task.action });
         failedTasks.push(task); // On garde la tâche en cas d'erreur
       }
     }

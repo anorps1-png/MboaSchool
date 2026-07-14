@@ -1,4 +1,5 @@
 import { createClient } from '../supabase/client';
+import { captureError } from '../observability/logger';
 
 const supabase = createClient();
 
@@ -30,7 +31,7 @@ export async function selectMany<T>(
   
   const { data, error } = await builder;
   if (error) {
-    console.error(`[DB Layer] Error selecting many from ${table}:`, error.message);
+    captureError(error, { layer: 'db', op: 'selectMany', table });
     throw error;
   }
   return (data || []) as T[];
@@ -50,7 +51,7 @@ export async function selectOne<T>(table: string, query: Record<string, any>): P
   
   const { data, error } = await builder.maybeSingle();
   if (error) {
-    console.error(`[DB Layer] Error selecting single from ${table}:`, error.message);
+    captureError(error, { layer: 'db', op: 'selectOne', table });
     throw error;
   }
   return data as T | null;
@@ -62,7 +63,7 @@ export async function selectOne<T>(table: string, query: Record<string, any>): P
 export async function insertOne<T>(table: string, data: Record<string, any>): Promise<T> {
   const { data: inserted, error } = await supabase.from(table).insert([data]).select().single();
   if (error) {
-    console.error(`[DB Layer] Error inserting into ${table}:`, error.message);
+    captureError(error, { layer: 'db', op: 'insertOne', table });
     throw error;
   }
   return inserted as T;
@@ -74,7 +75,7 @@ export async function insertOne<T>(table: string, data: Record<string, any>): Pr
 export async function updateOne<T>(table: string, id: string | number, data: Record<string, any>): Promise<T> {
   const { data: updated, error } = await supabase.from(table).update(data).eq('id', id).select().single();
   if (error) {
-    console.error(`[DB Layer] Error updating ${table}:`, error.message);
+    captureError(error, { layer: 'db', op: 'updateOne', table });
     throw error;
   }
   return updated as T;
@@ -86,7 +87,7 @@ export async function updateOne<T>(table: string, id: string | number, data: Rec
 export async function deleteOne(table: string, id: string | number): Promise<void> {
   const { error } = await supabase.from(table).delete().eq('id', id);
   if (error) {
-    console.error(`[DB Layer] Error deleting from ${table}:`, error.message);
+    captureError(error, { layer: 'db', op: 'deleteOne', table });
     throw error;
   }
 }

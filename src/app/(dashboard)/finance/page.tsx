@@ -1017,10 +1017,9 @@ export default function FinancePage() {
     const supabase = createClient();
     let deletedFromSupabase = false;
     try {
-      // Delete lines first to satisfy foreign key constraint if ON DELETE CASCADE is not set
-      await supabase.from('lignes_ecritures').delete().eq('ecriture_id', id);
-      
-      const { error } = await supabase.from('ecritures_comptables').delete().eq('id', id);
+      // Soft-delete atomique de l'écriture ET de ses lignes (récupérables) :
+      // elles disparaissent de la balance et du journal via la RLS.
+      const { error } = await supabase.rpc('soft_delete_ecriture', { p_id: id });
       if (!error) {
         deletedFromSupabase = true;
       }

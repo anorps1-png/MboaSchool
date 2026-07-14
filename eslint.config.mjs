@@ -12,7 +12,10 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-unused-vars": "off",
       "react/no-unescaped-entities": "off",
       "react-hooks/purity": "off",
-      "react-hooks/immutability": "off"
+      "react-hooks/immutability": "off",
+      // Advisory du React Compiler (Next 16) : signale une mémoïsation manuelle
+      // non préservée, pas un bug de correction -> warning, pas erreur bloquante.
+      "react-hooks/preserve-manual-memoization": "warn"
     }
   },
   // Override default ignores of eslint-config-next.
@@ -23,6 +26,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "*.js",
+    "**/*.js",
+    "scripts/**",
     "public/**",
     "**/sw.js"
   ]),

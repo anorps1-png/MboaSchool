@@ -442,7 +442,10 @@ export default function ElevesPage() {
         setStudents(prev => prev.filter(s => s.id !== id));
         triggerToast("Élève supprimé localement !");
       } else {
-        const { error } = await supabase.from('eleves').delete().eq('id', id);
+        // Soft-delete : l'élève et ses paiements/notes/bulletins sont marqués
+        // supprimés (récupérables) plutôt que détruits. Ils disparaissent des
+        // lectures via la RLS.
+        const { error } = await supabase.rpc('soft_delete_eleve', { p_id: id });
         if (error) {
           alert("Erreur lors de la suppression: " + error.message);
         } else {

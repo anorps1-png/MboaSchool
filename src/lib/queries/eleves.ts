@@ -1,4 +1,5 @@
 import { createClient } from '../supabase/client';
+import { eleveSchema, paiementSchema, validateOrThrow } from '../validation/schemas';
 
 const supabase = createClient();
 
@@ -43,6 +44,8 @@ export async function getStudentById(id: string) {
 }
 
 export async function createStudent(studentData: Record<string, any>, etablissementId: string) {
+  validateOrThrow(eleveSchema, studentData, 'Élève invalide');
+
   const { data, error } = await supabase
     .from('eleves')
     .insert([{ ...studentData, etablissement_id: etablissementId }])
@@ -53,6 +56,8 @@ export async function createStudent(studentData: Record<string, any>, etablissem
 }
 
 export async function addPayment(paymentData: Record<string, any>, etablissementId: string) {
+  validateOrThrow(paiementSchema, paymentData, 'Paiement invalide');
+
   const { data, error } = await supabase
     .from('paiements')
     .insert([{ ...paymentData, etablissement_id: etablissementId }])
