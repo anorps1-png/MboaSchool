@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  html, body { margin: 0; padding: 0; background: #f8f4eb; }
+  body { font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  a { color: #b5502f; text-decoration: none; }
+  a:hover { color: #9d4326; }
+  input, select, button { font-family: inherit; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes growX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @keyframes pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.75); } }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"></link>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&amp;display=swap" rel="stylesheet"></link>
+</helmet>
+<div style="min-height: 100vh; background: {{ pageBg }}; display: flex; flex-direction: column;">
+  <sc-if value="{{ isLogin }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Connexion" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; position: relative;">
+      <div style="position: absolute; top: 0; left: 0; right: 0; height: 6px; background: repeating-linear-gradient(90deg, #b5502f 0 56px, #2b2318 56px 112px);"></div>
+      <div style="width: 420px; background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 24px; padding: 44px; box-shadow: 0 30px 60px -30px rgba(43,35,24,0.25); animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) both; box-sizing: border-box;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 44px; height: 44px; border-radius: 14px; background: #2b2318; color: #fdf3e3; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px;">M</div>
+          <div>
+            <div style="font-weight: 800; font-size: 22px; color: #2b2318; letter-spacing: -0.5px;">MboaSchool</div>
+            <div style="font-size: 12px; color: #a3947a; font-weight: 600;">Gestion scolaire · Cameroun</div>
+          </div>
+        </div>
+        <h1 style="margin: 28px 0 4px; font-size: 30px; font-weight: 800; color: #2b2318; letter-spacing: -1px;">Bon retour.</h1>
+        <p style="margin: 0 0 24px; font-size: 14px; color: #6b5f4a;">Connectez-vous pour gérer votre établissement.</p>
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div>
+            <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Adresse email</label>
+            <input type="email" placeholder="directeur@mboaschool.com" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+          </div>
+          <div>
+            <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Mot de passe</label>
+            <input type="password" placeholder="••••••••" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+          </div>
+          <button onClick="{{ goDashboard }}" style="background: #b5502f; color: #fdf3e3; border: none; padding: 14px; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5); margin-top: 4px;" style-hover="background: #9d4326;">Se connecter</button>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 20px; font-size: 13px; font-weight: 600;">
+          <a href="#">Mot de passe oublié ?</a>
+          <button onClick="{{ goLanding }}" style="background: none; border: none; padding: 0; font-size: 13px; font-weight: 600; color: #b5502f; cursor: pointer; font-family: inherit;" style-hover="color: #9d4326;">Découvrir MboaSchool →</button>
+        </div>
+      </div>
+      <div style="margin-top: 24px; font-size: 12px; color: #a3947a; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: #1a5c3f; animation: pulseDot 2s ease-in-out infinite;"></span>
+        Fonctionne aussi hors-ligne — vos données restent sur cette machine
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ isLanding }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Landing page" style="min-height: 100vh; display: flex; flex-direction: column;">
+      <div style="height: 5px; background: repeating-linear-gradient(90deg, #b5502f 0 56px, #2b2318 56px 112px);"></div>
+      <header style="display: flex; align-items: center; justify-content: space-between; padding: 18px 60px; background: #fffdf8; border-bottom: 1px solid #e9e1cf; position: sticky; top: 0; z-index: 20;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 12px; background: #2b2318; color: #fdf3e3; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px;">M</div>
+          <span style="font-weight: 800; font-size: 20px; color: #2b2318; letter-spacing: -0.5px;">MboaSchool</span>
+        </div>
+        <nav style="display: flex; align-items: center; gap: 28px; font-size: 14px; font-weight: 600;">
+          <a href="#fonctions" style="color: #6b5f4a;" style-hover="color: #2b2318;">Fonctionnalités</a>
+          <a href="#tarifs" style="color: #6b5f4a;" style-hover="color: #2b2318;">Tarifs</a>
+          <button onClick="{{ goLogin }}" style="background: transparent; border: 1px solid #dfd6c0; color: #2b2318; padding: 10px 20px; border-radius: 999px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit;" style-hover="border-color: #2b2318;">Se connecter</button>
+          <button onClick="{{ goLogin }}" style="background: #b5502f; border: none; color: #fdf3e3; padding: 11px 22px; border-radius: 999px; font-size: 14px; font-weight: 800; cursor: pointer; font-family: inherit; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">Essayer gratuitement</button>
+        </nav>
+      </header>
+      <section style="padding: 100px 60px 80px; text-align: center; display: flex; flex-direction: column; align-items: center;">
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #1a5c3f; background: #ecf1ea; border-radius: 999px; padding: 8px 18px; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) both;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #1a5c3f; animation: pulseDot 2s ease-in-out infinite;"></span>
+          Spécialement conçu pour le Cameroun
+        </div>
+        <h1 style="margin: 28px 0 0; font-size: 76px; font-weight: 800; color: #2b2318; letter-spacing: -3px; line-height: 1.02; max-width: 900px; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) 0.08s both;">La gestion de votre école, <span style="color: #b5502f;">enfin simplifiée.</span></h1>
+        <p style="margin: 28px 0 0; font-size: 20px; color: #6b5f4a; font-weight: 500; max-width: 680px; line-height: 1.5; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) 0.16s both;">MboaSchool centralise les élèves, les enseignants, les paiements, les notes et les bulletins dans une seule plateforme, pensée pour les écoles camerounaises.</p>
+        <div style="display: flex; gap: 14px; margin-top: 40px; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) 0.24s both;">
+          <button onClick="{{ goLogin }}" style="background: #b5502f; border: none; color: #fdf3e3; padding: 18px 36px; border-radius: 16px; font-size: 17px; font-weight: 800; cursor: pointer; font-family: inherit; box-shadow: 0 10px 24px -8px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">Essayer gratuitement</button>
+          <button onClick="{{ goDashboard }}" style="background: #fffdf8; border: 1px solid #dfd6c0; color: #2b2318; padding: 18px 36px; border-radius: 16px; font-size: 17px; font-weight: 700; cursor: pointer; font-family: inherit;" style-hover="border-color: #2b2318;">Voir la démo →</button>
+        </div>
+        <div style="margin-top: 70px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #e9e1cf; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden; width: 780px; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) 0.32s both;">
+          <div style="background: #fffdf8; padding: 28px;"><div style="font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">+120</div><div style="font-size: 13px; font-weight: 600; color: #a3947a; margin-top: 4px;">écoles équipées</div></div>
+          <div style="background: #fffdf8; padding: 28px;"><div style="font-size: 40px; font-weight: 800; color: #b5502f; letter-spacing: -1.5px;">-38%</div><div style="font-size: 13px; font-weight: 600; color: #a3947a; margin-top: 4px;">d'impayés en moyenne</div></div>
+          <div style="background: #fffdf8; padding: 28px;"><div style="font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">48h</div><div style="font-size: 13px; font-weight: 600; color: #a3947a; margin-top: 4px;">pour générer tous les bulletins</div></div>
+        </div>
+      </section>
+      <section id="fonctions" style="padding: 60px; background: #fffdf8; border-top: 1px solid #e9e1cf;">
+        <h2 style="margin: 0 0 8px; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px; text-align: center;">Tout votre établissement, un seul outil</h2>
+        <p style="margin: 0 0 44px; font-size: 16px; color: #6b5f4a; font-weight: 500; text-align: center;">Huit modules qui couvrent la vie complète de l'école.</p>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; max-width: 1240px; margin: 0 auto;">
+          <sc-for list="{{ landingFeatures }}" as="f" hint-placeholder-count="8">
+            <div style="background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 20px; padding: 26px;">
+              <div style="width: 42px; height: 42px; border-radius: 14px; background: {{ f.iconBg }}; color: {{ f.iconColor }}; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800;">{{ f.num }}</div>
+              <h3 style="margin: 16px 0 6px; font-size: 17px; font-weight: 800; color: #2b2318; letter-spacing: -0.3px;">{{ f.title }}</h3>
+              <p style="margin: 0; font-size: 13.5px; color: #6b5f4a; font-weight: 500; line-height: 1.5;">{{ f.desc }}</p>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <section id="tarifs" style="padding: 80px 60px;">
+        <h2 style="margin: 0 0 8px; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px; text-align: center;">Des tarifs simples et transparents</h2>
+        <p style="margin: 0 0 44px; font-size: 16px; color: #6b5f4a; font-weight: 500; text-align: center;">Choisissez le plan adapté à la taille de votre établissement.</p>
+        <div style="display: grid; grid-template-columns: repeat(3, 340px); gap: 24px; justify-content: center; align-items: start;">
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 24px; padding: 34px;">
+            <h3 style="margin: 0 0 6px; font-size: 24px; font-weight: 800; color: #2b2318;">Gratuit</h3>
+            <p style="margin: 0 0 20px; font-size: 13.5px; color: #a3947a; font-weight: 500;">Pour tester ou pour les petites structures.</p>
+            <div style="font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">0 <span style="font-size: 17px; color: #a3947a; font-weight: 600;">FCFA</span></div>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin: 24px 0 28px; font-size: 14px; font-weight: 600; color: #6b5f4a;">
+              <span>✓ Jusqu'à 100 élèves</span><span>✓ 1 administrateur</span><span>✓ Modules de base</span>
+            </div>
+            <button onClick="{{ goLogin }}" style="width: 100%; background: #f3ecdb; border: none; color: #2b2318; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: 800; cursor: pointer; font-family: inherit;" style-hover="background: #ece3cc;">Commencer gratuitement</button>
+          </div>
+          <div style="background: #2b2318; border-radius: 24px; padding: 34px; color: #fdf3e3; position: relative;">
+            <div style="position: absolute; top: -14px; left: 50%; transform: translateX(-50%); background: #b5502f; color: #fdf3e3; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 6px 16px;">Le plus populaire</div>
+            <h3 style="margin: 0 0 6px; font-size: 24px; font-weight: 800;">Standard</h3>
+            <p style="margin: 0 0 20px; font-size: 13.5px; color: #a89a7e; font-weight: 500;">Idéal pour les collèges et lycées classiques.</p>
+            <div style="font-size: 40px; font-weight: 800; letter-spacing: -1.5px;">50 000 <span style="font-size: 15px; color: #a89a7e; font-weight: 600;">FCFA / mois</span></div>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin: 24px 0 28px; font-size: 14px; font-weight: 600; color: #d8ceb8;">
+              <span>✓ Jusqu'à 300 élèves</span><span>✓ Multi-utilisateurs</span><span>✓ Comptabilité complète</span><span>✓ Bulletins PDF illimités</span>
+            </div>
+            <button onClick="{{ goLogin }}" style="width: 100%; background: #b5502f; border: none; color: #fdf3e3; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: 800; cursor: pointer; font-family: inherit; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.6);" style-hover="background: #9d4326;">Choisir Standard</button>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 24px; padding: 34px;">
+            <h3 style="margin: 0 0 6px; font-size: 24px; font-weight: 800; color: #2b2318;">Premium</h3>
+            <p style="margin: 0 0 20px; font-size: 13.5px; color: #a3947a; font-weight: 500;">Pour les grands groupes et complexes scolaires.</p>
+            <div style="font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Sur devis</div>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin: 24px 0 28px; font-size: 14px; font-weight: 600; color: #6b5f4a;">
+              <span>✓ Élèves illimités</span><span>✓ Multi-établissements</span><span>✓ Accompagnement dédié</span>
+            </div>
+            <button style="width: 100%; background: #f3ecdb; border: none; color: #2b2318; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: 800; cursor: pointer; font-family: inherit;" style-hover="background: #ece3cc;">Contacter l'équipe</button>
+          </div>
+        </div>
+      </section>
+      <footer style="background: #2b2318; color: #a89a7e; padding: 44px 60px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; border-radius: 10px; background: #b5502f; color: #fdf3e3; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px;">M</div>
+          <span style="font-weight: 800; font-size: 17px; color: #fdf3e3;">MboaSchool</span>
+        </div>
+        <span style="font-size: 13px; font-weight: 500;">© 2026 MboaSchool · Yaoundé, Cameroun · Fait avec soin pour les écoles d'Afrique centrale</span>
+      </footer>
+    </div>
+  </sc-if>
+  <sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+    <sc-if value="{{ showBande }}" hint-placeholder-val="{{ true }}">
+      <div style="height: 5px; flex-shrink: 0; background: repeating-linear-gradient(90deg, #b5502f 0 56px, #2b2318 56px 112px);"></div>
+    </sc-if>
+    <header style="display: flex; align-items: center; justify-content: space-between; padding: 16px 44px; background: #fffdf8; border-bottom: 1px solid #e9e1cf; position: sticky; top: 0; z-index: 20;">
+      <div style="display: flex; align-items: center; gap: 32px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 12px; background: #2b2318; color: #fdf3e3; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px;">M</div>
+          <span style="font-weight: 800; font-size: 20px; color: #2b2318; letter-spacing: -0.5px;">MboaSchool</span>
+        </div>
+        <nav style="display: flex; align-items: center; gap: 4px;">
+          <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="5">
+            <button onClick="{{ item.onClick }}" style="padding: 9px 16px; border-radius: 999px; font-size: 14px; border: none; cursor: pointer; font-weight: {{ item.weight }}; background: {{ item.bg }}; color: {{ item.color }}; transition: background 0.15s;">{{ item.label }}</button>
+          </sc-for>
+        </nav>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #4a5d51; border: 1px solid #dfd6c0; border-radius: 999px; padding: 8px 14px;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #1a5c3f; animation: pulseDot 2s ease-in-out infinite;"></span> Synchronisé
+        </div>
+        <div style="width: 38px; height: 38px; border-radius: 50%; background: #f3ecdb; color: #2b2318; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; border: 1px solid #dfd6c0;">AN</div>
+        <button onClick="{{ goLogin }}" title="Se déconnecter" style="background: transparent; border: 1px solid #dfd6c0; border-radius: 999px; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; color: #a3947a; cursor: pointer;" style-hover="color: #b5502f; border-color: #b5502f;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </button>
+      </div>
+    </header>
+    <main style="flex: 1; width: 100%; max-width: 1352px; margin: 0 auto; padding: 36px 44px 60px; box-sizing: border-box;">
+
+      <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+        <div data-screen-label="Tableau de bord" style="display: flex; flex-direction: column; gap: 26px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 44px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px; line-height: 1.05;">L'école aujourd'hui</h1>
+              <p style="margin: 8px 0 0; font-size: 16px; color: #6b5f4a; font-weight: 500;">École Privée Bilingue Mboa · Trimestre 2 · 2025/2026</p>
+            </div>
+            <button style="background: #b5502f; color: #fdf3e3; border: none; padding: 14px 26px; border-radius: 14px; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">+ Nouveau paiement</button>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 26px; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Élèves inscrits</div>
+              <div style="font-size: 52px; font-weight: 800; letter-spacing: -2px; line-height: 1; margin-top: 12px; color: #2b2318;">412</div>
+              <div style="font-size: 13px; font-weight: 700; margin-top: 14px; color: #1a5c3f; background: #ecf1ea; border-radius: 999px; padding: 4px 12px; display: inline-block;">398 actifs · 52% filles</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 26px; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) 0.08s both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Frais perçus</div>
+              <div style="font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1; margin-top: 12px; color: #2b2318;">24,85 M<span style="font-size: 17px; font-weight: 700; color: #a3947a;"> FCFA</span></div>
+              <div style="font-size: 13px; font-weight: 700; margin-top: 14px; color: #6b5f4a; background: #f3ecdb; border-radius: 999px; padding: 4px 12px; display: inline-block;">68,5% recouvré</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 26px; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) 0.16s both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Reste à percevoir</div>
+              <div style="font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1; margin-top: 12px; color: #b5502f;">11,45 M<span style="font-size: 17px; font-weight: 700; color: #a3947a;"> FCFA</span></div>
+              <div style="font-size: 13px; font-weight: 700; margin-top: 14px; color: #b5502f; background: #f7e8e1; border-radius: 999px; padding: 4px 12px; display: inline-block;">87 familles à relancer</div>
+            </div>
+            <div style="background: #2b2318; border-radius: 20px; padding: 26px; color: #fdf3e3; animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) 0.24s both;">
+              <div style="font-size: 13px; font-weight: 700; opacity: 0.8;">Taux de réussite</div>
+              <div style="font-size: 52px; font-weight: 800; letter-spacing: -2px; line-height: 1; margin-top: 12px;">72<span style="font-size: 24px;">,4%</span></div>
+              <div style="font-size: 13px; font-weight: 600; margin-top: 14px; background: rgba(253,243,227,0.14); border-radius: 999px; padding: 4px 12px; display: inline-block;">Trimestre 1 · 28 enseignants</div>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 3fr 2fr; gap: 20px;">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 28px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: #2b2318; letter-spacing: -0.5px;">Paiements récents</h3>
+                <button onClick="{{ goEleves }}" style="font-size: 13px; font-weight: 700; color: #b5502f; background: none; border: none; cursor: pointer;">Tout voir →</button>
+              </div>
+              <div style="display: flex; flex-direction: column; margin-top: 12px;">
+                <sc-for list="{{ txB }}" as="t" hint-placeholder-count="5">
+                  <div style="display: grid; grid-template-columns: 44px 1fr 130px 140px 110px; align-items: center; gap: 16px; padding: 13px 0; border-top: 1px solid #f0e9d8; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ t.delay }};">
+                    <div style="width: 42px; height: 42px; border-radius: 14px; background: #f3ecdb; color: #6b5f4a; font-size: 13px; font-weight: 800; display: flex; align-items: center; justify-content: center;">{{ t.initials }}</div>
+                    <div style="min-width: 0;">
+                      <div style="font-size: 15px; font-weight: 700; color: #2b2318;">{{ t.nom }}</div>
+                      <div style="font-size: 12px; color: #a3947a; font-weight: 500;">{{ t.classe }} · {{ t.matricule }}</div>
+                    </div>
+                    <div style="font-size: 13px; font-weight: 600; color: #6b5f4a;">{{ t.mode }}</div>
+                    <div style="font-size: 16px; font-weight: 800; color: #2b2318;">{{ t.montant }}</div>
+                    <div style="font-size: 12px; font-weight: 800; color: {{ t.stColor }}; background: {{ t.stBg }}; border-radius: 999px; padding: 5px 12px; text-align: center;">{{ t.stLabel }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 28px; display: flex; flex-direction: column;">
+              <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: #2b2318; letter-spacing: -0.5px;">Recouvrement par classe</h3>
+              <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 18px;">
+                <sc-for list="{{ classStats }}" as="c" hint-placeholder-count="6">
+                  <div style="display: grid; grid-template-columns: 96px 1fr 48px; align-items: center; gap: 12px;">
+                    <span style="font-size: 13px; font-weight: 700; color: #6b5f4a;">{{ c.nom }}</span>
+                    <div style="height: 12px; background: #f3ecdb; border-radius: 999px; overflow: hidden;">
+                      <div style="width: {{ c.rateW }}; height: 100%; background: {{ c.barColor }}; border-radius: 999px; transform-origin: left; animation: growX 0.9s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ c.delay }};"></div>
+                    </div>
+                    <span style="font-size: 13px; font-weight: 800; color: #2b2318; text-align: right;">{{ c.ratePct }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; gap: 16px; margin-top: auto; padding-top: 20px; font-size: 12px; font-weight: 600; color: #a3947a;">
+                <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #2b2318;"></span> ≥ 75%</span>
+                <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #b5502f;"></span> &lt; 75% — à relancer</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isEleves }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Élèves" style="display: flex; flex-direction: column; gap: 24px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Liste des élèves</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Gérez les fiches, filtrez par statut de scolarité ou niveau académique.</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <button style="padding: 11px 18px; background: transparent; border: 1px solid #dfd6c0; color: #6b5f4a; font-size: 13px; font-weight: 700; border-radius: 12px; cursor: pointer;" style-hover="border-color: #2b2318; color: #2b2318;">Gabarit</button>
+              <button style="padding: 11px 18px; background: transparent; border: 1px solid #dfd6c0; color: #6b5f4a; font-size: 13px; font-weight: 700; border-radius: 12px; cursor: pointer;" style-hover="border-color: #2b2318; color: #2b2318;">Importer</button>
+              <button style="padding: 11px 18px; background: transparent; border: 1px solid #dfd6c0; color: #6b5f4a; font-size: 13px; font-weight: 700; border-radius: 12px; cursor: pointer;" style-hover="border-color: #2b2318; color: #2b2318;">Exporter</button>
+              <button style="padding: 12px 22px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">+ Inscrire un élève</button>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Effectif total</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #2b2318; margin-top: 8px;">412</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) 0.06s both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Scolarité réglée</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #1a5c3f; margin-top: 8px;">264</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) 0.12s both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Tranche partielle</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #2b2318; margin-top: 8px;">87</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) 0.18s both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Non payé / attente</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #b5502f; margin-top: 8px;">61</div>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+            <div style="position: relative; width: 380px;">
+              <span style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #a3947a; display: flex;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+              </span>
+              <input type="text" placeholder="Rechercher par nom ou matricule…" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 11px 14px 11px 40px; font-size: 14px; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <select style="background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 700; color: #6b5f4a; cursor: pointer; outline: none;">
+                <option>Toutes les classes</option><option>6ème A</option><option>Seconde C</option><option>Terminale D</option>
+              </select>
+              <select style="background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 700; color: #6b5f4a; cursor: pointer; outline: none;">
+                <option>Tous les statuts</option><option>Payé</option><option>Partiel</option><option>Non payé</option>
+              </select>
+              <select style="background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 700; color: #6b5f4a; cursor: pointer; outline: none;">
+                <option>Tous</option><option>Masculin</option><option>Féminin</option>
+              </select>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="font-size: 12px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; background: #f8f4eb;">
+                  <th style="padding: 14px 24px; font-weight: 700;">Élève</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Matricule</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Classe</th>
+                  <th style="padding: 14px 16px; font-weight: 700; text-align: center;">Genre</th>
+                  <th style="padding: 14px 16px; font-weight: 700; width: 220px;">Scolarité (FCFA)</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Statut</th>
+                  <th style="padding: 14px 24px; font-weight: 700; text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ students }}" as="s" hint-placeholder-count="8">
+                  <tr style="border-top: 1px solid #f0e9d8; animation: fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ s.delay }};" style-hover="background: #fdfaf2;">
+                    <td style="padding: 14px 24px;">
+                      <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 38px; height: 38px; border-radius: 12px; background: #f3ecdb; color: #6b5f4a; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center;">{{ s.initials }}</div>
+                        <span style="font-size: 15px; font-weight: 700; color: #2b2318;">{{ s.nom }}</span>
+                      </div>
+                    </td>
+                    <td style="padding: 14px 16px; font-size: 13px; font-weight: 600; color: #a3947a;">{{ s.matricule }}</td>
+                    <td style="padding: 14px 16px; font-size: 14px; font-weight: 600; color: #6b5f4a;">{{ s.classe }}</td>
+                    <td style="padding: 14px 16px; font-size: 13px; font-weight: 700; color: #6b5f4a; text-align: center;">{{ s.sexe }}</td>
+                    <td style="padding: 14px 16px;">
+                      <div style="font-size: 12px; font-weight: 600; color: #6b5f4a; margin-bottom: 5px;">{{ s.paiement }}</div>
+                      <div style="height: 8px; background: #f3ecdb; border-radius: 999px; overflow: hidden;">
+                        <div style="width: {{ s.pctW }}; height: 100%; background: {{ s.barColor }}; border-radius: 999px;"></div>
+                      </div>
+                    </td>
+                    <td style="padding: 14px 16px;">
+                      <span style="font-size: 12px; font-weight: 800; color: {{ s.stColor }}; background: {{ s.stBg }}; border-radius: 999px; padding: 5px 12px; display: inline-block;">{{ s.statut }}</span>
+                    </td>
+                    <td style="padding: 14px 24px; text-align: right;">
+                      <button onClick="{{ goFiche }}" style="font-size: 13px; font-weight: 700; color: #b5502f; background: none; border: none; cursor: pointer;">Voir fiche →</button>
+                    </td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-top: 1px solid #f0e9d8;">
+              <span style="font-size: 13px; color: #a3947a; font-weight: 600;">412 élèves · page 1 sur 52</span>
+              <div style="display: flex; gap: 8px;">
+                <button style="padding: 8px 16px; background: transparent; border: 1px solid #dfd6c0; border-radius: 10px; font-size: 13px; font-weight: 700; color: #a3947a; cursor: pointer;">← Précédent</button>
+                <button style="padding: 8px 16px; background: #2b2318; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; color: #fdf3e3; cursor: pointer;">Suivant →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isFinance }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Finance" style="display: flex; flex-direction: column; gap: 24px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Direction financière</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Comptabilité OHADA, budget, trésorerie et ratios de l'établissement.</p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button style="padding: 11px 18px; background: transparent; border: 1px solid #dfd6c0; color: #6b5f4a; font-size: 13px; font-weight: 700; border-radius: 12px; cursor: pointer;" style-hover="border-color: #2b2318; color: #2b2318;">+ Créer compte</button>
+              <button style="padding: 12px 22px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">Saisir une opération</button>
+            </div>
+          </div>
+          <div style="display: flex; gap: 4px; background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 999px; padding: 5px; width: fit-content;">
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Balanced Scorecard</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Productivité</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Ratios</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">CA vs Trésorerie</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Budget</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: #2b2318; color: #fdf3e3; cursor: pointer;">Journal &amp; Balance</button>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Total débits — janvier</div>
+              <div style="font-size: 34px; font-weight: 800; letter-spacing: -1.5px; color: #2b2318; margin-top: 8px;">6,03 M<span style="font-size: 15px; color: #a3947a;"> FCFA</span></div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) 0.06s both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Total crédits — janvier</div>
+              <div style="font-size: 34px; font-weight: 800; letter-spacing: -1.5px; color: #2b2318; margin-top: 8px;">6,03 M<span style="font-size: 15px; color: #a3947a;"> FCFA</span></div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) 0.12s both;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Équilibre du journal</div>
+              <div style="font-size: 34px; font-weight: 800; letter-spacing: -1.5px; color: #1a5c3f; margin-top: 8px;">Équilibré ✓</div>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+            <div style="padding: 20px 24px; border-bottom: 1px solid #f0e9d8; display: flex; align-items: center; justify-content: space-between;">
+              <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: #2b2318; letter-spacing: -0.5px;">Journal de comptabilité générale</h3>
+              <a href="#" style="font-size: 13px; font-weight: 700;">Exporter la liasse DSF →</a>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="font-size: 12px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; background: #f8f4eb;">
+                  <th style="padding: 14px 24px; font-weight: 700;">Date</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Libellé</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Compte débit</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Compte crédit</th>
+                  <th style="padding: 14px 24px; font-weight: 700; text-align: right;">Montant (FCFA)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ ecritures }}" as="e" hint-placeholder-count="5">
+                  <tr style="border-top: 1px solid #f0e9d8; animation: fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ e.delay }};" style-hover="background: #fdfaf2;">
+                    <td style="padding: 15px 24px; font-size: 13px; font-weight: 600; color: #a3947a;">{{ e.date }}</td>
+                    <td style="padding: 15px 16px; font-size: 14px; font-weight: 700; color: #2b2318;">{{ e.libelle }}</td>
+                    <td style="padding: 15px 16px;"><span style="font-size: 12px; font-weight: 800; color: #6b5f4a; background: #f3ecdb; border-radius: 8px; padding: 4px 10px;">{{ e.debit }}</span></td>
+                    <td style="padding: 15px 16px;"><span style="font-size: 12px; font-weight: 800; color: #6b5f4a; background: #f3ecdb; border-radius: 8px; padding: 4px 10px;">{{ e.credit }}</span></td>
+                    <td style="padding: 15px 24px; font-size: 15px; font-weight: 800; color: {{ e.montantColor }}; text-align: right;">{{ e.montant }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isEvals }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Évaluations" style="display: flex; flex-direction: column; gap: 24px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Évaluations · Terminale D</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Trimestre 2 · 33 élèves · seuil de réussite 10/20</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="display: flex; gap: 4px; background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 999px; padding: 5px;">
+                <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Saisie des notes</button>
+                <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: #2b2318; color: #fdf3e3; cursor: pointer;">Synthèse</button>
+              </div>
+              <button style="padding: 12px 22px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">Générer les bulletins</button>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Moyenne de classe</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #2b2318; margin-top: 8px;">12,68<span style="font-size: 16px; color: #a3947a;"> /20</span></div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Taux de réussite</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #1a5c3f; margin-top: 8px;">78,8%</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Élèves en décrochage (RCI)</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #b5502f; margin-top: 8px;">4</div>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+            <div style="padding: 20px 24px; border-bottom: 1px solid #f0e9d8;">
+              <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: #2b2318; letter-spacing: -0.5px;">Synthèse du Trimestre 2</h3>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="font-size: 12px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; background: #f8f4eb;">
+                  <th style="padding: 14px 24px; font-weight: 700; width: 80px;">Rang</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Élève</th>
+                  <th style="padding: 14px 16px; font-weight: 700; text-align: center;">Moyenne /20</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Mention</th>
+                  <th style="padding: 14px 24px; font-weight: 700; text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ syntheses }}" as="r" hint-placeholder-count="6">
+                  <tr style="border-top: 1px solid #f0e9d8; animation: fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ r.delay }};" style-hover="background: #fdfaf2;">
+                    <td style="padding: 15px 24px;"><span style="width: 32px; height: 32px; border-radius: 10px; background: {{ r.rangBg }}; color: {{ r.rangColor }}; font-size: 13px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center;">{{ r.rang }}</span></td>
+                    <td style="padding: 15px 16px; font-size: 15px; font-weight: 700; color: #2b2318;">{{ r.nom }}</td>
+                    <td style="padding: 15px 16px; text-align: center; font-size: 16px; font-weight: 800; color: {{ r.moyColor }};">{{ r.moyenne }}</td>
+                    <td style="padding: 15px 16px; font-size: 13px; font-weight: 700; color: #6b5f4a;">{{ r.mention }}</td>
+                    <td style="padding: 15px 24px; text-align: right;"><a href="#" style="font-size: 13px; font-weight: 700;">Bulletin →</a></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isClasses }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Classes" style="display: flex; flex-direction: column; gap: 24px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Configuration des classes</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Niveaux, sections et scolarité annuelle de chaque classe.</p>
+            </div>
+            <button style="padding: 12px 22px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">+ Créer une classe</button>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+            <sc-for list="{{ classCards }}" as="c" hint-placeholder-count="8">
+              <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 24px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; animation: fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ c.delay }};" style-hover="transform: translateY(-4px); box-shadow: 0 16px 32px -16px rgba(43,35,24,0.25);">
+                <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: {{ c.secColor }}; background: {{ c.secBg }}; border-radius: 8px; padding: 4px 10px;">{{ c.section }}</span>
+                <h2 style="margin: 16px 0 2px; font-size: 26px; font-weight: 800; color: #2b2318; letter-spacing: -1px;">{{ c.nom }}</h2>
+                <p style="margin: 0 0 16px; font-size: 13px; font-weight: 600; color: #a3947a;">{{ c.niveau }}</p>
+                <div style="background: #f8f4eb; border-radius: 14px; padding: 12px 14px;">
+                  <div style="font-size: 11px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 0.5px;">Scolarité annuelle</div>
+                  <div style="font-size: 17px; font-weight: 800; color: #2b2318; margin-top: 2px;">{{ c.prix }}</div>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #f0e9d8; margin-top: 16px; padding-top: 14px;">
+                  <span style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #6b5f4a;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1a5c3f;"></span>{{ c.eleves }}</span>
+                  <span style="font-size: 15px; font-weight: 800; color: #b5502f;">→</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isEdt }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Emploi du temps" style="display: flex; flex-direction: column; gap: 24px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Emploi du temps</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Planification hebdomadaire des enseignements par classe.</p>
+            </div>
+            <select style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 12px; padding: 11px 16px; font-size: 14px; font-weight: 700; color: #2b2318; cursor: pointer; outline: none;">
+              <option>Terminale D</option><option>6ème A</option><option>Seconde C</option><option>Form 1</option>
+            </select>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: 150px repeat(6, 1fr); background: #f8f4eb; border-bottom: 1px solid #e9e1cf; font-size: 12px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 1px;">
+              <div style="padding: 16px 20px;">Créneaux</div>
+              <div style="padding: 16px 12px; text-align: center; border-left: 1px solid #f0e9d8;">Lundi</div>
+              <div style="padding: 16px 12px; text-align: center; border-left: 1px solid #f0e9d8;">Mardi</div>
+              <div style="padding: 16px 12px; text-align: center; border-left: 1px solid #f0e9d8;">Mercredi</div>
+              <div style="padding: 16px 12px; text-align: center; border-left: 1px solid #f0e9d8;">Jeudi</div>
+              <div style="padding: 16px 12px; text-align: center; border-left: 1px solid #f0e9d8;">Vendredi</div>
+              <div style="padding: 16px 12px; text-align: center; border-left: 1px solid #f0e9d8;">Samedi</div>
+            </div>
+            <sc-for list="{{ edtGrid }}" as="row" hint-placeholder-count="5">
+              <sc-if value="{{ row.isBreak }}" hint-placeholder-val="{{ false }}">
+                <div style="display: grid; grid-template-columns: 150px 1fr; border-top: 1px solid #f0e9d8;">
+                  <div style="padding: 14px 20px; font-size: 12px; font-weight: 800; color: #a3947a;">{{ row.label }}</div>
+                  <div style="background: #f8f4eb; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 2px; border-left: 1px solid #f0e9d8;">Pause déjeuner</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ row.notBreak }}" hint-placeholder-val="{{ true }}">
+                <div style="display: grid; grid-template-columns: 150px repeat(6, 1fr); border-top: 1px solid #f0e9d8; min-height: 88px;">
+                  <div style="padding: 14px 20px; display: flex; flex-direction: column; justify-content: center;">
+                    <span style="font-size: 12px; font-weight: 800; color: #2b2318;">{{ row.label }}</span>
+                    <span style="font-size: 10px; font-weight: 600; color: #a3947a; margin-top: 2px;">2 heures</span>
+                  </div>
+                  <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="6">
+                    <div style="padding: 8px; border-left: 1px solid #f0e9d8; display: flex;">
+                      <sc-if value="{{ cell.name }}" hint-placeholder-val="{{ true }}">
+                        <div style="flex: 1; background: {{ cell.bg }}; border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between;">
+                          <span style="font-size: 13px; font-weight: 800; color: {{ cell.color }};">{{ cell.name }}</span>
+                          <span style="font-size: 11px; font-weight: 600; color: {{ cell.color }}; opacity: 0.7;">{{ cell.prof }}</span>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isEnseignants }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Enseignants" style="display: flex; flex-direction: column; gap: 24px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Gestion des enseignants</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Corps enseignant, matières principales et rémunérations.</p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button style="padding: 11px 18px; background: transparent; border: 1px solid #dfd6c0; color: #6b5f4a; font-size: 13px; font-weight: 700; border-radius: 12px; cursor: pointer;" style-hover="border-color: #2b2318; color: #2b2318;">Exporter</button>
+              <button style="padding: 12px 22px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">+ Ajouter un enseignant</button>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="font-size: 12px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; background: #f8f4eb;">
+                  <th style="padding: 14px 24px; font-weight: 700;">Enseignant</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Contact</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Matière principale</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Statut</th>
+                  <th style="padding: 14px 24px; font-weight: 700; text-align: right;">Salaire mensuel (FCFA)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ enseignants }}" as="e" hint-placeholder-count="6">
+                  <tr style="border-top: 1px solid #f0e9d8; animation: fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ e.delay }};" style-hover="background: #fdfaf2;">
+                    <td style="padding: 15px 24px;">
+                      <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 38px; height: 38px; border-radius: 12px; background: #f3ecdb; color: #6b5f4a; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center;">{{ e.initials }}</div>
+                        <span style="font-size: 15px; font-weight: 700; color: #2b2318;">{{ e.nom }}</span>
+                      </div>
+                    </td>
+                    <td style="padding: 15px 16px; font-size: 13px; font-weight: 600; color: #6b5f4a;">{{ e.contact }}</td>
+                    <td style="padding: 15px 16px;"><span style="font-size: 12px; font-weight: 800; color: #6b5f4a; background: #f3ecdb; border-radius: 999px; padding: 5px 12px;">{{ e.matiere }}</span></td>
+                    <td style="padding: 15px 16px;"><span style="font-size: 12px; font-weight: 800; color: {{ e.stColor }}; background: {{ e.stBg }}; border-radius: 999px; padding: 5px 12px; display: inline-block;">{{ e.statut }}</span></td>
+                    <td style="padding: 15px 24px; font-size: 15px; font-weight: 800; color: #2b2318; text-align: right;">{{ e.salaire }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isFiche }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Fiche élève" style="display: flex; flex-direction: column; gap: 24px;">
+          <div>
+            <button onClick="{{ goEleves }}" style="font-size: 13px; font-weight: 700; color: #a3947a; background: none; border: none; cursor: pointer; padding: 0;" style-hover="color: #b5502f;">← Retour à la liste</button>
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 12px;">
+              <div style="display: flex; align-items: center; gap: 18px;">
+                <div style="width: 68px; height: 68px; border-radius: 20px; background: #2b2318; color: #fdf3e3; font-size: 22px; font-weight: 800; display: flex; align-items: center; justify-content: center;">JF</div>
+                <div>
+                  <h1 style="margin: 0; font-size: 34px; font-weight: 800; color: #2b2318; letter-spacing: -1px;">Jean-Pierre Fouda</h1>
+                  <p style="margin: 4px 0 0; font-size: 14px; font-weight: 600; color: #a3947a;">26YAE001 · Terminale D · Masculin</p>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 13px; font-weight: 800; color: #6b5f4a; background: #f3ecdb; border-radius: 999px; padding: 8px 16px;">Scolarité : 275 000 / 350 000</span>
+                <button style="padding: 12px 22px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">Encaisser un versement</button>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 4px; background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 999px; padding: 5px; width: fit-content;">
+            <sc-for list="{{ ficheTabs }}" as="tab" hint-placeholder-count="4">
+              <button onClick="{{ tab.onClick }}" style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: {{ tab.bg }}; color: {{ tab.color }}; cursor: pointer;">{{ tab.label }}</button>
+            </sc-for>
+          </div>
+          <sc-if value="{{ isFicheInfo }}" hint-placeholder-val="{{ true }}">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+              <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 26px;">
+                <h3 style="margin: 0 0 18px; font-size: 13px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #f0e9d8; padding-bottom: 12px;">Fiche d'identité</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Nom complet</div><div style="font-size: 15px; font-weight: 700; color: #2b2318; margin-top: 3px;">Jean-Pierre Fouda</div></div>
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Matricule</div><div style="font-size: 15px; font-weight: 800; color: #b5502f; margin-top: 3px;">26YAE001</div></div>
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Genre</div><div style="font-size: 15px; font-weight: 700; color: #2b2318; margin-top: 3px;">Masculin</div></div>
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Classe</div><div style="font-size: 15px; font-weight: 700; color: #2b2318; margin-top: 3px;">Terminale D</div></div>
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Date de naissance</div><div style="font-size: 15px; font-weight: 700; color: #2b2318; margin-top: 3px;">14/03/2008</div></div>
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Lieu de naissance</div><div style="font-size: 15px; font-weight: 700; color: #2b2318; margin-top: 3px;">Yaoundé</div></div>
+                </div>
+              </div>
+              <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 26px;">
+                <h3 style="margin: 0 0 18px; font-size: 13px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #f0e9d8; padding-bottom: 12px;">Responsable légal</h3>
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Nom du parent</div><div style="font-size: 15px; font-weight: 700; color: #2b2318; margin-top: 3px;">M. Emmanuel Fouda</div></div>
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Téléphone</div><div style="font-size: 15px; font-weight: 700; margin-top: 3px;"><a href="tel:+237677889900">+237 6 77 88 99 00</a></div></div>
+                  <div><div style="font-size: 11px; font-weight: 800; color: #a3947a; text-transform: uppercase;">Email</div><div style="font-size: 15px; font-weight: 700; margin-top: 3px;"><a href="mailto:e.fouda@gmail.com">e.fouda@gmail.com</a></div></div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isFicheFinance }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+                <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+                  <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Frais totaux annuels</div>
+                  <div style="font-size: 30px; font-weight: 800; letter-spacing: -1px; color: #2b2318; margin-top: 8px;">350 000<span style="font-size: 14px; color: #a3947a;"> FCFA</span></div>
+                </div>
+                <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+                  <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Déjà versé</div>
+                  <div style="font-size: 30px; font-weight: 800; letter-spacing: -1px; color: #1a5c3f; margin-top: 8px;">275 000<span style="font-size: 14px; color: #a3947a;"> FCFA</span></div>
+                </div>
+                <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+                  <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Solde restant</div>
+                  <div style="font-size: 30px; font-weight: 800; letter-spacing: -1px; color: #b5502f; margin-top: 8px;">75 000<span style="font-size: 14px; color: #a3947a;"> FCFA</span></div>
+                </div>
+              </div>
+              <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+                <div style="padding: 18px 24px; border-bottom: 1px solid #f0e9d8;"><h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #2b2318;">Historique des versements</h3></div>
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                  <thead>
+                    <tr style="font-size: 12px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; background: #f8f4eb;">
+                      <th style="padding: 12px 24px; font-weight: 700;">Date</th>
+                      <th style="padding: 12px 16px; font-weight: 700;">Type</th>
+                      <th style="padding: 12px 16px; font-weight: 700;">Mode</th>
+                      <th style="padding: 12px 24px; font-weight: 700; text-align: right;">Montant (FCFA)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <sc-for list="{{ ficheVersements }}" as="v" hint-placeholder-count="3">
+                      <tr style="border-top: 1px solid #f0e9d8;" style-hover="background: #fdfaf2;">
+                        <td style="padding: 14px 24px; font-size: 13px; font-weight: 600; color: #a3947a;">{{ v.date }}</td>
+                        <td style="padding: 14px 16px; font-size: 14px; font-weight: 700; color: #2b2318;">{{ v.type }}</td>
+                        <td style="padding: 14px 16px; font-size: 13px; font-weight: 600; color: #6b5f4a;">{{ v.mode }}</td>
+                        <td style="padding: 14px 24px; font-size: 15px; font-weight: 800; color: #1a5c3f; text-align: right;">{{ v.montant }}</td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isFicheNotes }}" hint-placeholder-val="{{ false }}">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+              <div style="padding: 18px 24px; border-bottom: 1px solid #f0e9d8; display: flex; align-items: center; justify-content: space-between;">
+                <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #2b2318;">Notes — Trimestre 2</h3>
+                <span style="font-size: 13px; font-weight: 800; color: #1a5c3f; background: #ecf1ea; border-radius: 999px; padding: 6px 14px;">Moyenne : 15,25 /20 · Rang 1/33</span>
+              </div>
+              <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                  <tr style="font-size: 12px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; background: #f8f4eb;">
+                    <th style="padding: 12px 24px; font-weight: 700;">Matière</th>
+                    <th style="padding: 12px 16px; font-weight: 700; text-align: center;">Note /20</th>
+                    <th style="padding: 12px 24px; font-weight: 700;">Appréciation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <sc-for list="{{ ficheNotes }}" as="n" hint-placeholder-count="6">
+                    <tr style="border-top: 1px solid #f0e9d8;" style-hover="background: #fdfaf2;">
+                      <td style="padding: 14px 24px; font-size: 14px; font-weight: 700; color: #2b2318;">{{ n.matiere }}</td>
+                      <td style="padding: 14px 16px; font-size: 16px; font-weight: 800; color: {{ n.noteColor }}; text-align: center;">{{ n.note }}</td>
+                      <td style="padding: 14px 24px; font-size: 13px; font-weight: 600; color: #6b5f4a;">{{ n.app }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isFicheDiscipline }}" hint-placeholder-val="{{ false }}">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 48px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              <div style="font-size: 17px; font-weight: 800; color: #1a5c3f;">Aucun incident disciplinaire</div>
+              <div style="font-size: 14px; font-weight: 600; color: #a3947a;">Jean-Pierre n'a aucune absence non justifiée ni sanction cette année.</div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Paramètres" style="display: flex; flex-direction: column; gap: 24px; max-width: 920px;">
+          <div>
+            <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Paramètres de l'établissement</h1>
+            <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Identité, règles académiques, fiscalité camerounaise et bulletins.</p>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 28px;">
+            <h3 style="margin: 0 0 20px; font-size: 13px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #f0e9d8; padding-bottom: 12px;">Identité de l'école</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+              <div style="grid-column: 1 / -1;">
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Nom de l'école *</label>
+                <input type="text" value="École Privée Bilingue Mboa" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Nom du directeur / principal</label>
+                <input type="text" value="Angèle Nkoulou" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Devise / slogan</label>
+                <input type="text" value="Discipline — Travail — Succès" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Email de contact</label>
+                <input type="email" value="contact@mboaschool.com" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Téléphone de l'établissement</label>
+                <input type="text" value="+237 6 90 00 11 22" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div style="grid-column: 1 / -1;">
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Adresse physique</label>
+                <input type="text" value="Quartier Bastos, Yaoundé — BP 1234" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 28px;">
+            <h3 style="margin: 0 0 20px; font-size: 13px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #f0e9d8; padding-bottom: 12px;">Règles académiques &amp; année en cours</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Année scolaire active</label>
+                <select style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 700; color: #2b2318; cursor: pointer; outline: none;">
+                  <option>2025/2026</option><option>2024/2025</option>
+                </select>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Seuil de réussite (note de passage)</label>
+                <input type="text" value="10 / 20" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 28px;">
+            <h3 style="margin: 0 0 20px; font-size: 13px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #f0e9d8; padding-bottom: 12px;">Fiscalité &amp; paie (Cameroun)</h3>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;">
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">TVA standard</label>
+                <input type="text" value="19,25 %" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">CNPS — part employé</label>
+                <input type="text" value="4,2 %" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">CNPS — part employeur</label>
+                <input type="text" value="11,2 %" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Crédit Foncier (CFC) — employé</label>
+                <input type="text" value="1 %" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">FNE — employeur</label>
+                <input type="text" value="1 %" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">CAC (centimes additionnels)</label>
+                <input type="text" value="10 %" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 28px;">
+            <h3 style="margin: 0 0 20px; font-size: 13px; font-weight: 800; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #f0e9d8; padding-bottom: 12px;">Bulletins</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Style de mise en page</label>
+                <select style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 700; color: #2b2318; cursor: pointer; outline: none;">
+                  <option>Officiel MINESEC</option><option>Compact</option><option>Bilingue</option>
+                </select>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; font-weight: 700; color: #6b5f4a; margin-bottom: 6px;">Entête gauche (ministère, délégation…)</label>
+                <input type="text" value="République du Cameroun · MINESEC" style="width: 100%; box-sizing: border-box; background: #f8f4eb; border: 1px solid #e9e1cf; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; color: #2b2318; outline: none;" style-focus="border-color: #b5502f; background: #fffdf8;"></input>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button style="padding: 12px 22px; background: transparent; border: 1px solid #dfd6c0; color: #6b5f4a; font-size: 14px; font-weight: 700; border-radius: 12px; cursor: pointer;" style-hover="border-color: #2b2318; color: #2b2318;">Annuler</button>
+            <button style="padding: 12px 26px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">Enregistrer les modifications</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isRh }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Ressources humaines" style="display: flex; flex-direction: column; gap: 24px;">
+          <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h1 style="margin: 0; font-size: 40px; font-weight: 800; color: #2b2318; letter-spacing: -1.5px;">Ressources humaines</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b5f4a; font-weight: 500;">Effectifs, paie, absences, évaluations et habilitations du personnel.</p>
+            </div>
+            <button style="padding: 12px 22px; background: #b5502f; border: none; color: #fdf3e3; font-size: 14px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(181,80,47,0.5);" style-hover="background: #9d4326;">+ Ajouter un membre</button>
+          </div>
+          <div style="display: flex; gap: 4px; background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 999px; padding: 5px; width: fit-content;">
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: #2b2318; color: #fdf3e3; cursor: pointer;">Tableau de bord RH</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Effectifs &amp; Contrats</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Paie</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Absences</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Formations</button>
+            <button style="padding: 9px 18px; border-radius: 999px; border: none; font-size: 13px; font-weight: 700; background: transparent; color: #6b5f4a; cursor: pointer;">Habilitations</button>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Personnel total</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #2b2318; margin-top: 8px;">42</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Masse salariale / mois</div>
+              <div style="font-size: 34px; font-weight: 800; letter-spacing: -1.5px; color: #2b2318; margin-top: 8px;">8,4 M<span style="font-size: 15px; color: #a3947a;"> FCFA</span></div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Absences en cours</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #b5502f; margin-top: 8px;">3</div>
+            </div>
+            <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; padding: 22px 26px;">
+              <div style="font-size: 13px; font-weight: 700; color: #6b5f4a;">Formations planifiées</div>
+              <div style="font-size: 38px; font-weight: 800; letter-spacing: -1.5px; color: #1a5c3f; margin-top: 8px;">2</div>
+            </div>
+          </div>
+          <div style="background: #fffdf8; border: 1px solid #e9e1cf; border-radius: 20px; overflow: hidden;">
+            <div style="padding: 20px 24px; border-bottom: 1px solid #f0e9d8;">
+              <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: #2b2318; letter-spacing: -0.5px;">Effectifs du personnel</h3>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="font-size: 12px; font-weight: 700; color: #a3947a; text-transform: uppercase; letter-spacing: 1px; background: #f8f4eb;">
+                  <th style="padding: 14px 24px; font-weight: 700;">Membre</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Fonction</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Catégorie</th>
+                  <th style="padding: 14px 16px; font-weight: 700;">Statut</th>
+                  <th style="padding: 14px 24px; font-weight: 700; text-align: right;">Salaire (FCFA)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ personnel }}" as="p" hint-placeholder-count="5">
+                  <tr style="border-top: 1px solid #f0e9d8; animation: fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; animation-delay: {{ p.delay }};" style-hover="background: #fdfaf2;">
+                    <td style="padding: 15px 24px;">
+                      <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 38px; height: 38px; border-radius: 12px; background: #f3ecdb; color: #6b5f4a; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center;">{{ p.initials }}</div>
+                        <span style="font-size: 15px; font-weight: 700; color: #2b2318;">{{ p.nom }}</span>
+                      </div>
+                    </td>
+                    <td style="padding: 15px 16px; font-size: 14px; font-weight: 600; color: #6b5f4a;">{{ p.fonction }}</td>
+                    <td style="padding: 15px 16px; font-size: 13px; font-weight: 700; color: #a3947a;">{{ p.categorie }}</td>
+                    <td style="padding: 15px 16px;"><span style="font-size: 12px; font-weight: 800; color: {{ p.stColor }}; background: {{ p.stBg }}; border-radius: 999px; padding: 5px 12px; display: inline-block;">{{ p.statut }}</span></td>
+                    <td style="padding: 15px 24px; font-size: 15px; font-weight: 800; color: #2b2318; text-align: right;">{{ p.salaire }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+    </main>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;ecranInitial&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dashboard&quot;,&quot;options&quot;:[&quot;dashboard&quot;,&quot;eleves&quot;,&quot;classes&quot;,&quot;edt&quot;,&quot;enseignants&quot;,&quot;finance&quot;,&quot;evals&quot;,&quot;rh&quot;,&quot;settings&quot;,&quot;fiche&quot;,&quot;login&quot;,&quot;landing&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Navigation&quot;},&quot;arrierePlan&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;blanc&quot;,&quot;options&quot;:[&quot;crème&quot;,&quot;blanc&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Identité&quot;},&quot;bandeTissee&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Identité&quot;}}">
+class Component extends DCLogic {
+  state = { screen: null };
+  renderVals() {
+    const screen = this.state.screen ?? this.props.ecranInitial ?? 'dashboard';
+    const go = (s) => () => this.setState({ screen: s });
+    const fmt = (n) => new Intl.NumberFormat('fr-FR').format(n).replace(/\u202f/g, ' ');
+    const initials = (n) => n.split(' ').map(w => w[0]).slice(0, 2).join('');
+    const d = (base, i, step) => (base + i * step).toFixed(2) + 's';
+    const navDefs = [
+      ['dashboard', 'Tableau de bord'], ['eleves', 'Élèves'], ['classes', 'Classes'], ['edt', 'Emploi du temps'], ['enseignants', 'Enseignants'], ['finance', 'Finance'], ['evals', 'Évaluations'], ['rh', 'RH'], ['settings', 'Paramètres']
+    ];
+    const navItems = navDefs.map(([id, label]) => ({
+      label, onClick: go(id),
+      bg: (screen === id || (id === 'eleves' && screen === 'fiche')) ? '#2b2318' : 'transparent',
+      color: (screen === id || (id === 'eleves' && screen === 'fiche')) ? '#fdf3e3' : '#6b5f4a',
+      weight: screen === id ? 700 : 600
+    }));
+    const classes = [
+      { nom: '6ème A', rate: 80 }, { nom: '5ème A', rate: 73 }, { nom: '3ème A', rate: 83 },
+      { nom: 'Seconde C', rate: 78 }, { nom: 'Première D', rate: 70 }, { nom: 'Terminale D', rate: 82 }
+    ];
+    const classStats = classes.map((c, i) => ({
+      nom: c.nom, rateW: c.rate + '%', ratePct: c.rate + '%', delay: d(0.2, i, 0.06),
+      barColor: c.rate >= 75 ? '#2b2318' : '#b5502f'
+    }));
+    const txB = [
+      { nom: 'Jean-Pierre Fouda', matricule: '26YAE001', classe: 'Terminale D', mode: 'MTN MoMo', montant: 150000, st: 'paid' },
+      { nom: 'Marcelle Ngo Nsoga', matricule: '26YAE002', classe: 'Seconde C', mode: 'Orange Money', montant: 125000, st: 'paid' },
+      { nom: 'Christian Bassogog', matricule: '26YAE045', classe: '6ème A', mode: 'Espèces', montant: 50000, st: 'paid' },
+      { nom: 'Aïcha Bello', matricule: '26YAE112', classe: '3ème A', mode: 'Orange Money', montant: 100000, st: 'pending' },
+      { nom: 'Samuel Mbarga', matricule: '26YAE078', classe: '5ème A', mode: 'Virement', montant: 75000, st: 'paid' }
+    ].map((t, i) => ({
+      nom: t.nom, matricule: t.matricule, classe: t.classe, mode: t.mode,
+      montant: fmt(t.montant) + ' F', initials: initials(t.nom), delay: d(0.15, i, 0.07),
+      stLabel: t.st === 'paid' ? 'Payé' : 'En attente',
+      stColor: t.st === 'paid' ? '#1a5c3f' : '#6b5f4a',
+      stBg: t.st === 'paid' ? '#ecf1ea' : '#f3ecdb'
+    }));
+    const stStyles = {
+      'Payé': ['#1a5c3f', '#ecf1ea'], 'Partiel': ['#6b5f4a', '#f3ecdb'], 'Non payé': ['#b5502f', '#f7e8e1']
+    };
+    const students = [
+      { nom: 'Jean-Pierre Fouda', matricule: '26YAE001', classe: 'Terminale D', sexe: 'M', paid: 275000, due: 350000 },
+      { nom: 'Marcelle Ngo Nsoga', matricule: '26YAE002', classe: 'Seconde C', sexe: 'F', paid: 300000, due: 300000 },
+      { nom: 'Christian Bassogog', matricule: '26YAE045', classe: '6ème A', sexe: 'M', paid: 75000, due: 150000 },
+      { nom: 'Aïcha Bello', matricule: '26YAE112', classe: '3ème A', sexe: 'F', paid: 0, due: 175000 },
+      { nom: 'Samuel Mbarga', matricule: '26YAE078', classe: '5ème A', sexe: 'M', paid: 150000, due: 150000 },
+      { nom: 'Grace Muyang', matricule: '26YAE134', classe: 'Form 1', sexe: 'F', paid: 200000, due: 200000 },
+      { nom: 'Paul Essomba', matricule: '26YAE156', classe: '4ème B', sexe: 'M', paid: 80000, due: 160000 },
+      { nom: 'Brenda Nkeng', matricule: '26YAE201', classe: 'CM2 B', sexe: 'F', paid: 0, due: 120000 }
+    ].map((s, i) => {
+      const pct = s.due > 0 ? (s.paid / s.due) * 100 : 0;
+      const statut = pct >= 100 ? 'Payé' : pct > 0 ? 'Partiel' : 'Non payé';
+      return {
+        nom: s.nom, matricule: s.matricule, classe: s.classe, sexe: s.sexe,
+        initials: initials(s.nom), delay: d(0.1, i, 0.05),
+        paiement: fmt(s.paid) + ' / ' + fmt(s.due),
+        pctW: pct.toFixed(0) + '%',
+        barColor: pct >= 100 ? '#1a5c3f' : pct > 0 ? '#2b2318' : '#b5502f',
+        statut, stColor: stStyles[statut][0], stBg: stStyles[statut][1]
+      };
+    });
+    const ecritures = [
+      { date: '12/01/2026', libelle: 'Scolarité T2 — encaissements élèves', debit: '571 · Caisse', credit: '706 · Prestations', montant: 1250000, in: true },
+      { date: '10/01/2026', libelle: 'Achat fournitures de bureau', debit: '601 · Achats', credit: '571 · Caisse', montant: 85000 },
+      { date: '08/01/2026', libelle: 'Salaires janvier — personnel', debit: '661 · Rémunérations', credit: '521 · Banque', montant: 4200000 },
+      { date: '06/01/2026', libelle: 'Facture ENEO — électricité', debit: '605 · Énergie', credit: '401 · Fournisseurs', montant: 145000 },
+      { date: '05/01/2026', libelle: 'Frais d\'inscription — nouveaux élèves', debit: '571 · Caisse', credit: '706 · Prestations', montant: 350000, in: true }
+    ].map((e, i) => ({
+      date: e.date, libelle: e.libelle, debit: e.debit, credit: e.credit,
+      montant: fmt(e.montant), montantColor: e.in ? '#1a5c3f' : '#2b2318', delay: d(0.1, i, 0.05)
+    }));
+    const mentions = { 16: 'Très Bien', 14: 'Bien', 12: 'Assez Bien', 10: 'Passable' };
+    const syntheses = [
+      { rang: 1, nom: 'Jean-Pierre Fouda', moy: 15.25, mention: 'Bien' },
+      { rang: 2, nom: 'Grace Muyang', moy: 14.8, mention: 'Bien' },
+      { rang: 3, nom: 'Marcelle Ngo Nsoga', moy: 13.0, mention: 'Assez Bien' },
+      { rang: 4, nom: 'Samuel Mbarga', moy: 12.4, mention: 'Assez Bien' },
+      { rang: 5, nom: 'Paul Essomba', moy: 10.9, mention: 'Passable' },
+      { rang: 6, nom: 'Aïcha Bello', moy: 9.75, mention: 'Insuffisant' }
+    ].map((r, i) => ({
+      rang: r.rang, nom: r.nom, mention: r.mention, delay: d(0.1, i, 0.05),
+      moyenne: r.moy.toFixed(2).replace('.', ','),
+      moyColor: r.moy >= 10 ? '#2b2318' : '#b5502f',
+      rangBg: r.rang <= 3 ? '#2b2318' : '#f3ecdb',
+      rangColor: r.rang <= 3 ? '#fdf3e3' : '#6b5f4a'
+    }));
+    const pStyles = { 'Actif': ['#1a5c3f', '#ecf1ea'], 'Congé': ['#6b5f4a', '#f3ecdb'] };
+    const personnel = [
+      { nom: 'Angèle Nkoulou', fonction: 'Directrice', categorie: 'Administration', statut: 'Actif', salaire: 650000 },
+      { nom: 'Éric Tchoupo', fonction: 'Prof. Mathématiques', categorie: 'Enseignant', statut: 'Actif', salaire: 280000 },
+      { nom: 'Solange Abena', fonction: 'Économe', categorie: 'Administration', statut: 'Actif', salaire: 320000 },
+      { nom: 'Mireille Fotso', fonction: 'Prof. Anglais', categorie: 'Enseignant', statut: 'Congé', salaire: 265000 },
+      { nom: 'Jean Ndongo', fonction: 'Gardien', categorie: 'Appui', statut: 'Actif', salaire: 110000 }
+    ].map((p, i) => ({
+      nom: p.nom, fonction: p.fonction, categorie: p.categorie, statut: p.statut,
+      initials: initials(p.nom), delay: d(0.1, i, 0.05), salaire: fmt(p.salaire),
+      stColor: pStyles[p.statut][0], stBg: pStyles[p.statut][1]
+    }));
+    const classCards = [
+      { nom: '6ème A', niveau: '6ème', section: 'Francophone', prix: 150000, eleves: 52 },
+      { nom: '6ème B', niveau: '6ème', section: 'Francophone', prix: 150000, eleves: 48 },
+      { nom: '5ème A', niveau: '5ème', section: 'Francophone', prix: 150000, eleves: 45 },
+      { nom: '4ème B', niveau: '4ème', section: 'Francophone', prix: 160000, eleves: 41 },
+      { nom: '3ème A', niveau: '3ème', section: 'Francophone', prix: 175000, eleves: 38 },
+      { nom: 'Form 1', niveau: 'Form 1', section: 'Anglophone', prix: 200000, eleves: 34 },
+      { nom: 'Seconde C', niveau: 'Seconde', section: 'Francophone', prix: 250000, eleves: 44 },
+      { nom: 'Terminale D', niveau: 'Terminale', section: 'Francophone', prix: 350000, eleves: 33 }
+    ].map((c, i) => ({
+      nom: c.nom, niveau: c.niveau, section: c.section, eleves: c.eleves + ' élèves',
+      prix: fmt(c.prix) + ' FCFA', delay: d(0.08, i, 0.05),
+      secColor: c.section === 'Anglophone' ? '#b5502f' : '#6b5f4a',
+      secBg: c.section === 'Anglophone' ? '#f7e8e1' : '#f3ecdb'
+    }));
+    const matieres = {
+      Maths: ['#2b2318', '#f3ecdb'], Français: ['#b5502f', '#f7e8e1'], Anglais: ['#1a5c3f', '#ecf1ea'],
+      SVT: ['#6b5f4a', '#f3ecdb'], Physique: ['#2b2318', '#f3ecdb'], Histoire: ['#b5502f', '#f7e8e1'],
+      Philo: ['#6b5f4a', '#f3ecdb'], EPS: ['#1a5c3f', '#ecf1ea']
+    };
+    const edtGrid = [
+      { label: '07:30 – 09:30', isBreak: false, cells: ['Maths', 'Français', 'Physique', 'Maths', 'SVT', 'Club / TPE'] },
+      { label: '09:30 – 11:30', isBreak: false, cells: ['Français', 'Anglais', 'Maths', 'Histoire', 'Physique', null] },
+      { label: '11:30 – 12:30', isBreak: true, cells: [] },
+      { label: '12:30 – 14:30', isBreak: false, cells: ['SVT', 'Physique', 'Anglais', 'Philo', 'Français', null] },
+      { label: '14:30 – 16:30', isBreak: false, cells: ['Histoire', 'EPS', 'Philo', 'Anglais', null, null] }
+    ].map(row => ({
+      label: row.label, isBreak: row.isBreak, notBreak: !row.isBreak,
+      cells: row.cells.map((m, i) => {
+        const key = m === 'Club / TPE' ? 'EPS' : m;
+        return {
+          empty: !m, name: m || '', prof: m ? ['M. Tchoupo', 'Mme Abena', 'M. Essono', 'Mme Fotso', 'M. Biya', 'Divers'][i] : '',
+          color: m ? matieres[key][0] : '', bg: m ? matieres[key][1] : 'transparent'
+        };
+      })
+    }));
+    const enseignants = [
+      { nom: 'Éric Tchoupo', contact: '+237 6 77 12 34 56', matiere: 'Mathématiques', salaire: 280000, statut: 'Actif' },
+      { nom: 'Solange Abena', contact: '+237 6 94 22 18 30', matiere: 'Français', salaire: 265000, statut: 'Actif' },
+      { nom: 'Mireille Fotso', contact: '+237 6 55 90 41 27', matiere: 'Anglais', salaire: 265000, statut: 'Congé' },
+      { nom: 'Jean Essono', contact: '+237 6 99 05 77 12', matiere: 'Physique-Chimie', salaire: 275000, statut: 'Actif' },
+      { nom: 'Pauline Biya', contact: '+237 6 70 33 08 64', matiere: 'SVT', salaire: 260000, statut: 'Actif' },
+      { nom: 'Robert Ndam', contact: '+237 6 81 47 55 90', matiere: 'Histoire-Géo', salaire: 255000, statut: 'Actif' }
+    ].map((e, i) => ({
+      nom: e.nom, contact: e.contact, matiere: e.matiere, statut: e.statut,
+      initials: initials(e.nom), salaire: fmt(e.salaire), delay: d(0.08, i, 0.05),
+      stColor: pStyles[e.statut][0], stBg: pStyles[e.statut][1]
+    }));
+    const ficheTabs = ['Informations', 'Finance', 'Notes', 'Discipline'].map((label, i) => ({
+      label, onClick: () => this.setState({ ficheTab: i }),
+      bg: (this.state.ficheTab ?? 0) === i ? '#2b2318' : 'transparent',
+      color: (this.state.ficheTab ?? 0) === i ? '#fdf3e3' : '#6b5f4a'
+    }));
+    const ft = this.state.ficheTab ?? 0;
+    const ficheVersements = [
+      { date: '12/01/2026', type: 'Scolarité — Tranche 2', mode: 'MTN MoMo', montant: fmt(150000) },
+      { date: '04/11/2025', type: 'Scolarité — Tranche 1', mode: 'Espèces', montant: fmt(125000) },
+      { date: '02/09/2025', type: 'Inscription', mode: 'Espèces', montant: fmt(50000) }
+    ];
+    const ficheNotes = [
+      { matiere: 'Mathématiques', note: '16,50', app: 'Excellent trimestre' },
+      { matiere: 'Physique-Chimie', note: '15,00', app: 'Très bon niveau' },
+      { matiere: 'Français', note: '13,25', app: 'Bon travail, régulier' },
+      { matiere: 'Anglais', note: '14,75', app: 'Participation active' },
+      { matiere: 'SVT', note: '15,50', app: 'Rigoureux' },
+      { matiere: 'Philosophie', note: '12,00', app: 'Peut mieux structurer' }
+    ].map(n => ({ ...n, noteColor: parseFloat(n.note.replace(',', '.')) >= 10 ? '#1a5c3f' : '#b5502f' }));
+    const landingFeatures = [
+      { title: 'Élèves & enseignants', desc: 'Fiches complètes, inscriptions, imports Excel robustes.' },
+      { title: 'Trésorerie & facturation', desc: 'Encaissements Mobile Money, relances, suivi en temps réel.' },
+      { title: 'Bulletins PDF', desc: 'Génération conforme MINESEC, bilingue, en quelques clics.' },
+      { title: 'Emploi du temps', desc: 'Planification hebdomadaire interactive par classe.' },
+      { title: 'Recouvrement', desc: 'Dashboard des impayés par classe, famille par famille.' },
+      { title: 'Comptabilité OHADA', desc: 'Journal, balance, liasse DSF et taxes camerounaises.' },
+      { title: 'Multi-établissement', desc: 'Isolation stricte des données de chaque école.' },
+      { title: 'RH & paie', desc: 'Contrats, absences, CNPS, IRPP et bulletins de paie.' }
+    ].map((f, i) => ({
+      ...f, num: String(i + 1).padStart(2, '0'),
+      iconBg: i % 3 === 1 ? '#f7e8e1' : '#f3ecdb',
+      iconColor: i % 3 === 1 ? '#b5502f' : '#6b5f4a'
+    }));
+    return {
+      navItems, classStats, txB, students, ecritures, syntheses, personnel, landingFeatures,
+      classCards, edtGrid, enseignants, ficheTabs, ficheVersements, ficheNotes,
+      isFicheInfo: ft === 0, isFicheFinance: ft === 1, isFicheNotes: ft === 2, isFicheDiscipline: ft === 3,
+      isLogin: screen === 'login', isApp: screen !== 'login' && screen !== 'landing',
+      isDashboard: screen === 'dashboard', isEleves: screen === 'eleves',
+      isFinance: screen === 'finance', isEvals: screen === 'evals', isRh: screen === 'rh',
+      isClasses: screen === 'classes', isEdt: screen === 'edt', isEnseignants: screen === 'enseignants',
+      isFiche: screen === 'fiche', isSettings: screen === 'settings', isLanding: screen === 'landing',
+      goLanding: go('landing'),
+      goDashboard: go('dashboard'), goEleves: go('eleves'), goLogin: go('login'), goFiche: go('fiche'),
+      showBande: this.props.bandeTissee ?? true,
+      pageBg: (this.props.arrierePlan ?? 'crème') === 'blanc' ? '#ffffff' : '#f8f4eb'
+    };
+  }
+}
+</script>
+</body>
+</html>

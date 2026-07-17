@@ -11,7 +11,6 @@ import {
   TeachersIcon,
   FeesIcon,
   TimetableIcon,
-  SearchIcon,
   NotificationIcon,
   ChevronDownIcon,
   AcademicIcon,
@@ -508,281 +507,195 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-bg flex flex-col font-sans text-ink">
+      {/* Bande kenté signature */}
+      <div className="kente-band sticky top-0 z-40" />
+
       {/* Offline/Local Banner */}
       {isElectron && !isOnline && (
-        <div className={`${forceOffline ? 'bg-amber-600' : 'bg-red-500'} text-white text-xs font-bold text-center py-1.5 px-4 shadow-md z-50 transition-colors duration-300`}>
+        <div className={`${forceOffline ? 'bg-accent' : 'bg-accent'} text-cream text-xs font-bold text-center py-1.5 px-4 z-30`}>
           {forceOffline ? (
-            <span>💻 Base de données locale active sur cette machine. Cliquez sur "Synchroniser Cloud" en bas de la barre latérale pour mettre à jour Supabase.</span>
+            <span>💻 Base de données locale active sur cette machine. Cliquez sur « Synchroniser » pour mettre à jour Supabase.</span>
           ) : (
-            <span>⚠️ Mode Hors-ligne : Aucune connexion internet. Les données sont lues et écrites sur le disque local de cette machine.</span>
+            <span>⚠️ Mode Hors-ligne : aucune connexion internet. Les données sont lues et écrites sur le disque local de cette machine.</span>
           )}
         </div>
       )}
 
       {/* Configuration Warning Banner */}
-      {(typeof window !== 'undefined' && 
-        (!process.env.NEXT_PUBLIC_SUPABASE_URL || 
+      {(typeof window !== 'undefined' &&
+        (!process.env.NEXT_PUBLIC_SUPABASE_URL ||
          process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder'))) && (
-        <div className="bg-amber-600 text-white text-xs font-bold text-center py-2.5 px-4 shadow-md z-50 flex items-center justify-center gap-2">
+        <div className="bg-accent text-cream text-xs font-bold text-center py-2.5 px-4 z-30 flex items-center justify-center gap-2">
           <span>⚠️</span>
           <span>
-            <strong>Configuration incomplète :</strong> Les variables d'environnement Supabase (URL / Clé) ne sont pas configurées sur Vercel. Veuillez ajouter <code>NEXT_PUBLIC_SUPABASE_URL</code> et <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> dans les paramètres d'environnement de votre projet Vercel et redéployer.
+            <strong>Configuration incomplète :</strong> les variables d&apos;environnement Supabase (URL / Clé) ne sont pas configurées. Ajoutez <code>NEXT_PUBLIC_SUPABASE_URL</code> et <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, puis redéployez.
           </span>
         </div>
       )}
 
-      {/* Mobile Top Bar */}
-      <header className="lg:hidden bg-indigo-900 text-white flex items-center justify-between px-4 py-3 shadow-md sticky top-0 z-40">
-        <div className="flex items-center gap-2">
-          {/* Cameroon Flag Colors Icon */}
-          <div className="flex h-6 w-8 rounded overflow-hidden shadow">
-            <div className="bg-emerald-600 w-1/3 h-full"></div>
-            <div className="bg-red-600 w-1/3 h-full flex items-center justify-center relative">
-              <span className="text-[6px] text-yellow-400">★</span>
-            </div>
-            <div className="bg-yellow-400 w-1/3 h-full"></div>
-          </div>
-          <span className="font-bold text-lg tracking-tight">MboaSchool</span>
-        </div>
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-1 rounded-md hover:bg-indigo-800 focus:outline-none"
-        >
-          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            {isMobileMenuOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+      {/* Header sticky : logo, contrôles, nav en pills */}
+      <header className="sticky top-[6px] z-30 bg-surface border-b border-border">
+        {/* Rangée 1 : logo + contrôles */}
+        <div className="flex items-center justify-between gap-4 px-4 lg:px-8 h-16">
+          <Link href="/dashboard" className="flex items-center gap-2.5 shrink-0">
+            <div className="w-9 h-9 rounded-[12px] bg-ink text-cream flex items-center justify-center font-extrabold text-lg">M</div>
+            <span className="font-extrabold text-xl text-ink tracking-tight hidden sm:inline">MboaSchool</span>
+          </Link>
+
+          <div className="flex items-center gap-2.5">
+            {/* Établissement */}
+            {selectedSchool && (
+              <div className="hidden md:flex items-center gap-2 bg-bg border border-border px-3 py-1.5 rounded-pill text-sm font-semibold text-ink-soft">
+                <span className="w-2 h-2 rounded-full bg-accent"></span>
+                <span className="max-w-[180px] truncate">{selectedSchool}</span>
+              </div>
             )}
-          </svg>
-        </button>
+
+            {/* Sélecteur d'année */}
+            <div className="relative">
+              <select
+                value={academicYear}
+                onChange={(e) => {
+                  const selectedYearNom = e.target.value;
+                  const matched = availableYears.find(y => y.nom === selectedYearNom);
+                  if (matched) {
+                    setAcademicYear(matched.nom);
+                    setAcademicYearId(matched.id);
+                  } else {
+                    setAcademicYear(selectedYearNom);
+                  }
+                }}
+                className="appearance-none bg-bg border border-outline pl-3 pr-8 py-1.5 rounded-pill text-sm font-semibold text-ink-soft focus:outline-none focus:border-accent cursor-pointer"
+              >
+                {availableYears.length === 0 ? (
+                  <option value={academicYear}>Année {academicYear || 'Non spécifiée'}</option>
+                ) : (
+                  availableYears.map(y => (
+                    <option key={y.id} value={y.nom}>Année {y.nom}</option>
+                  ))
+                )}
+              </select>
+              <ChevronDownIcon size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-ink-faint" />
+            </div>
+
+            {/* Pastille de statut « Synchronisé » */}
+            <div className="hidden lg:flex items-center gap-2 text-xs font-bold text-ink-faint px-2">
+              <span className={`w-2 h-2 rounded-full ${forceOffline ? 'bg-accent animate-pulse-dot' : (isOnline ? 'bg-green animate-pulse-dot' : 'bg-accent')}`}></span>
+              <span>{forceOffline ? 'Local' : (isOnline ? 'Synchronisé' : 'Hors-ligne')}</span>
+            </div>
+
+            {/* Basculer le mode local (desktop Electron) */}
+            {isElectron && (
+              <button
+                type="button"
+                onClick={toggleForceOffline}
+                title={forceOffline ? 'Mode local actif. Cliquez pour basculer en ligne.' : 'Mode connecté actif. Cliquez pour forcer le mode local.'}
+                className="px-3 py-1.5 bg-chip hover:bg-chip-hover text-ink rounded-pill text-xs font-bold transition-colors cursor-pointer"
+              >
+                {forceOffline ? 'Local' : (isOnline ? 'En ligne' : 'Déconnecté')}
+              </button>
+            )}
+
+            {/* Synchroniser (desktop Electron) */}
+            {isElectron && (
+              <button
+                onClick={handleManualSync}
+                disabled={isSyncing}
+                className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-60 text-cream rounded-pill text-xs font-bold transition-colors cursor-pointer"
+                style={{ boxShadow: 'var(--shadow-cta)' }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>{syncStatusMsg || 'Synchroniser'}</span>
+              </button>
+            )}
+
+            {/* Notifications */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 text-ink-soft hover:text-ink hover:bg-chip rounded-full transition-colors relative"
+              >
+                <NotificationIcon size={20} />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full"></span>
+              </button>
+              {showNotifications && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowNotifications(false)}></div>
+                  <div className="absolute right-0 mt-2 w-80 bg-surface border border-border rounded-card shadow-lg py-2 z-40 animate-fade-up">
+                    <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+                      <span className="text-xs font-bold text-ink">Notifications</span>
+                      <span className="text-[10px] text-green bg-green-bg px-2 py-0.5 rounded-pill font-bold">2 Nouvelles</span>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {notifications.map((n) => (
+                        <div key={n.id} className={`px-4 py-3 hover:bg-row-hover border-b border-border-row last:border-b-0 cursor-pointer transition-colors`}>
+                          <p className="text-xs text-ink-soft leading-relaxed">{n.text}</p>
+                          <span className="text-[10px] text-ink-faint mt-1 block">{n.time}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Avatar */}
+            <div className="w-9 h-9 rounded-full bg-chip text-ink flex items-center justify-center font-extrabold text-sm uppercase shrink-0" title={`${userEmail} · ${userRole}`}>
+              {userEmail ? userEmail.substring(0, 2) : 'AD'}
+            </div>
+
+            {/* Déconnexion */}
+            <button
+              onClick={handleLogout}
+              title="Se déconnecter"
+              className="p-2 text-ink-soft hover:text-accent hover:bg-chip rounded-full transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Rangée 2 : navigation en pills (défilement horizontal si nécessaire) */}
+        <nav className="flex items-center gap-1.5 px-4 lg:px-8 pb-3 pt-1 overflow-x-auto">
+          {filteredMenuItems.map((item) => {
+            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`
+                  whitespace-nowrap px-4 py-2 rounded-pill text-sm font-bold transition-colors shrink-0
+                  ${isActive
+                    ? 'bg-ink text-cream'
+                    : 'text-ink-soft hover:bg-chip'
+                  }
+                `}
+              >
+                {item.name}
+              </Link>
+            );
+          })}
+        </nav>
       </header>
 
-      <div className="flex flex-1 relative">
-        {/* Sidebar Container */}
-        <aside
-          className={`
-            fixed inset-y-0 left-0 transform lg:translate-x-0 lg:static lg:flex
-            ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-            transition-transform duration-300 ease-in-out
-            w-64 bg-slate-900 text-slate-100 flex-col z-50 shadow-xl lg:shadow-none
-            lg:h-auto h-screen top-0
-          `}
-        >
-          {/* Sidebar Header */}
-          <div className="h-16 flex items-center gap-3 px-6 border-b border-slate-800 bg-slate-950">
-            <div className="flex h-7 w-10 rounded overflow-hidden shadow">
-              <div className="bg-emerald-600 w-1/3 h-full"></div>
-              <div className="bg-red-600 w-1/3 h-full flex items-center justify-center relative">
-                <span className="text-[8px] text-yellow-400">★</span>
-              </div>
-              <div className="bg-yellow-400 w-1/3 h-full"></div>
-            </div>
-            <div>
-              <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-300 bg-clip-text text-transparent">MboaSchool</span>
-            </div>
+      {/* Contenu */}
+      <main className="flex-1 p-4 lg:p-8 overflow-y-auto">
+        {isAuthorized(pathname) ? (
+          children
+        ) : (
+          <div className="bg-surface p-8 rounded-card border border-border text-center max-w-md mx-auto mt-20 animate-fade-up">
+            <span className="text-5xl">🔒</span>
+            <h2 className="text-xl font-extrabold text-ink mt-4">Accès Restreint</h2>
+            <p className="text-sm text-ink-soft mt-2">
+              Vous n&apos;avez pas les habilitations nécessaires pour accéder à la rubrique <strong>{pathname}</strong>.
+            </p>
+            <Link href="/dashboard" className="mt-6 inline-block px-5 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-extrabold transition-colors">
+              Retour au Tableau de bord
+            </Link>
           </div>
-
-          {/* Sidebar Menu */}
-          <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-            {filteredMenuItems.map((item) => {
-              const Icon = item.icon;
-              // Check if pathname starts with item.href to keep active subroutes
-              const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className={`
-                    flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200
-                    ${isActive
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/30 font-semibold translate-x-1'
-                      : 'text-slate-400 hover:bg-slate-800/60 hover:text-white hover:translate-x-1'
-                    }
-                  `}
-                >
-                  <Icon size={20} className={isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'} />
-                  <span>{item.name}</span>
-                </Link>
-              );
-            })}
-          </nav>
-
-            {/* Sidebar Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm uppercase">
-                  {userEmail ? userEmail.substring(0, 2) : 'AD'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-white truncate" title={userEmail}>{userEmail}</p>
-                  <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider">{userRole}</p>
-                </div>
-                {isElectron && (
-                  <button
-                    type="button"
-                    onClick={toggleForceOffline}
-                    title={forceOffline ? "Mode local actif. Cliquez pour basculer en ligne." : "Mode connecté actif. Cliquez pour forcer le mode local."}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-400 hover:text-white rounded-lg text-[10px] font-bold tracking-wide uppercase transition-all duration-200 cursor-pointer"
-                  >
-                    <span>{forceOffline ? 'Local' : (isOnline ? 'En ligne' : 'Déconnecté')}</span>
-                    <div className={`w-2 h-2 rounded-full ${
-                      forceOffline ? 'bg-amber-500 animate-pulse' : (isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500')
-                    }`}></div>
-                  </button>
-                )}
-              </div>
-
-              {isElectron && (
-                <button
-                  onClick={handleManualSync}
-                  disabled={isSyncing}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                  <span>{syncStatusMsg || 'Synchroniser Cloud'}</span>
-                </button>
-              )}
-
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 hover:bg-rose-950/20 hover:border-rose-900/50 hover:text-rose-400 text-slate-400 rounded-xl text-xs font-bold transition-all"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                <span>Se déconnecter</span>
-              </button>
-            </div>
-        </aside>
-
-        {/* Mobile Menu Backdrop */}
-        {isMobileMenuOpen && (
-          <div
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          ></div>
         )}
-
-        {/* Main Work Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
-          <header className="hidden lg:flex h-16 bg-white border-b border-slate-200 items-center justify-between px-8 sticky top-0 z-30">
-            {/* Left section: Etablissement, Année & Abonnement */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-700">
-                <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
-                <span>{selectedSchool}</span>
-              </div>
-              <div className="relative">
-                <select
-                  value={academicYear}
-                  onChange={(e) => {
-                    const selectedYearNom = e.target.value;
-                    const matched = availableYears.find(y => y.nom === selectedYearNom);
-                    if (matched) {
-                      setAcademicYear(matched.nom);
-                      setAcademicYearId(matched.id);
-                    } else {
-                      setAcademicYear(selectedYearNom);
-                    }
-                  }}
-                  className="appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-1.5 rounded-lg text-sm font-medium text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
-                >
-                  {availableYears.length === 0 ? (
-                    <option value={academicYear}>Année {academicYear || 'Non spécifiée'}</option>
-                  ) : (
-                    availableYears.map(y => (
-                      <option key={y.id} value={y.nom}>Année {y.nom}</option>
-                    ))
-                  )}
-                </select>
-                <ChevronDownIcon size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-              </div>
-              {subscriptionPlan && (
-                <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
-                  <span>Forfait {subscriptionPlan}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Right section: Search, Notify, Profile */}
-            <div className="flex items-center gap-4">
-              {/* Search Bar */}
-              <div className="relative w-64">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <SearchIcon size={16} />
-                </span>
-                <input
-                  type="text"
-                  placeholder="Rechercher élève, enseignant..."
-                  className="w-full bg-slate-50 border border-slate-200 pl-9 pr-4 py-1.5 rounded-lg text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-black"
-                />
-              </div>
-
-              {/* Notification Bell */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors relative"
-                >
-                  <NotificationIcon size={20} />
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
-                </button>
-
-                {/* Notifications Dropdown */}
-                {showNotifications && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setShowNotifications(false)}></div>
-                    <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-lg py-2 z-40 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-xl">
-                        <span className="text-xs font-semibold text-slate-800">Notifications</span>
-                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full font-semibold">2 Nouvelles</span>
-                      </div>
-                      <div className="max-h-64 overflow-y-auto">
-                        {notifications.map((n) => (
-                          <div key={n.id} className={`px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-b-0 cursor-pointer transition-colors ${n.unread ? 'bg-indigo-50/30' : ''}`}>
-                            <p className="text-xs text-slate-700 leading-relaxed">{n.text}</p>
-                            <span className="text-[10px] text-slate-400 mt-1 block">{n.time}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Cameroon Flag Decorative */}
-              <div className="flex h-5 w-7 rounded overflow-hidden shadow border border-slate-200">
-                <div className="bg-emerald-600 w-1/3 h-full"></div>
-                <div className="bg-red-600 w-1/3 h-full flex items-center justify-center relative">
-                  <span className="text-[5px] text-yellow-400">★</span>
-                </div>
-                <div className="bg-yellow-400 w-1/3 h-full"></div>
-              </div>
-            </div>
-          </header>
-
-          {/* Children Content */}
-          <main className="flex-1 p-4 lg:p-8 overflow-y-auto">
-            {isAuthorized(pathname) ? (
-              children
-            ) : (
-              <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm text-center max-w-md mx-auto mt-20">
-                <span className="text-5xl">🔒</span>
-                <h2 className="text-xl font-bold text-slate-800 mt-4">Accès Restreint</h2>
-                <p className="text-sm text-slate-500 mt-2">
-                  Vous n'avez pas les habilitations nécessaires pour accéder à la rubrique <strong>{pathname}</strong>.
-                </p>
-                <Link href="/dashboard" className="mt-6 inline-block px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md transition-all">
-                  Retour au Tableau de bord
-                </Link>
-              </div>
-            )}
-          </main>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
