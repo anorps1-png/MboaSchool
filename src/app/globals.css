@@ -61,26 +61,34 @@
 
 /* ============================================================================
    Base
+   Ces règles doivent rester dans @layer base : sans cela, les sélecteurs
+   d'éléments nus (html, body, a) sont "unlayered" et gagnent toujours sur les
+   classes utilitaires Tailwind (@layer utilities) quelle que soit la
+   spécificité. Conséquence concrète observée : `a { color: var(--color-accent) }`
+   écrasait `text-cream` sur les boutons CTA (Link), rendant le texte de la
+   couleur du fond (terracotta sur terracotta) et donc invisible.
    ============================================================================ */
-html,
-body {
-  margin: 0;
-  padding: 0;
-}
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
 
-body {
-  background: var(--color-bg);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
 
-a {
-  color: var(--color-accent);
-  text-decoration: none;
-}
-a:hover {
-  color: var(--color-accent-hover);
+  a {
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+  a:hover {
+    color: var(--color-accent-hover);
+  }
 }
 
 /* ============================================================================
