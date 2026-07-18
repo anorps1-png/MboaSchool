@@ -3,10 +3,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
+import { getMoyennesParSection } from '@/lib/queries/evaluations';
 
 export default function SectionsPage() {
   const [sectionsList, setSectionsList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [moyennesParSection, setMoyennesParSection] = useState<Record<string, number>>({});
   const { etablissementId } = useEtablissement();
 
   const supabase = createClient();
@@ -22,7 +24,7 @@ export default function SectionsPage() {
 
       if (classesData) {
         const sectionsMap: Record<string, { name: string; classes: any[]; studentsCount: number }> = {};
-        
+
         classesData.forEach(cls => {
           const sectionName = cls.section || 'Francophone';
           if (!sectionsMap[sectionName]) {
@@ -52,6 +54,20 @@ export default function SectionsPage() {
   useEffect(() => {
     if (etablissementId) fetchSectionsData();
   }, [etablissementId, fetchSectionsData]);
+
+  useEffect(() => {
+    if (!etablissementId) return;
+    getMoyennesParSection(etablissementId)
+      .then(rows => {
+        const map: Record<string, number> = {};
+        rows.forEach(r => { map[r.section] = r.moyenne; });
+        setMoyennesParSection(map);
+      })
+      .catch(err => {
+        captureError(err, { context: "Error loading moyennes par section:" });
+        setMoyennesParSection({});
+      });
+  }, [etablissementId]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -86,8 +102,12 @@ export default function SectionsPage() {
                   <p className="text-2xl font-bold">{section.studentsCount}</p>
                 </div>
                 <div className="p-4 bg-bg rounded-control">
-                  <p className="text-xs font-bold text-ink-faint uppercase">Moyenne Estimée</p>
-                  <p className="text-2xl font-bold">12.80 / 20</p>
+                  <p className="text-xs font-bold text-ink-faint uppercase">Moyenne Générale</p>
+                  <p className="text-2xl font-bold">
+                    {moyennesParSection[section.name] !== undefined
+                      ? `${moyennesParSection[section.name].toFixed(2)} / 20`
+                      : 'N/A'}
+                  </p>
                 </div>
               </div>
             </div>

@@ -47,3 +47,24 @@ export async function getMoyenneGenerale(
   if (error) throw error;
   return data === null || data === undefined ? null : Number(data);
 }
+
+export interface MoyenneParSection {
+  section: string;
+  moyenne: number;
+}
+
+/**
+ * Moyenne générale réelle par section (sous-système), calculée depuis les
+ * notes des élèves. Une section sans élève noté n'apparaît pas dans le
+ * résultat.
+ */
+export async function getMoyennesParSection(etablissementId: string): Promise<MoyenneParSection[]> {
+  const { data, error } = await supabase.rpc('get_moyennes_par_section', {
+    p_etablissement_id: etablissementId,
+  });
+  if (error) throw error;
+  return ((data as Record<string, unknown>[]) ?? []).map((row) => ({
+    section: row.section as string,
+    moyenne: Number(row.moyenne),
+  }));
+}
