@@ -318,7 +318,7 @@ export default function EmploiDuTempsPage() {
                             </div>
                             <div className="flex justify-between items-center mt-3 text-[9px] font-bold opacity-75 w-full">
                               <span>{satLesson.salle}</span>
-                              <span>08h00 - 11h00</span>
+                              <span>{satLesson.heure_debut} - {satLesson.heure_fin}</span>
                             </div>
                           </button>
                         </div>
