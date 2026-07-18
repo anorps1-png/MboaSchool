@@ -3,26 +3,6 @@ import { planComptableOHADA } from '../../mock/comptabilite';
 
 const supabase = createClient();
 
-export async function getPlanComptable(etablissementId: string) {
-  const { data, error } = await supabase
-    .from('comptes_ohada')
-    .select('*');
-
-  if (error) throw error;
-  const filtered = (data || []).filter((a: any) => !a.etablissement_id || a.etablissement_id === etablissementId);
-  return filtered.sort((a: any, b: any) => a.numero.localeCompare(b.numero, undefined, { numeric: true }));
-}
-
-export async function getEcrituresComptables(etablissementId: string) {
-  const { data, error } = await supabase
-    .from('ecritures_comptables')
-    .select('*, lignes_ecritures(*)')
-    .eq('etablissement_id', etablissementId);
-
-  if (error) throw error;
-  return data || [];
-}
-
 export async function addEcritureComptable(ecriture: Record<string, any>, lignes: any[], etablissementId: string) {
   // Insertion atomique via une fonction Postgres (RPC) : en-tête + lignes dans
   // une seule transaction, avec vérification de l'équilibre débit = crédit et

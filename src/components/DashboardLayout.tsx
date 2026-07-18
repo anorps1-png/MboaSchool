@@ -1,4 +1,5 @@
 'use client';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -71,6 +72,131 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               nom: '2025/2026',
               etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
             }],
+            classes: [
+              {
+                id: 'cls-term-d',
+                niveau_id: 'Terminale D',
+                nom: 'Terminale D',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
+                annee_scolaire_id: 'active-year-uuid-2026',
+                prix: 315000
+              },
+              {
+                id: 'cls-sec-c',
+                niveau_id: 'Seconde C',
+                nom: 'Seconde C',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
+                annee_scolaire_id: 'active-year-uuid-2026',
+                prix: 260000
+              },
+              {
+                id: 'cls-mat-gs',
+                niveau_id: 'Maternelle',
+                nom: 'Maternelle Grande Section',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d',
+                annee_scolaire_id: 'active-year-uuid-2026',
+                prix: 120000
+              }
+            ],
+            matieres: [
+              {
+                id: 'mat-maths',
+                niveau_id: 'Terminale D',
+                nom: 'Mathématiques',
+                coefficient: 5,
+                bareme: 20,
+                examen_officiel: true,
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              },
+              {
+                id: 'mat-phys',
+                niveau_id: 'Terminale D',
+                nom: 'Physique-Chimie',
+                coefficient: 5,
+                bareme: 20,
+                examen_officiel: true,
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              },
+              {
+                id: 'mat-fran',
+                niveau_id: 'Terminale D',
+                nom: 'Français',
+                coefficient: 3,
+                bareme: 20,
+                examen_officiel: false,
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              }
+            ],
+            enseignants: [
+              {
+                id: 'teach-1',
+                nom: 'Tchoupo',
+                prenom: 'Éric',
+                email: 'e.tchoupo@mboaschool.com',
+                telephone: '+237 699 99 99 99',
+                genre: 'M',
+                statut: 'actif',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              },
+              {
+                id: 'teach-2',
+                nom: 'Essono',
+                prenom: 'Marc',
+                email: 'm.essono@mboaschool.com',
+                telephone: '+237 688 88 88 88',
+                genre: 'M',
+                statut: 'actif',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              },
+              {
+                id: 'teach-3',
+                nom: 'Abena',
+                prenom: 'Mme',
+                email: 'mme.abena@mboaschool.com',
+                telephone: '+237 677 77 77 77',
+                genre: 'F',
+                statut: 'actif',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              }
+            ],
+            emploi_du_temps: [
+              {
+                id: 'lesson-101',
+                classe_id: 'cls-term-d',
+                jour_semaine: 1,
+                heure_debut: '08:00',
+                heure_fin: '10:00',
+                matiere_id: 'mat-maths',
+                enseignant_id: 'teach-1',
+                salle: 'Salle 12',
+                couleur: 'indigo',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              },
+              {
+                id: 'lesson-102',
+                classe_id: 'cls-term-d',
+                jour_semaine: 1,
+                heure_debut: '10:15',
+                heure_fin: '12:15',
+                matiere_id: 'mat-phys',
+                enseignant_id: 'teach-2',
+                salle: 'Labo Physique',
+                couleur: 'red',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              },
+              {
+                id: 'lesson-103',
+                classe_id: 'cls-term-d',
+                jour_semaine: 1,
+                heure_debut: '13:00',
+                heure_fin: '15:00',
+                matiere_id: 'mat-fran',
+                enseignant_id: 'teach-3',
+                salle: 'Salle 12',
+                couleur: 'emerald',
+                etablissement_id: 'd3b07384-d113-4ee7-a496-c67b8a74e50d'
+              }
+            ],
             profiles: [{
               id: 'local-admin-id',
               role: 'admin',
@@ -89,7 +215,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             })
           });
         } catch (e) {
-          console.error("Failed to seed local database:", e);
+          captureError(e, { context: "Failed to seed local database:" });
         }
       };
 
@@ -183,14 +309,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             body: JSON.stringify({ taskId: id })
           });
         } else {
-          console.error(`Sync error on table ${table}:`, result.error);
+          captureError(result.error, { context: 'Sync error on table', table });
         }
       }
 
       setSyncStatusMsg(`${successCount}/${queue.length} synchronisés !`);
       setTimeout(() => setSyncStatusMsg(''), 3000);
     } catch (e: any) {
-      console.error("Sync failed:", e);
+      captureError(e, { context: "Sync failed:" });
       setSyncStatusMsg('Erreur de synchronisation.');
       setTimeout(() => setSyncStatusMsg(''), 3000);
     } finally {
@@ -204,7 +330,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       const supabase = createClient();
       await supabase.auth.signOut();
     } catch (err) {
-      console.error("Error signing out:", err);
+      captureError(err, { context: "Error signing out:" });
     }
     // Always clear cookies & local storage
     document.cookie = "mboaschool_offline_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
@@ -286,7 +412,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             }
           }
         } catch (err) {
-          console.warn("Could not load dynamic user context from Supabase, loading fallbacks", err);
+          captureMessage("Could not load dynamic user context from Supabase, loading fallbacks", { detail: err });
         }
 
         // Check local storage fallbacks only if we don't have DB values yet
@@ -323,13 +449,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             if (parsed.role) setUserRole(parsed.role === 'admin' ? 'Administrateur' : parsed.role);
             if (parsed.permissions) setUserPermissions(parsed.permissions);
           } catch (e) {
-            console.warn("Failed parsing offline session", e);
+            captureMessage("Failed parsing offline session", { detail: e });
           }
         }
       };
 
       loadProfileAndSchool();
     }
+    // Ne se relance que sur refreshTrigger : lit etablissementId/selectedSchool/
+    // academicYear en closure pour des comparaisons "déjà à jour ?", mais ne doit
+    // pas se redéclencher quand ces valeurs changent (ce sont ses propres setters
+    // qui les modifient plus bas — boucle sinon).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger]);
 
   const [availableYears, setAvailableYears] = useState<any[]>([]);
@@ -376,7 +507,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             }
           }
         } catch (e) {
-          console.warn("Error fetching years in DashboardLayout:", e);
+          captureMessage("Error fetching years in DashboardLayout:", { detail: e });
         }
       };
 
@@ -389,6 +520,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         window.removeEventListener('academic_year_changed', fetchYears);
       };
     }
+    // academicYear/academicYearId lus en closure pour comparaison ; ce sont ces
+    // mêmes valeurs que l'effet met à jour plus bas (guard "si différent") —
+    // les inclure ferait tourner fetchYears en boucle inutilement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etablissementId, refreshTrigger]);
 
 

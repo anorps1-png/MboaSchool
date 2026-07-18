@@ -1,7 +1,8 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 export default function SectionsPage() {
   const [sectionsList, setSectionsList] = useState<any[]>([]);
@@ -10,11 +11,7 @@ export default function SectionsPage() {
 
   const supabase = createClient();
 
-  useEffect(() => {
-    if (etablissementId) fetchSectionsData();
-  }, [etablissementId]);
-
-  const fetchSectionsData = async () => {
+  const fetchSectionsData = useCallback(async () => {
     if (!etablissementId) return;
     setIsLoading(true);
     try {
@@ -42,47 +39,51 @@ export default function SectionsPage() {
         setSectionsList(Object.values(sectionsMap));
       }
     } catch (err) {
-      console.error("Error loading sections:", err);
+      captureError(err, { context: "Error loading sections:" });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [etablissementId, supabase]);
+
+  useEffect(() => {
+    if (etablissementId) fetchSectionsData();
+  }, [etablissementId, fetchSectionsData]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <h1 className="text-2xl font-bold text-slate-800 text-black">Sections &amp; Sous-systèmes</h1>
-      <p className="text-slate-500 text-sm">Vue consolidée par sous-système de l'établissement.</p>
+      <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Sections &amp; Sous-systèmes</h1>
+      <p className="text-ink-soft text-sm">Vue consolidée par sous-système de l'établissement.</p>
 
       {isLoading ? (
         <div className="flex justify-center items-center py-20">
-          <svg className="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg className="animate-spin h-8 w-8 text-ink" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
         </div>
       ) : sectionsList.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 flex flex-col items-center justify-center text-center">
-          <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
+        <div className="bg-surface rounded-card border border-dashed border-border p-12 flex flex-col items-center justify-center text-center">
+          <div className="w-16 h-16 bg-chip rounded-full flex items-center justify-center mb-4">
             <span className="text-2xl">🏫</span>
           </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-2">Aucune section détectée</h3>
-          <p className="text-slate-500 text-sm max-w-md">Créez d'abord des classes avec des sections définies pour les voir apparaître ici.</p>
+          <h3 className="text-lg font-bold text-ink mb-2">Aucune section détectée</h3>
+          <p className="text-ink-soft text-sm max-w-md">Créez d'abord des classes avec des sections définies pour les voir apparaître ici.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {sectionsList.map(section => (
-            <div key={section.name} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <h2 className="text-xl font-bold text-indigo-700">{section.name}</h2>
-              <p className="text-sm text-slate-500 mt-1">{section.classes.length} classe(s) rattachée(s)</p>
+            <div key={section.name} className="bg-surface p-6 rounded-card shadow-sm border border-border">
+              <h2 className="text-xl font-bold text-ink">{section.name}</h2>
+              <p className="text-sm text-ink-soft mt-1">{section.classes.length} classe(s) rattachée(s)</p>
               
               <div className="mt-6 grid grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-50 rounded-xl">
-                  <p className="text-xs font-bold text-slate-400 uppercase">Effectif Total</p>
-                  <p className="text-2xl font-bold text-black">{section.studentsCount}</p>
+                <div className="p-4 bg-bg rounded-control">
+                  <p className="text-xs font-bold text-ink-faint uppercase">Effectif Total</p>
+                  <p className="text-2xl font-bold">{section.studentsCount}</p>
                 </div>
-                <div className="p-4 bg-slate-50 rounded-xl">
-                  <p className="text-xs font-bold text-slate-400 uppercase">Moyenne Estimée</p>
-                  <p className="text-2xl font-bold text-black">12.80 / 20</p>
+                <div className="p-4 bg-bg rounded-control">
+                  <p className="text-xs font-bold text-ink-faint uppercase">Moyenne Estimée</p>
+                  <p className="text-2xl font-bold">12.80 / 20</p>
                 </div>
               </div>
             </div>

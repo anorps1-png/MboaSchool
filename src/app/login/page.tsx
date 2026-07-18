@@ -1,4 +1,5 @@
 'use client';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -16,6 +17,8 @@ function LoginContent() {
   const [signupStep, setSignupStep] = useState(1); // 1: Credentials, 2: Plan, 3: Payment, 4: School Info
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Step 1 & Login States
   const [email, setEmail] = useState('');
@@ -110,7 +113,7 @@ function LoginContent() {
           return;
         }
       } catch (e) {
-        console.warn("Failed checking mboaschool_profiles", e);
+        captureMessage("Failed checking mboaschool_profiles", { detail: e });
       }
     }
 
@@ -216,7 +219,7 @@ function LoginContent() {
             localStorage.setItem('mboaschool_profiles', JSON.stringify(profilesList));
           }
         } catch (profileErr) {
-          console.warn('Could not fetch/cache profile on login:', profileErr);
+          captureMessage('Could not fetch/cache profile on login:', { detail: profileErr });
           
           if (isElectron) {
             // Fallback to caching basic details
@@ -244,7 +247,7 @@ function LoginContent() {
         router.push('/dashboard');
       }
     } catch (err: any) {
-      console.error("Login error, checking error type:", err);
+      captureError(err, { context: "Login error, checking error type:" });
 
       // 1. Check if the error is due to unconfirmed email
       if (err.message && (err.message.includes('Email not confirmed') || err.message.toLowerCase().includes('confirm'))) {
@@ -274,6 +277,26 @@ function LoginContent() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setErrorMsg(null);
+    if (!email) {
+      setErrorMsg("Saisissez votre adresse email ci-dessus, puis cliquez à nouveau sur « Mot de passe oublié ? ».");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
+      });
+      if (error) throw error;
+      setResetSent(true);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Impossible d'envoyer l'email de réinitialisation.");
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -347,7 +370,7 @@ function LoginContent() {
             .single();
           if (profile) etabId = profile.etablissement_id;
         } catch (e) {
-          console.warn("Could not fetch newly created profile immediately:", e);
+          captureMessage("Could not fetch newly created profile immediately:", { detail: e });
         }
 
         // Always save plan & info to local storage as fallback and for Layout displaying
@@ -395,13 +418,13 @@ function LoginContent() {
               password
             });
           } catch (loginErr) {
-            console.warn("Auto login failed after signup:", loginErr);
+            captureMessage("Auto login failed after signup:", { detail: loginErr });
           }
         }
         router.push('/dashboard');
       }
     } catch (err: any) {
-      console.warn("Supabase onboarding failed, checking error type:", err);
+      captureMessage("Supabase onboarding failed, checking error type:", { detail: err });
       
       // If it's a real API auth error from Supabase (rate limit, weak password, duplicate email, invalid domain),
       // we must show the error instead of falling back to simulated offline mode.
@@ -489,33 +512,29 @@ function LoginContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden text-slate-100">
-      {/* Decorative Blur Backgrounds */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[60%] rounded-full bg-indigo-500/10 blur-[150px] pointer-events-none"></div>
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[60%] rounded-full bg-emerald-500/10 blur-[150px] pointer-events-none"></div>
+    <div className="min-h-screen bg-bg text-ink flex flex-col items-center justify-center py-12 px-4 relative">
+      {/* Bande kenté signature */}
+      <div className="absolute top-0 left-0 right-0 kente-band" />
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10 text-center">
-        <span className="text-5xl">🏫</span>
-        <h2 className="mt-4 text-3xl font-black text-white tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-300 bg-clip-text text-transparent">
-          MboaSchool
-        </h2>
-        <p className="mt-2 text-sm text-slate-400">
-          Système de Gestion Scolaire Intégré
-        </p>
-      </div>
+      <div className="w-full max-w-md bg-surface border border-border rounded-card-lg p-8 sm:p-11 shadow-login animate-fade-up">
+        {/* En-tête logo */}
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-11 h-11 rounded-[14px] bg-ink text-cream flex items-center justify-center font-extrabold text-xl">M</div>
+          <div>
+            <div className="font-extrabold text-[22px] text-ink tracking-[-0.5px] leading-none">MboaSchool</div>
+            <div className="text-xs text-ink-faint font-semibold mt-1">Gestion scolaire · Cameroun</div>
+          </div>
+        </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-xl relative z-10 px-4">
-        <div className="bg-slate-900/80 backdrop-blur-md py-8 px-6 border border-slate-800 shadow-2xl rounded-3xl sm:px-10">
-          
           {errorMsg && (
-            <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3.5 rounded-xl text-xs font-semibold flex items-center gap-3 mb-6">
-              <span className="w-5 h-5 rounded-full bg-rose-500/20 flex items-center justify-center font-bold">!</span>
+            <div className="mt-6 bg-red-bg border border-border text-accent px-4 py-3.5 rounded-control text-xs font-semibold flex items-center gap-3">
+              <span className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center font-bold shrink-0">!</span>
               <span>{errorMsg}</span>
             </div>
           )}
 
           {isOffline ? (
-            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-3.5 rounded-xl text-xs font-semibold mb-6">
+            <div className="mt-6 bg-chip border border-outline text-ink-soft px-4 py-3.5 rounded-control text-xs font-semibold">
               <div className="flex justify-between items-center">
                 <span className="flex items-center gap-1.5">💻 Mode Hors-ligne / Local actif</span>
                 <button
@@ -524,25 +543,25 @@ function LoginContent() {
                     localStorage.setItem('mboaschool_force_offline', 'false');
                     setIsOffline(!navigator.onLine);
                   }}
-                  className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded-lg border border-slate-700 font-bold transition-all cursor-pointer"
+                  className="text-[10px] bg-surface hover:bg-bg text-ink-soft px-2 py-0.5 rounded-control border border-outline font-bold transition-colors cursor-pointer"
                 >
                   Passer en ligne
                 </button>
               </div>
-              <p className="text-[11px] text-slate-400 font-normal mt-2 leading-relaxed">
+              <p className="text-[11px] text-ink-faint font-normal mt-2 leading-relaxed">
                 Connexion avec vos identifiants habituels (déjà connectés sur cet appareil) ou le compte démo :
-                <strong className="text-amber-300 ml-1">admin@mboaschool.com</strong>.
+                <strong className="text-accent ml-1">admin@mboaschool.com</strong>.
               </p>
             </div>
           ) : (
-            <div className="flex justify-end mb-4">
+            <div className="flex justify-end mt-4">
               <button
                 type="button"
                 onClick={() => {
                   localStorage.setItem('mboaschool_force_offline', 'true');
                   setIsOffline(true);
                 }}
-                className="text-[10px] text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-all cursor-pointer"
+                className="text-[11px] text-ink-faint hover:text-ink-soft flex items-center gap-1 transition-colors cursor-pointer"
               >
                 <span>🌐 Travailler hors-ligne (mode local)</span>
               </button>
@@ -551,88 +570,106 @@ function LoginContent() {
 
           {/* LOGIN VIEW */}
           {!isSignUp && (
-            <form className="space-y-6" onSubmit={handleLogin}>
-              <div className="border-b border-slate-800 pb-4 mb-4 flex justify-between items-center">
-                <h3 className="text-xl font-extrabold text-white">Connexion</h3>
-                <button 
-                  type="button" 
-                  onClick={() => { setIsSignUp(true); setSignupStep(1); }} 
-                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300"
-                >
-                  S'inscrire à la plateforme →
-                </button>
+            <form className="mt-6 space-y-5" onSubmit={handleLogin}>
+              <div>
+                <h1 className="text-[30px] font-extrabold text-ink tracking-[-1px]">Bon retour.</h1>
+                <p className="text-sm text-ink-soft mt-1">Connectez-vous pour gérer votre établissement.</p>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Adresse Email</label>
+                <label className="block text-xs font-bold text-ink-soft mb-1.5">Adresse email</label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="directeur@mboaschool.com"
-                  className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all"
+                  className="w-full box-border px-3.5 py-3 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Mot de passe</label>
+                <label className="block text-xs font-bold text-ink-soft mb-1.5">Mot de passe</label>
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all"
+                  className="w-full box-border px-3.5 py-3 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center disabled:opacity-50"
+                className="w-full py-3.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-[15px] font-extrabold shadow-cta transition-colors active:scale-[0.99] flex items-center justify-center disabled:opacity-60"
               >
                 {isLoading ? "Vérification..." : "Se connecter"}
               </button>
+
+              {resetSent && (
+                <p className="text-[12px] font-semibold text-green">
+                  Email de réinitialisation envoyé (si ce compte existe).
+                </p>
+              )}
+
+              <div className="flex justify-between items-center text-[13px] font-semibold pt-1">
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={resetLoading}
+                  className="text-accent hover:text-accent-hover bg-transparent border-none p-0 cursor-pointer font-semibold disabled:opacity-60"
+                >
+                  {resetLoading ? "Envoi..." : "Mot de passe oublié ?"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsSignUp(true); setSignupStep(1); }}
+                  className="text-accent hover:text-accent-hover bg-transparent border-none cursor-pointer font-semibold"
+                >
+                  Créer un compte →
+                </button>
+              </div>
             </form>
           )}
 
           {/* SIGNUP VIEW */}
           {isSignUp && (
-            <div>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
+            <div className="mt-6">
+              <div className="flex items-center justify-between border-b border-border-row pb-4 mb-5">
                 <div>
-                  <h3 className="text-xl font-extrabold text-white">Créer mon espace</h3>
-                  <p className="text-xs text-slate-500 mt-1">Création de votre compte établissement</p>
+                  <h1 className="text-[26px] font-extrabold text-ink tracking-[-0.5px]">Créer mon espace</h1>
+                  <p className="text-xs text-ink-faint mt-1">Création de votre compte établissement</p>
                 </div>
-                <button 
-                  type="button" 
-                  onClick={() => setIsSignUp(false)} 
-                  className="text-xs font-bold text-slate-400 hover:text-white"
+                <button
+                  type="button"
+                  onClick={() => setIsSignUp(false)}
+                  className="text-xs font-bold text-ink-soft hover:text-ink shrink-0"
                 >
                   Se connecter
                 </button>
               </div>
 
-              <form onSubmit={handleFinalSubmit} className="space-y-6">
+              <form onSubmit={handleFinalSubmit} className="space-y-5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nom de l'Établissement *</label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Nom de l&apos;établissement *</label>
                   <input
                     type="text"
                     required
                     value={schoolName}
                     onChange={(e) => setSchoolName(e.target.value)}
                     placeholder="Ex: Collège Vogt, Lycée de Douala"
-                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                    className="w-full box-border px-3.5 py-3 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Année Scolaire de Départ *</label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Année scolaire de départ *</label>
                   <select
                     value={schoolYear}
                     onChange={(e) => setSchoolYear(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all cursor-pointer"
+                    className="w-full box-border px-3.5 py-3 bg-bg border border-border rounded-control text-sm font-semibold text-ink outline-none focus:border-accent focus:bg-surface transition-colors cursor-pointer"
                   >
                     <option value="2024/2025">2024/2025</option>
                     <option value="2025/2026">2025/2026</option>
@@ -642,41 +679,46 @@ function LoginContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Adresse Email *</label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Adresse email *</label>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="admin@mboaschool.com"
-                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                    className="w-full box-border px-3.5 py-3 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Créer un Mot de passe *</label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Créer un mot de passe *</label>
                   <input
                     type="password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Minimum 6 caractères"
-                    className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                    placeholder="Minimum 8 caractères, majuscule + chiffre"
+                    className="w-full box-border px-3.5 py-3 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center disabled:opacity-50"
+                  className="w-full py-3.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-[15px] font-extrabold shadow-cta transition-colors active:scale-[0.99] flex items-center justify-center disabled:opacity-60"
                 >
-                  {isLoading ? "Création de l'Espace..." : "Finaliser et ouvrir mon Dashboard →"}
+                  {isLoading ? "Création de l'espace..." : "Finaliser et ouvrir mon Dashboard →"}
                 </button>
               </form>
             </div>
           )}
 
-        </div>
+      </div>
+
+      {/* Sous la carte */}
+      <div className="mt-6 text-xs text-ink-faint font-semibold flex items-center gap-2 text-center px-4">
+        <span className="w-[7px] h-[7px] rounded-full bg-green animate-pulse-dot shrink-0"></span>
+        Fonctionne aussi hors-ligne — vos données restent sur cette machine
       </div>
     </div>
   );
@@ -684,7 +726,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Chargement...</div>}>
+    <Suspense fallback={<div className="min-h-screen bg-bg text-ink flex items-center justify-center">Chargement...</div>}>
       <LoginContent />
     </Suspense>
   );

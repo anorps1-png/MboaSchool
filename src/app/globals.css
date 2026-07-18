@@ -11,17 +11,17 @@
   --color-border: #e9e1cf;        /* bordures de cartes */
   --color-border-row: #f0e9d8;    /* séparateurs de lignes de tableau */
   --color-outline: #dfd6c0;       /* bordures boutons secondaires / pills */
-  --color-ink: #2b2318;           /* texte principal / fonds sombres */
+  --color-ink: #2b2318;           /* texte principal (encre brune) */
   --color-ink-soft: #6b5f4a;      /* texte secondaire */
   --color-ink-faint: #a3947a;     /* texte tertiaire / labels */
-  --color-accent: #b5502f;        /* terracotta (CTA, liens, impayés) */
+  --color-accent: #b5502f;        /* terracotta */
   --color-accent-hover: #9d4326;
-  --color-cream: #fdf3e3;         /* texte sur fonds sombres/accent */
+  --color-cream: #fdf3e3;         /* texte sur accent (crème/doré clair) */
   --color-green: #1a5c3f;         /* succès / payé */
-  --color-green-bg: #ecf1ea;
-  --color-red-bg: #f7e8e1;        /* fond pastille impayé */
-  --color-chip: #f3ecdb;          /* avatars, chips, pistes de progression */
-  --color-chip-hover: #ece3cc;
+  --color-green-bg: #ecf1ea;      /* fond pastille payé */
+  --color-red-bg: #f7e8e1;        /* fond pastille impayé chaud */
+  --color-chip: #f3ecdb;          /* avatars, chips (teinte sable) */
+  --color-chip-hover: #ece3cc;    /* survol chips et boutons beiges */
   --color-row-hover: #fdfaf2;     /* survol ligne de tableau */
   --color-input-focus-bg: #fffdf8;
 

@@ -11,10 +11,13 @@ import {
 } from '@/types/domain';
 import { planComptableOHADA, mockEcrituresInitiales } from '@/mock/comptabilite';
 import { mockStudents } from '@/mock/students';
-import { mockPersonnel, mockFormations } from '@/mock/rh';
-import { mockBSCHistorique, mockBudget2026, BudgetPrevisionnel } from '@/mock/finance';
+import { mockBudget2026, BudgetPrevisionnel } from '@/mock/finance';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { captureError, captureMessage } from '@/lib/observability/logger';
+import { getDashboardStats, type DashboardStats } from '@/lib/queries/dashboard';
+import { getMoyenneGenerale } from '@/lib/queries/evaluations';
+import { getAbsences, getEvaluationsRH } from '@/lib/queries/rh';
 
 
 export default function FinancePage() {
@@ -57,7 +60,6 @@ export default function FinancePage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // BSC years state
-  const [bscYears, setBscYears] = useState({ year1: 2024, year2: 2025, year3: 2026 });
 
   // Budget states
   const [budgetLines, setBudgetLines] = useState<BudgetPrevisionnel[]>([]);
@@ -77,6 +79,55 @@ export default function FinancePage() {
 
   const { etablissementId } = useEtablissement();
 
+  // Trésorerie perçue / effectif élèves : calculés en base (RPC déjà utilisée
+  // par le tableau de bord, get_dashboard_stats) quand disponible, plutôt que
+  // de dépendre du fetch complet élèves+paiements plus bas (students). Repli
+  // automatique sur le calcul client existant si la RPC échoue.
+  const [serverStats, setServerStats] = useState<DashboardStats | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getDashboardStats(etablissementId)
+        .then(setServerStats)
+        .catch(() => setServerStats(null));
+    }
+  }, [etablissementId]);
+
+  // Moyenne générale réelle (RPC get_moyenne_generale) pour la carte BSC
+  // "Moyenne Générale", qui affichait auparavant une constante fabriquée (12,5).
+  const [serverMoyenneGenerale, setServerMoyenneGenerale] = useState<number | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getMoyenneGenerale(etablissementId)
+        .then(setServerMoyenneGenerale)
+        .catch(() => setServerMoyenneGenerale(null));
+    }
+  }, [etablissementId]);
+
+  // Total des jours d'absence du personnel pour la carte BSC "Jours Absences
+  // Staff", qui affichait auparavant une constante fabriquée (42).
+  const [totalAbsenceDays, setTotalAbsenceDays] = useState<number | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getAbsences(etablissementId)
+        .then((rows) => {
+          const total = (rows || []).reduce((sum: number, r: any) => sum + (Number(r.duree_jours) || 0), 0);
+          setTotalAbsenceDays(total);
+        })
+        .catch(() => setTotalAbsenceDays(null));
+    }
+  }, [etablissementId]);
+
+  // Évaluations RH réelles, pour les cartes BSC "Adhérence Job Role" et "Note
+  // d'évaluation stages" (auparavant des constantes fixes : 89,2% / 15,6).
+  const [evaluationsRH, setEvaluationsRH] = useState<any[]>([]);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getEvaluationsRH(etablissementId)
+        .then((rows) => setEvaluationsRH(rows || []))
+        .catch(() => setEvaluationsRH([]));
+    }
+  }, [etablissementId]);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storedSession = localStorage.getItem('mboaschool_offline_session');
@@ -87,7 +138,7 @@ export default function FinancePage() {
             setUserRole(parsed.role);
           }
         } catch (e) {
-          console.error("Error parsing offline session:", e);
+          captureError(e, { context: "Error parsing offline session:" });
         }
       }
     }
@@ -156,7 +207,7 @@ export default function FinancePage() {
           setClasses(classesData);
         }
       } catch (err) {
-        console.error('Error fetching classes in loadData:', err);
+        captureError(err, { context: 'Error fetching classes in loadData:' });
       }
 
       // 2. Fetch Students & Payments from Supabase
@@ -310,7 +361,7 @@ export default function FinancePage() {
           localStorage.setItem('mboaschool_ecritures', JSON.stringify(customEcritures));
         }
       } catch (err) {
-        console.error("Error loading ecritures:", err);
+        captureError(err, { context: "Error loading ecritures:" });
       }
 
       // Fallback to local storage if not loaded from Supabase (e.g. offline, empty database, or network error)
@@ -368,49 +419,18 @@ export default function FinancePage() {
         });
       });
 
-      // Auto-generate salary entries dynamically
-      const salaryEcritures: EcritureComptable[] = [];
-      const personnelForEntries = loadedPersonnel.length > 0 ? loadedPersonnel : mockPersonnel;
-      const activeStaff = personnelForEntries.filter(p => p.statut === 'actif');
-      activeStaff.forEach(p => {
-        // Generate salary for each month of 2026 from Jan to May (5 months)
-        const months = ['2026-01-25', '2026-02-25', '2026-03-25', '2026-04-25', '2026-05-25'];
-        months.forEach((dateStr, monthIdx) => {
-          const amount = p.salaireDeBase;
-          if (amount > 0) {
-            // Constatation of salary
-            salaryEcritures.push({
-              id: `ecr-sal-const-${p.id}-${monthIdx}`,
-              date: dateStr,
-              libelle: `Paie constatée - ${p.prenom} ${p.nom}`,
-              reference: `DEC-SAL-${(p.id || '').slice(-4)}-M${monthIdx + 1}`,
-              lignes: [
-                { compteNumero: '661', debit: amount, credit: 0 },
-                { compteNumero: '421', debit: 0, credit: amount }
-              ]
-            });
-            
-            // Payment of salary (fully paid for Jan, Feb, Mar, Apr, but May is in suspens!)
-            if (monthIdx < 4) {
-              salaryEcritures.push({
-                id: `ecr-sal-pay-${p.id}-${monthIdx}`,
-                date: dateStr,
-                libelle: `Règlement salaire - ${p.prenom} ${p.nom}`,
-                reference: `PAY-SAL-${(p.id || '').slice(-4)}-M${monthIdx + 1}`,
-                lignes: [
-                  { compteNumero: '421', debit: amount, credit: 0 },
-                  { compteNumero: '521', debit: 0, credit: amount }
-                ]
-              });
-            }
-          }
-        });
-      });
+      // Les écritures de salaire réelles (constatation + règlement) sont posées
+      // par la validation de paie RH (rh/page.tsx handleValiderPaie -> addEcritureComptable),
+      // et arrivent donc déjà dans customEcritures via la table ecritures_comptables.
+      // Une génération automatique ici dupliquait ces écritures réelles (double
+      // comptage du compte 661 dès qu'une paie était validée) en plus de fabriquer
+      // 5 mois de salaire complet pour tout le personnel actif, qu'il ait ou non
+      // été réellement payé. Supprimée : la masse salariale ne reflète maintenant
+      // que la paie réellement validée.
 
       // Auto-generate training entries dynamically
       const trainingEcritures: EcritureComptable[] = [];
-      const formationsForEntries = loadedFormations.length > 0 ? loadedFormations : mockFormations;
-      formationsForEntries.forEach((f: any) => {
+      loadedFormations.forEach((f: any) => {
         const amount = Number(f.cout_total || f.coutTotal || 0);
         if (amount > 0) {
           const dateConst = f.date_debut || f.dateDebut || '2026-03-01';
@@ -451,20 +471,14 @@ export default function FinancePage() {
         try {
           deletedIds = JSON.parse(storedDeleted);
         } catch (e) {
-          console.error("Error parsing deleted ecritures:", e);
+          captureError(e, { context: "Error parsing deleted ecritures:" });
         }
       }
 
-      const combined = [...customEcritures, ...paymentEcritures, ...salaryEcritures, ...trainingEcritures]
+      const combined = [...customEcritures, ...paymentEcritures, ...trainingEcritures]
         .filter(e => !deletedIds.includes(e.id))
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEcritures(combined);
-
-      // 6. BSC Years
-      const storedBscYears = localStorage.getItem('mboaschool_bsc_years');
-      if (storedBscYears) {
-        try { setBscYears(JSON.parse(storedBscYears)); } catch (e) {}
-      }
 
       // 7. Budget lines
       const storedBudget = localStorage.getItem('mboaschool_budget_lines');
@@ -482,7 +496,7 @@ export default function FinancePage() {
           setTeachers(teachersData);
         }
       } catch (err) {
-        console.error('Error fetching teachers:', err);
+        captureError(err, { context: 'Error fetching teachers:' });
       }
 
       // 9. Fetch Sections
@@ -495,7 +509,7 @@ export default function FinancePage() {
           setSections(sectionsData);
         }
       } catch (err) {
-        console.error('Error fetching sections:', err);
+        captureError(err, { context: 'Error fetching sections:' });
       }
     };
 
@@ -535,8 +549,10 @@ export default function FinancePage() {
     .filter(c => c.numero.startsWith('7'))
     .reduce((sum, c) => sum + (accountBalances[c.numero]?.credit - accountBalances[c.numero]?.debit || 0), 0);
 
-  // Trésorerie perçue (real cash collections from student payments)
-  const totalTresoreriePercue = students.reduce((sum, student) => {
+  // Trésorerie perçue (real cash collections from student payments) :
+  // RPC serveur si disponible (évite de dépendre du fetch complet students),
+  // sinon repli sur le calcul client historique.
+  const totalTresoreriePercue = serverStats?.total_paid ?? students.reduce((sum, student) => {
     return sum + (student.paiements || [])
       .filter(p => p.statut === 'paid')
       .reduce((s, p) => s + p.montant, 0);
@@ -596,41 +612,30 @@ export default function FinancePage() {
   const ratioDebt = totalAssets > 0 ? (simulatedDebts / totalAssets) * 100 : 0; // Ratio d'endettement
 
   // --- Clients/Students Perspective ---
-  const totalStudents2026 = students.length;
+  const totalStudents2026 = serverStats?.total_students ?? students.length;
   // Recovery Rate: Total cash collected / Total scolarité due (mock: 120,000 per student average)
   const totalFeesDue2026 = students.length * 110000; 
   const totalRecoveryRate2026 = totalFeesDue2026 > 0 ? (totalCA2026 / totalFeesDue2026) * 100 : 0;
 
   // --- Internal Process Perspective ---
-  const studentBulletins = students.flatMap(s => s.bulletins || []);
-  const avgMoyenneGenerale2026 = studentBulletins.length > 0 
-    ? studentBulletins.reduce((sum, b) => sum + b.moyenne, 0) / studentBulletins.length 
-    : 12.5; // fallback
-  const totalAbsences2026 = activeStaff.length > 0 ? 42 : 0; // standard mock days or sum from rh
-  const avgClassSize2026 = 36; // 36 per class or calculated
+  const avgMoyenneGenerale2026 = serverMoyenneGenerale;
+  const totalAbsences2026 = totalAbsenceDays;
+  const avgClassSize2026 = classes.length > 0 ? students.length / classes.length : null;
 
   // --- Learning & Growth Perspective ---
-  const trainingPayrollRatio2026 = masseSalarialeAnnuelle2026 > 0 
-    ? (totalTrainingCosts2026 / masseSalarialeAnnuelle2026) * 100 
+  const trainingPayrollRatio2026 = masseSalarialeAnnuelle2026 > 0
+    ? (totalTrainingCosts2026 / masseSalarialeAnnuelle2026) * 100
     : 0;
-  const avgTeacherJobRoleAdherence2026 = 89.2; // in %
-  const avgTeacherTrainingScore2026 = 15.6; // out of 20
-
-  // Historical data index for BSC
-  const hist2024 = mockBSCHistorique.find(h => h.annee === 2024)!;
-  const hist2025 = mockBSCHistorique.find(h => h.annee === 2025)!;
-
-  // Trend arrows helper
-  const getTrendIndicator = (val2026: number, val2025: number, higherIsBetter = true) => {
-    const isHigher = val2026 > val2025;
-    if (val2026 === val2025) return <span className="text-slate-400 font-bold ml-1.5">→</span>;
-    const isFavorable = higherIsBetter ? isHigher : !isHigher;
-    return (
-      <span className={`font-extrabold ml-1.5 ${isFavorable ? 'text-emerald-500' : 'text-rose-500'}`}>
-        {isHigher ? '▲' : '▼'}
-      </span>
-    );
-  };
+  // Adhérence job role / note de formation : moyenne des évaluations RH
+  // réelles (evaluationsRH, chargées ci-dessous), null si aucune évaluation
+  // n'existe encore — remplace les constantes fixes (89,2% / 15,6) qui se
+  // faisaient auparavant passer pour des mesures réelles.
+  const avgTeacherJobRoleAdherence2026 = evaluationsRH.length > 0
+    ? evaluationsRH.reduce((sum, ev) => sum + (Number(ev.adherence_job_role) || 0), 0) / evaluationsRH.length
+    : null;
+  const avgTeacherTrainingScore2026 = evaluationsRH.length > 0
+    ? evaluationsRH.reduce((sum, ev) => sum + (Number(ev.note_formation_moyenne) || 0), 0) / evaluationsRH.length
+    : null;
 
   // --- Segment Productivity calculations ---
 
@@ -638,88 +643,73 @@ export default function FinancePage() {
   const activeEmployeeCount = activeStaff.length;
   const globalProductivity = activeEmployeeCount > 0 ? totalCA2026 / activeEmployeeCount : 0;
 
-  // Mappings for section productivity (Dynamic calculation)
-  const getSectionProductivity = (secId: 'sec-fr' | 'sec-en' | 'sec-bi') => {
-    let secCA = 0;
-    let secStaff = 0;
-
-    // Resolve dynamic sections from DB if sections are populated
+  // Productivité par section : calcul dynamique réel uniquement, basé sur les
+  // sections/classes/enseignants effectivement configurés en base. Retourne
+  // `null` (plutôt qu'un chiffre inventé) quand aucune section réelle ne peut
+  // être résolue — c'était le cas systématique pour toute vraie école tant que
+  // la table `sections` n'est pas peuplée : l'ancien code affichait alors des
+  // pourcentages fabriqués (répartition arbitraire 25%/15%, IDs de démo en
+  // dur) comme s'ils étaient réels.
+  const getSectionProductivity = (secId: 'sec-fr' | 'sec-en' | 'sec-bi'): number | null => {
     const cleanSecId = secId.toLowerCase();
-    const dbSection = sections.find(s => 
-      s.id === secId || 
+    const dbSection = sections.find(s =>
+      s.id === secId ||
       s.nom.toLowerCase().includes(cleanSecId === 'sec-fr' ? 'fran' : cleanSecId === 'sec-en' ? 'angl' : 'bil')
     );
 
-    if (dbSection) {
-      // Find classes in this section
-      const sectionClasses = classes.filter(c => c.section_id === dbSection.id || c.nom.toLowerCase().includes(dbSection.nom.toLowerCase()));
-      const classIds = sectionClasses.map(c => c.id);
-      const classNames = sectionClasses.map(c => c.nom);
+    if (!dbSection) return null;
 
-      // Sum CA for this section
-      secCA = students
-        .filter(s => classIds.includes(s.classeId) || classNames.includes(s.classeId))
-        .flatMap(s => s.paiements || [])
-        .reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
+    // Find classes in this section
+    const sectionClasses = classes.filter(c => c.section_id === dbSection.id || c.nom.toLowerCase().includes(dbSection.nom.toLowerCase()));
+    if (sectionClasses.length === 0) return null;
+    const classIds = sectionClasses.map(c => c.id);
+    const classNames = sectionClasses.map(c => c.nom);
 
-      // Count unique teachers assigned to these classes
-      const teachersSet = new Set<string>();
-      sectionClasses.forEach(c => {
-        if (c.enseignant_principal_id) teachersSet.add(c.enseignant_principal_id);
-        if (c.enseignant_assistant_id) teachersSet.add(c.enseignant_assistant_id);
-      });
-      secStaff = teachersSet.size;
+    // Sum CA for this section
+    const secCA = students
+      .filter(s => classIds.includes(s.classeId) || classNames.includes(s.classeId))
+      .flatMap(s => s.paiements || [])
+      .reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
 
-      // Add a share of other admin staff
-      const otherStaffCount = activeStaff.filter(p => p.categorie !== 'Enseignant').length;
-      const sectionsCount = sections.length > 0 ? sections.length : 3;
-      secStaff += (otherStaffCount / sectionsCount);
-    } else {
-      // Fallback matching logic based on class names
-      if (secId === 'sec-fr') {
-        const classStudents = students.filter(s => 
-          s.classeId === 'cls-term-d' || s.classeId === 'cls-sec-c' || 
-          s.classeId === 'Terminale D' || s.classeId === '3ème' ||
-          s.classeId.toLowerCase().includes('ème') || s.classeId.toLowerCase().includes('term')
-        );
-        secCA = classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
-        secStaff = activeStaff.filter(p => p.id === 'teach-1' || p.id === 'teach-3' || p.categorie === 'Enseignant').length * 0.6;
-      } else if (secId === 'sec-en') {
-        const classStudents = students.filter(s => 
-          s.classeId.toLowerCase().includes('form') || s.classeId.toLowerCase().includes('class') || s.classeId.toLowerCase().includes('en')
-        );
-        secCA = classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
-        if (secCA === 0) secCA = totalCA2026 * 0.25; // standard fallback
-        secStaff = activeStaff.filter(p => p.id === 'teach-2' || p.id === 'pers-9').length;
-        if (secStaff === 0) secStaff = 2;
-      } else {
-        const classStudents = students.filter(s => 
-          s.classeId === 'cls-mat-gs' || s.classeId === 'Maternelle' || s.classeId.toLowerCase().includes('mat')
-        );
-        secCA = classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
-        if (secCA === 0) secCA = totalCA2026 * 0.15; // standard fallback
-        secStaff = activeStaff.filter(p => p.categorie === 'Administration' || p.categorie === 'Technique').length * 0.5 + 1;
-      }
-    }
+    // Count unique teachers assigned to these classes
+    const teachersSet = new Set<string>();
+    sectionClasses.forEach(c => {
+      if (c.enseignant_principal_id) teachersSet.add(c.enseignant_principal_id);
+      if (c.enseignant_assistant_id) teachersSet.add(c.enseignant_assistant_id);
+    });
+    let secStaff = teachersSet.size;
 
-    return secStaff > 0 ? secCA / secStaff : 0;
+    // Add a share of other admin staff
+    const otherStaffCount = activeStaff.filter(p => p.categorie !== 'Enseignant').length;
+    const sectionsCount = sections.length > 0 ? sections.length : 3;
+    secStaff += (otherStaffCount / sectionsCount);
+
+    return secStaff > 0 ? secCA / secStaff : null;
   };
 
   // Format money helper
   const formatMoney = (val: number) => {
+    if (val >= 1000000) {
+      const millions = val / 1000000;
+      return new Intl.NumberFormat('fr-FR', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      }).format(millions) + ' M FCFA';
+    }
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XAF', maximumFractionDigits: 0 }).format(val);
   };
 
   const isAdmin = userRole && (userRole.toLowerCase() === 'admin' || userRole.toLowerCase() === 'administrateur');
 
-  // Dynamic Class Productivity
-  const getClassProductivity = (classIdOrName: string) => {
-    const classStudents = students.filter(s => 
-      s.classeId === classIdOrName || 
-      (classIdOrName === 'Terminale D' && (s.classeId === 'cls-term-d' || s.classeId === 'Terminale D')) ||
-      (classIdOrName === '3ème' && (s.classeId === 'cls-sec-c' || s.classeId === '3ème')) ||
-      (classIdOrName === 'Maternelle' && (s.classeId === 'cls-mat-gs' || s.classeId === 'Maternelle'))
-    );
+  // Calculées une fois : null si la section correspondante n'est pas
+  // configurée en base (voir getSectionProductivity).
+  const secFrProductivity = getSectionProductivity('sec-fr');
+  const secEnProductivity = getSectionProductivity('sec-en');
+  const secBiProductivity = getSectionProductivity('sec-bi');
+
+  // Productivité par classe (CA collecté), basée uniquement sur le classeId réel.
+  const getClassProductivity = (classId: string) => {
+    const classStudents = students.filter(s => s.classeId === classId);
     return classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
   };
 
@@ -727,13 +717,10 @@ export default function FinancePage() {
   const getDailyReconciliation = () => {
     const days = [];
     const today = new Date();
-    
-    // We generate last 7 days starting from 2026-06-03 (the current date in context)
-    const currentBaseDate = new Date('2026-06-03');
 
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(currentBaseDate);
-      d.setDate(currentBaseDate.getDate() - i);
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
       const dateStr = d.toISOString().split('T')[0];
 
       // Sum actual payments received on this date
@@ -893,7 +880,7 @@ export default function FinancePage() {
       }
       savedToSupabase = true;
     } catch (err) {
-      console.warn("Failed to save transaction in Supabase, falling back to local storage:", err);
+      captureMessage("Failed to save transaction in Supabase, falling back to local storage:", { detail: err });
     }
 
     // Save to local storage (always do as local sync / fallback)
@@ -936,7 +923,7 @@ export default function FinancePage() {
         }]);
       if (!error) savedToSupabase = true;
     } catch (err) {
-      console.warn("Failed to save account in Supabase:", err);
+      captureMessage("Failed to save account in Supabase:", { detail: err });
     }
 
     const updated = [...planComptable, newAcc].sort((a,b) => a.numero.localeCompare(b.numero));
@@ -1024,7 +1011,7 @@ export default function FinancePage() {
         deletedFromSupabase = true;
       }
     } catch (err) {
-      console.warn("Failed to delete from Supabase, relying on local registry:", err);
+      captureMessage("Failed to delete from Supabase, relying on local registry:", { detail: err });
     }
 
     // Register the deleted ID in local storage to prevent dynamic mock entries from showing
@@ -1034,7 +1021,7 @@ export default function FinancePage() {
       try {
         deletedIds = JSON.parse(deletedStored);
       } catch (e) {
-        console.error(e);
+        captureError(e);
       }
     }
     if (!deletedIds.includes(id)) {
@@ -1053,7 +1040,7 @@ export default function FinancePage() {
         const filtered = parsed.filter((e: any) => e.id !== id);
         localStorage.setItem('mboaschool_ecritures', JSON.stringify(filtered));
       } catch (e) {
-        console.error("Error updating cached ecritures:", e);
+        captureError(e, { context: "Error updating cached ecritures:" });
       }
     }
 
@@ -1160,7 +1147,7 @@ export default function FinancePage() {
       XLSX.writeFile(wb, `liasse_dsf_${etablissementId || 'etab'}.xlsx`);
       triggerToast("Liasse DSF exportée avec succès !");
     } catch (error) {
-      console.error("Failed to export Excel:", error);
+      captureError(error, { context: "Failed to export Excel:" });
       alert("Erreur lors de l'exportation de la liasse DSF.");
     }
   };
@@ -1169,28 +1156,28 @@ export default function FinancePage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Toast */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-6 rounded-card border border-border shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 text-black">Direction Financière</h1>
-          <p className="text-sm text-slate-500 mt-1">Balanced Scorecard (BSC), rentabilité par segment, ratios financiers, budget & trésorerie</p>
+          <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Direction Financière</h1>
+          <p className="text-sm text-ink-soft mt-1">Balanced Scorecard (BSC), rentabilité par segment, ratios financiers, budget & trésorerie</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setShowAddAccountModal(true)}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors"
+            className="px-4 py-2 bg-chip hover:bg-chip text-ink-soft rounded-control text-sm font-bold transition-colors"
           >
             + Créer Compte
           </button>
           <button
             onClick={() => setShowExpenseModal(true)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors flex items-center gap-2"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="18"/></svg>
             Saisir opération
@@ -1199,7 +1186,7 @@ export default function FinancePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm overflow-x-auto">
+      <div className="flex gap-2 bg-surface p-2 rounded-control border border-border shadow-sm overflow-x-auto">
         {[
           { id: 'bsc', label: 'Balanced Scorecard (BSC)' },
           { id: 'productivity', label: 'Productivité par Segment' },
@@ -1211,8 +1198,8 @@ export default function FinancePage() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors whitespace-nowrap ${
-              activeTab === tab.id ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+            className={`px-4 py-2 rounded-control text-sm font-bold transition-colors whitespace-nowrap ${
+              activeTab === tab.id ? 'bg-chip text-ink shadow-sm' : 'text-ink-soft hover:bg-bg'
             }`}
           >
             {tab.label}
@@ -1223,222 +1210,129 @@ export default function FinancePage() {
       {/* -------------------- TAB: BALANCED SCORECARD -------------------- */}
       {activeTab === 'bsc' && (
         <div className="space-y-6">
-          {/* Configuration of BSC Years */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col sm:flex-row gap-4 items-center justify-between shadow-sm">
-            <div>
-              <h4 className="font-bold text-slate-800 text-black text-sm">Périodes d'Analyse Balanced Scorecard</h4>
-              <p className="text-xs text-slate-500 font-medium">Modifiez les dates des indicateurs du BSC pour réaligner les colonnes</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-500 font-semibold">Année 1:</span>
-                <input
-                  type="number"
-                  value={bscYears.year1}
-                  onChange={(e) => {
-                    const val = Number(e.target.value) || 2024;
-                    const updated = { ...bscYears, year1: val };
-                    setBscYears(updated);
-                    localStorage.setItem('mboaschool_bsc_years', JSON.stringify(updated));
-                  }}
-                  className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-500 font-semibold">Année 2:</span>
-                <input
-                  type="number"
-                  value={bscYears.year2}
-                  onChange={(e) => {
-                    const val = Number(e.target.value) || 2025;
-                    const updated = { ...bscYears, year2: val };
-                    setBscYears(updated);
-                    localStorage.setItem('mboaschool_bsc_years', JSON.stringify(updated));
-                  }}
-                  className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-500 font-semibold">Année 3:</span>
-                <input
-                  type="number"
-                  value={bscYears.year3}
-                  onChange={(e) => {
-                    const val = Number(e.target.value) || 2026;
-                    const updated = { ...bscYears, year3: val };
-                    setBscYears(updated);
-                    localStorage.setItem('mboaschool_bsc_years', JSON.stringify(updated));
-                  }}
-                  className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-              </div>
-            </div>
+          <div className="bg-bg p-4 rounded-control border border-border shadow-sm">
+            <p className="text-xs text-ink-soft font-medium">
+              Indicateurs de l&apos;année en cours, calculés à partir des données réelles de l&apos;établissement.
+              La comparaison historique multi-années n&apos;est pas encore disponible.
+            </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
+
             {/* Perspective: Finances */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-              <h3 className="font-extrabold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-indigo-600 block"></span>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+              <h3 className="font-extrabold text-ink border-b border-border pb-3 flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-accent block"></span>
                 Perspective Financière
               </h3>
-              <table className="w-full text-left text-xs text-black">
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="text-slate-400 font-bold border-b border-slate-100">
+                  <tr className="text-ink-faint font-bold border-b border-border">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">{bscYears.year1}</th>
-                    <th className="pb-2 text-right">{bscYears.year2}</th>
-                    <th className="pb-2 text-right">{bscYears.year3}</th>
-                    <th className="pb-2 text-center">Tendance</th>
+                    <th className="pb-2 text-right">Valeur actuelle</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 font-medium">
+                <tbody className="divide-y divide-border-row font-medium">
                   <tr>
                     <td className="py-3 font-semibold">Chiffre d'Affaires</td>
-                    <td className="text-right text-slate-500">{formatMoney(hist2024.chiffreAffaires)}</td>
-                    <td className="text-right text-slate-500">{formatMoney(hist2025.chiffreAffaires)}</td>
-                    <td className="text-right font-bold text-indigo-600">{formatMoney(totalCA2026)}</td>
-                    <td className="text-center">{getTrendIndicator(totalCA2026, hist2025.chiffreAffaires)}</td>
+                    <td className="text-right font-bold text-ink">{formatMoney(totalCA2026)}</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Bénéfice Net</td>
-                    <td className="text-right text-slate-500">{formatMoney(hist2024.beneficeNet)}</td>
-                    <td className="text-right text-slate-500">{formatMoney(hist2025.beneficeNet)}</td>
-                    <td className="text-right font-bold text-indigo-600">{formatMoney(netProfit2026)}</td>
-                    <td className="text-center">{getTrendIndicator(netProfit2026, hist2025.beneficeNet)}</td>
+                    <td className="text-right font-bold text-ink">{formatMoney(netProfit2026)}</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Masse Salariale / mois</td>
-                    <td className="text-right text-slate-500">{formatMoney(hist2024.masseSalarialeMensuelle)}</td>
-                    <td className="text-right text-slate-500">{formatMoney(hist2025.masseSalarialeMensuelle)}</td>
-                    <td className="text-right font-bold text-indigo-600">{formatMoney(masseSalarialeMensuelle2026)}</td>
-                    <td className="text-center">{getTrendIndicator(masseSalarialeMensuelle2026, hist2025.masseSalarialeMensuelle, false)}</td>
+                    <td className="text-right font-bold text-ink">{formatMoney(masseSalarialeMensuelle2026)}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             {/* Perspective: Clients */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-              <h3 className="font-extrabold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-emerald-500 block"></span>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+              <h3 className="font-extrabold text-ink border-b border-border pb-3 flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-green block"></span>
                 Perspective Clientèle (Parents & Élèves)
               </h3>
-              <table className="w-full text-left text-xs text-black">
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="text-slate-400 font-bold border-b border-slate-100">
+                  <tr className="text-ink-faint font-bold border-b border-border">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">{bscYears.year1}</th>
-                    <th className="pb-2 text-right">{bscYears.year2}</th>
-                    <th className="pb-2 text-right">{bscYears.year3}</th>
-                    <th className="pb-2 text-center">Tendance</th>
+                    <th className="pb-2 text-right">Valeur actuelle</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 font-medium">
+                <tbody className="divide-y divide-border-row font-medium">
                   <tr>
                     <td className="py-3 font-semibold">Effectif Élèves</td>
-                    <td className="text-right text-slate-500">{hist2024.nombreEleves}</td>
-                    <td className="text-right text-slate-500">{hist2025.nombreEleves}</td>
-                    <td className="text-right font-bold text-emerald-600">{totalStudents2026}</td>
-                    <td className="text-center">{getTrendIndicator(totalStudents2026, hist2025.nombreEleves)}</td>
+                    <td className="text-right font-bold text-green">{totalStudents2026}</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Recouvrement Scolarités</td>
-                    <td className="text-right text-slate-500">{hist2024.tauxRecouvrement}%</td>
-                    <td className="text-right text-slate-500">{hist2025.tauxRecouvrement}%</td>
-                    <td className="text-right font-bold text-emerald-600">{totalRecoveryRate2026.toFixed(1)}%</td>
-                    <td className="text-center">{getTrendIndicator(totalRecoveryRate2026, hist2025.tauxRecouvrement)}</td>
+                    <td className="text-right font-bold text-green">{totalRecoveryRate2026.toFixed(1)}%</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Satisfaction Parents</td>
-                    <td className="text-right text-slate-500">{hist2024.satisfactionParents}%</td>
-                    <td className="text-right text-slate-500">{hist2025.satisfactionParents}%</td>
-                    <td className="text-right font-bold text-emerald-600">92%</td>
-                    <td className="text-center">{getTrendIndicator(92, hist2025.satisfactionParents)}</td>
+                    <td className="text-right font-bold text-ink-soft">N/A</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             {/* Perspective: Processus */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-              <h3 className="font-extrabold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-amber-500 block"></span>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+              <h3 className="font-extrabold text-ink border-b border-border pb-3 flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-accent block"></span>
                 Perspective Processus Internes
               </h3>
-              <table className="w-full text-left text-xs text-black">
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="text-slate-400 font-bold border-b border-slate-100">
+                  <tr className="text-ink-faint font-bold border-b border-border">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">{bscYears.year1}</th>
-                    <th className="pb-2 text-right">{bscYears.year2}</th>
-                    <th className="pb-2 text-right">{bscYears.year3}</th>
-                    <th className="pb-2 text-center">Tendance</th>
+                    <th className="pb-2 text-right">Valeur actuelle</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 font-medium">
+                <tbody className="divide-y divide-border-row font-medium">
                   <tr>
                     <td className="py-3 font-semibold">Moyenne Générale</td>
-                    <td className="text-right text-slate-500">{hist2024.moyenneGenerale.toFixed(1)}/20</td>
-                    <td className="text-right text-slate-500">{hist2025.moyenneGenerale.toFixed(1)}/20</td>
-                    <td className="text-right font-bold text-amber-600">{avgMoyenneGenerale2026.toFixed(2)}/20</td>
-                    <td className="text-center">{getTrendIndicator(avgMoyenneGenerale2026, hist2025.moyenneGenerale)}</td>
+                    <td className="text-right font-bold text-ink-soft">{avgMoyenneGenerale2026 !== null ? `${avgMoyenneGenerale2026.toFixed(2)}/20` : 'N/A'}</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Jours Absences Staff</td>
-                    <td className="text-right text-slate-500">{hist2024.totalAbsences} j</td>
-                    <td className="text-right text-slate-500">{hist2025.totalAbsences} j</td>
-                    <td className="text-right font-bold text-amber-600">{totalAbsences2026} j</td>
-                    <td className="text-center">{getTrendIndicator(totalAbsences2026, hist2025.totalAbsences, false)}</td>
+                    <td className="text-right font-bold text-ink-soft">{totalAbsences2026 !== null ? `${totalAbsences2026} j` : 'N/A'}</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Classe Moyenne (élèves)</td>
-                    <td className="text-right text-slate-500">{hist2024.tailleMoyenneClasse}</td>
-                    <td className="text-right text-slate-500">{hist2025.tailleMoyenneClasse}</td>
-                    <td className="text-right font-bold text-amber-600">{avgClassSize2026}</td>
-                    <td className="text-center">{getTrendIndicator(avgClassSize2026, hist2025.tailleMoyenneClasse, false)}</td>
+                    <td className="text-right font-bold text-ink-soft">{avgClassSize2026 !== null ? avgClassSize2026.toFixed(1) : 'N/A'}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             {/* Perspective: Apprendre */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-              <h3 className="font-extrabold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-violet-500 block"></span>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+              <h3 className="font-extrabold text-ink border-b border-border pb-3 flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-ink block"></span>
                 Perspective Apprentissage & Croissance
               </h3>
-              <table className="w-full text-left text-xs text-black">
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="text-slate-400 font-bold border-b border-slate-100">
+                  <tr className="text-ink-faint font-bold border-b border-border">
                     <th className="pb-2">Indicateur (KPI)</th>
-                    <th className="pb-2 text-right">{bscYears.year1}</th>
-                    <th className="pb-2 text-right">{bscYears.year2}</th>
-                    <th className="pb-2 text-right">{bscYears.year3}</th>
-                    <th className="pb-2 text-center">Tendance</th>
+                    <th className="pb-2 text-right">Valeur actuelle</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 font-medium">
+                <tbody className="divide-y divide-border-row font-medium">
                   <tr>
                     <td className="py-3 font-semibold">Investissement Formations</td>
-                    <td className="text-right text-slate-500">{hist2024.ratioFormation}%</td>
-                    <td className="text-right text-slate-500">{hist2025.ratioFormation}%</td>
-                    <td className="text-right font-bold text-violet-600">{trainingPayrollRatio2026.toFixed(2)}%</td>
-                    <td className="text-center">{getTrendIndicator(trainingPayrollRatio2026, hist2025.ratioFormation)}</td>
+                    <td className="text-right font-bold text-ink-soft">{trainingPayrollRatio2026.toFixed(2)}%</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Adhérence Job Role Staff</td>
-                    <td className="text-right text-slate-500">{hist2024.adherenceJobRole}%</td>
-                    <td className="text-right text-slate-500">{hist2025.adherenceJobRole}%</td>
-                    <td className="text-right font-bold text-violet-600">{avgTeacherJobRoleAdherence2026}%</td>
-                    <td className="text-center">{getTrendIndicator(avgTeacherJobRoleAdherence2026, hist2025.adherenceJobRole)}</td>
+                    <td className="text-right font-bold text-ink-soft">{avgTeacherJobRoleAdherence2026 !== null ? `${avgTeacherJobRoleAdherence2026.toFixed(1)}%` : 'N/A'}</td>
                   </tr>
                   <tr>
                     <td className="py-3 font-semibold">Note d'évaluation stages</td>
-                    <td className="text-right text-slate-500">{hist2024.noteMoyenneFormation.toFixed(1)}/20</td>
-                    <td className="text-right text-slate-500">{hist2025.noteMoyenneFormation.toFixed(1)}/20</td>
-                    <td className="text-right font-bold text-violet-600">{avgTeacherTrainingScore2026.toFixed(1)}/20</td>
-                    <td className="text-center">{getTrendIndicator(avgTeacherTrainingScore2026, hist2025.noteMoyenneFormation)}</td>
+                    <td className="text-right font-bold text-ink-soft">{avgTeacherTrainingScore2026 !== null ? `${avgTeacherTrainingScore2026.toFixed(1)}/20` : 'N/A'}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1453,45 +1347,45 @@ export default function FinancePage() {
         <div className="space-y-6">
           {/* Global & Section Productivity Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Rendement Global CA / Employé</span>
-              <h2 className="text-2xl font-black text-indigo-600">{formatMoney(globalProductivity)}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">Calculé sur {activeEmployeeCount} actifs</span>
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+              <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">Rendement Global CA / Employé</span>
+              <h2 className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{formatMoney(globalProductivity)}</h2>
+              <span className="text-xs text-ink-faint font-semibold block mt-1.5">Calculé sur {activeEmployeeCount} actifs</span>
             </div>
             
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">CA / Employé Section Francophone (F)</span>
-              <h2 className="text-2xl font-black text-slate-800 text-black">{formatMoney(getSectionProductivity('sec-fr'))}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">4 salariés dédiés</span>
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border border-l-4 border-l-emerald-500">
+              <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">CA / Employé Section Francophone (F)</span>
+              <h2 className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{secFrProductivity !== null ? formatMoney(secFrProductivity) : 'N/A'}</h2>
+              <span className="text-xs text-ink-faint font-semibold block mt-1.5">{secFrProductivity !== null ? 'Basé sur les sections configurées' : 'Section non configurée'}</span>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 border-l-4 border-l-amber-500">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">CA / Employé Section Anglophone (A)</span>
-              <h2 className="text-2xl font-black text-slate-800 text-black">{formatMoney(getSectionProductivity('sec-en'))}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">2 salariés dédiés</span>
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border border-l-4 border-l-amber-500">
+              <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">CA / Employé Section Anglophone (A)</span>
+              <h2 className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{secEnProductivity !== null ? formatMoney(secEnProductivity) : 'N/A'}</h2>
+              <span className="text-xs text-ink-faint font-semibold block mt-1.5">{secEnProductivity !== null ? 'Basé sur les sections configurées' : 'Section non configurée'}</span>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 border-l-4 border-l-violet-500">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">CA / Employé Section Bilingue & Communs (B)</span>
-              <h2 className="text-2xl font-black text-slate-800 text-black">{formatMoney(getSectionProductivity('sec-bi'))}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">6 salariés dédiés / communs</span>
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border border-l-4 border-l-violet-500">
+              <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">CA / Employé Section Bilingue & Communs (B)</span>
+              <h2 className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{secBiProductivity !== null ? formatMoney(secBiProductivity) : 'N/A'}</h2>
+              <span className="text-xs text-ink-faint font-semibold block mt-1.5">{secBiProductivity !== null ? 'Basé sur les sections configurées' : 'Section non configurée'}</span>
             </div>
           </div>
 
           {/* Class productivity table */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <h3 className="font-bold text-slate-800 text-black mb-4">Productivité du Chiffre d'Affaires par Classe</h3>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+            <h3 className="font-bold text-ink mb-4">Productivité du Chiffre d'Affaires par Classe</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/20">
+                  <tr className="border-b border-border text-xs font-bold text-ink-faint uppercase bg-bg/20">
                     <th className="px-6 py-4">Classe</th>
                     <th className="px-6 py-4">Enseignant Principal</th>
                     <th className="px-6 py-4 text-right">CA Collecté de la classe</th>
                     <th className="px-6 py-4 text-right">Ratio CA / Classe</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-black">
+                <tbody className="divide-y divide-border-row font-medium">
                   {classes.length > 0 ? (
                     classes.map((cls) => {
                       const classCA = getClassProductivity(cls.id);
@@ -1501,35 +1395,20 @@ export default function FinancePage() {
                         : 'Non spécifié';
                       const percentage = totalCA2026 > 0 ? ((classCA / totalCA2026) * 100).toFixed(1) : '0.0';
                       return (
-                        <tr key={cls.id} className="hover:bg-slate-50/50">
+                        <tr key={cls.id} className="hover:bg-bg/50">
                           <td className="px-6 py-4 font-semibold">{cls.nom}</td>
-                          <td className="px-6 py-4 text-slate-500">{teacherName}</td>
+                          <td className="px-6 py-4 text-ink-soft">{teacherName}</td>
                           <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(classCA)}</td>
-                          <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{percentage}% du CA total</td>
+                          <td className="px-6 py-4 text-right font-mono font-bold text-ink">{percentage}% du CA total</td>
                         </tr>
                       );
                     })
                   ) : (
-                    <>
-                      <tr className="hover:bg-slate-50/50">
-                        <td className="px-6 py-4 font-semibold">Terminale D</td>
-                        <td className="px-6 py-4 text-slate-500">Dieudonné Atangana</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('Terminale D'))}</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{totalCA2026 > 0 ? ((getClassProductivity('Terminale D')/totalCA2026)*100).toFixed(1) : '0.0'}% du CA total</td>
-                      </tr>
-                      <tr className="hover:bg-slate-50/50">
-                        <td className="px-6 py-4 font-semibold">3ème Espagnol</td>
-                        <td className="px-6 py-4 text-slate-500">Marthe Ngo</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('3ème'))}</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{totalCA2026 > 0 ? ((getClassProductivity('3ème')/totalCA2026)*100).toFixed(1) : '0.0'}% du CA total</td>
-                      </tr>
-                      <tr className="hover:bg-slate-50/50">
-                        <td className="px-6 py-4 font-semibold">Maternelle Grande Section</td>
-                        <td className="px-6 py-4 text-slate-500">Chantal Bella</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(getClassProductivity('Maternelle'))}</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold text-indigo-600">{totalCA2026 > 0 ? ((getClassProductivity('Maternelle')/totalCA2026)*100).toFixed(1) : '0.0'}% du CA total</td>
-                      </tr>
-                    </>
+                    <tr>
+                      <td colSpan={4} className="px-6 py-10 text-center text-ink-faint text-sm">
+                        Aucune classe configurée — configurez vos classes pour voir la productivité par classe.
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -1544,43 +1423,43 @@ export default function FinancePage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* Income statement simplified */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2 space-y-4">
-              <h3 className="font-bold text-slate-800 text-black border-b border-slate-100 pb-3">Compte de Résultat Simplifié (Annuel)</h3>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm lg:col-span-2 space-y-4">
+              <h3 className="font-bold text-ink border-b border-border pb-3">Compte de Résultat Simplifié (Annuel)</h3>
               
-              <div className="space-y-3 text-sm text-black">
-                <div className="flex justify-between font-semibold border-b border-slate-50 pb-2">
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between font-semibold border-b border-border pb-2">
                   <span>Revenus (Chiffre d'Affaires constaté)</span>
-                  <span className="font-mono font-bold text-emerald-600">{formatMoney(totalCA2026)}</span>
+                  <span className="font-mono font-bold text-green">{formatMoney(totalCA2026)}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-500">
+                <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-soft">
                   <span>Masse Salariale annuelle brute</span>
                   <span className="font-mono font-semibold">- {formatMoney(masseSalarialeAnnuelle2026)}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-500">
+                <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-soft">
                   <span>Charges de fonctionnement opérationnelles</span>
                   <span className="font-mono font-semibold">- {formatMoney(totalChargesComptables2026)}</span>
                 </div>
-                <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-500">
+                <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-soft">
                   <span>Frais de formation du personnel</span>
                   <span className="font-mono font-semibold">- {formatMoney(totalTrainingCosts2026)}</span>
                 </div>
-                <div className="flex justify-between font-bold border-b-2 border-slate-200 py-3 text-base">
+                <div className="flex justify-between font-bold border-b-2 border-border py-3 text-base">
                   <span>Bénéfice Net</span>
-                  <span className={`font-mono ${netProfit2026 >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <span className={`font-mono ${netProfit2026 >= 0 ? 'text-green' : 'text-accent'}`}>
                     {formatMoney(netProfit2026)}
                   </span>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 space-y-2">
-                  <div className="flex justify-between text-xs text-slate-500">
+                <div className="pt-4 border-t border-border space-y-2">
+                  <div className="flex justify-between text-xs text-ink-soft">
                     <span>Intérêts financiers (emprunts bancaires)</span>
                     <span className="font-mono font-bold">{formatMoney(simulatedInterestExpense)}</span>
                   </div>
-                  <div className="flex justify-between text-xs text-slate-500">
+                  <div className="flex justify-between text-xs text-ink-soft">
                     <span>Dettes globales d'exploitation & bancaires</span>
                     <span className="font-mono font-bold">{formatMoney(simulatedDebts)}</span>
                   </div>
-                  <div className="flex justify-between text-xs text-slate-500">
+                  <div className="flex justify-between text-xs text-ink-soft">
                     <span>Fonds Propres (Capital social)</span>
                     <span className="font-mono font-bold">{formatMoney(simulatedEquity)}</span>
                   </div>
@@ -1589,56 +1468,56 @@ export default function FinancePage() {
             </div>
 
             {/* Financial Ratios */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
-              <h3 className="font-bold text-slate-800 text-black border-b border-slate-100 pb-3">Ratios Financiers Clés</h3>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-6">
+              <h3 className="font-bold text-ink border-b border-border pb-3">Ratios Financiers Clés</h3>
               
               <div className="space-y-4">
                 {/* Margin */}
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-slate-500">Rendement Ventes (Marge nette)</span>
-                    <span className="text-indigo-600 font-extrabold">{ratioMargin.toFixed(1)}%</span>
+                    <span className="text-ink-soft">Rendement Ventes (Marge nette)</span>
+                    <span className="text-ink font-extrabold">{ratioMargin.toFixed(1)}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, ratioMargin))}%` }}></div>
+                  <div className="w-full bg-chip h-2 rounded-full overflow-hidden">
+                    <div className="bg-accent h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, ratioMargin))}%` }}></div>
                   </div>
-                  <span className="text-[10px] text-slate-400 block mt-1">Capacité à transformer le CA en bénéfice</span>
+                  <span className="text-[10px] text-ink-faint block mt-1">Capacité à transformer le CA en bénéfice</span>
                 </div>
 
                 {/* ROA / RCI */}
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-slate-500">RCI (Rentabilité Capitaux Investis)</span>
-                    <span className="text-emerald-500 font-extrabold">{ratioROA.toFixed(1)}%</span>
+                    <span className="text-ink-soft">RCI (Rentabilité Capitaux Investis)</span>
+                    <span className="text-green font-extrabold">{ratioROA.toFixed(1)}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, ratioROA))}%` }}></div>
+                  <div className="w-full bg-chip h-2 rounded-full overflow-hidden">
+                    <div className="bg-green h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, ratioROA))}%` }}></div>
                   </div>
-                  <span className="text-[10px] text-slate-400 block mt-1">Performance des fonds propres engagés</span>
+                  <span className="text-[10px] text-ink-faint block mt-1">Performance des fonds propres engagés</span>
                 </div>
 
                 {/* Asset turnover */}
-                <div className="flex justify-between items-center text-xs font-bold p-3 bg-slate-50 rounded-lg">
-                  <span className="text-slate-500">Rotation des Actifs</span>
-                  <span className="text-slate-800 font-extrabold text-sm">{ratioAssetTurnover.toFixed(2)} x</span>
+                <div className="flex justify-between items-center text-xs font-bold p-3 bg-bg rounded-control">
+                  <span className="text-ink-soft">Rotation des Actifs</span>
+                  <span className="text-ink font-extrabold text-sm">{ratioAssetTurnover.toFixed(2)} x</span>
                 </div>
 
                 {/* Leverage */}
-                <div className="flex justify-between items-center text-xs font-bold p-3 bg-slate-50 rounded-lg">
-                  <span className="text-slate-500">Levier Financier</span>
-                  <span className="text-slate-800 font-extrabold text-sm">{ratioLeverage.toFixed(2)} x</span>
+                <div className="flex justify-between items-center text-xs font-bold p-3 bg-bg rounded-control">
+                  <span className="text-ink-soft">Levier Financier</span>
+                  <span className="text-ink font-extrabold text-sm">{ratioLeverage.toFixed(2)} x</span>
                 </div>
 
                 {/* Debt ratio */}
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-slate-500">Ratio d'Endettement</span>
-                    <span className="text-rose-500 font-extrabold">{ratioDebt.toFixed(1)}%</span>
+                    <span className="text-ink-soft">Ratio d'Endettement</span>
+                    <span className="text-accent font-extrabold">{ratioDebt.toFixed(1)}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-rose-500 h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, ratioDebt))}%` }}></div>
+                  <div className="w-full bg-chip h-2 rounded-full overflow-hidden">
+                    <div className="bg-accent h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, ratioDebt))}%` }}></div>
                   </div>
-                  <span className="text-[10px] text-slate-400 block mt-1">Part des dettes dans le total bilan (seuil max : 50%)</span>
+                  <span className="text-[10px] text-ink-faint block mt-1">Part des dettes dans le total bilan (seuil max : 50%)</span>
                 </div>
               </div>
             </div>
@@ -1652,27 +1531,27 @@ export default function FinancePage() {
         <div className="space-y-6">
           {/* Summary reconciliation metrics */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Facturation Globale (CA Constaté)</span>
-              <h2 className="text-2xl font-black text-indigo-600">{formatMoney(totalCA2026)}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">Enregistré en engagement (Total frais attendus)</span>
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+              <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">Facturation Globale (CA Constaté)</span>
+              <h2 className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{formatMoney(totalCA2026)}</h2>
+              <span className="text-xs text-ink-faint font-semibold block mt-1.5">Enregistré en engagement (Total frais attendus)</span>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Trésorerie Perçue (Encaissements)</span>
-              <h2 className="text-2xl font-black text-emerald-500">{formatMoney(totalTresoreriePercue)}</h2>
-              <span className="text-xs text-slate-400 font-semibold block mt-1.5">
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+              <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">Trésorerie Perçue (Encaissements)</span>
+              <h2 className="text-[40px] font-extrabold text-green tracking-[-2px] leading-none">{formatMoney(totalTresoreriePercue)}</h2>
+              <span className="text-xs text-ink-faint font-semibold block mt-1.5">
                 {totalCA2026 > 0 ? ((totalTresoreriePercue / totalCA2026) * 100).toFixed(1) : 0}% encaissé réellement
               </span>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Écart de Rapprochement</span>
-              <h2 className="text-2xl font-black text-slate-800 text-black">{formatMoney(totalCA2026 - totalTresoreriePercue)}</h2>
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+              <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">Écart de Rapprochement</span>
+              <h2 className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{formatMoney(totalCA2026 - totalTresoreriePercue)}</h2>
               {totalCA2026 === totalTresoreriePercue ? (
-                <span className="text-xs text-emerald-500 font-bold block mt-1.5">✓ Livres parfaitement équilibrés</span>
+                <span className="text-xs text-green font-bold block mt-1.5">✓ Livres parfaitement équilibrés</span>
               ) : (
-                <span className="text-xs text-amber-500 font-bold block mt-1.5">
+                <span className="text-xs text-ink-soft font-bold block mt-1.5">
                   ⚠️ Reste à recouvrer ({totalCA2026 > 0 ? ((1 - totalTresoreriePercue / totalCA2026) * 100).toFixed(1) : 0}% en attente)
                 </span>
               )}
@@ -1680,19 +1559,19 @@ export default function FinancePage() {
           </div>
 
           {/* Daily logs (7 last days) */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <div className="border-b border-slate-100 pb-3 mb-4 flex justify-between items-center">
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+            <div className="border-b border-border pb-3 mb-4 flex justify-between items-center">
               <div>
-                <h3 className="font-bold text-slate-800 text-black">Rapprochement CA vs Trésorerie Journalier</h3>
-                <p className="text-xs text-slate-500">Comparaison quotidienne entre amortissement scolarité (CA) et encaissements réels</p>
+                <h3 className="font-bold text-ink">Rapprochement CA vs Trésorerie Journalier</h3>
+                <p className="text-xs text-ink-soft">Comparaison quotidienne entre amortissement scolarité (CA) et encaissements réels</p>
               </div>
-              <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full">Encaissements en direct</span>
+              <span className="text-xs font-bold bg-chip text-ink px-3 py-1 rounded-full">Encaissements en direct</span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/20">
+                  <tr className="border-b border-border text-xs font-bold text-ink-faint uppercase bg-bg/20">
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3 text-right">CA Constaté (Théorique)</th>
                     <th className="px-4 py-3 text-right">Trésorerie Encaissements (Réel)</th>
@@ -1700,17 +1579,17 @@ export default function FinancePage() {
                     <th className="px-4 py-3 text-center">Statut</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-black font-medium">
+                <tbody className="divide-y divide-border-row font-medium">
                   {dailyData.map((d, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/30">
+                    <tr key={idx} className="hover:bg-bg/30">
                       <td className="px-4 py-3 font-mono text-xs">{new Date(d.date).toLocaleDateString('fr-FR')}</td>
                       <td className="px-4 py-3 text-right font-mono">{formatMoney(d.caConstated)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-emerald-600">+{formatMoney(d.cashReceived)}</td>
-                      <td className={`px-4 py-3 text-right font-mono font-bold ${d.gap >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      <td className="px-4 py-3 text-right font-mono text-green">+{formatMoney(d.cashReceived)}</td>
+                      <td className={`px-4 py-3 text-right font-mono font-bold ${d.gap >= 0 ? 'text-green' : 'text-accent'}`}>
                         {d.gap > 0 ? '+' : ''}{formatMoney(d.gap)}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${d.gap >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${d.gap >= 0 ? 'bg-green-bg text-green' : 'bg-red-bg text-accent'}`}>
                           {d.gap >= 0 ? 'Surplus' : 'Manque'}
                         </span>
                       </td>
@@ -1725,22 +1604,22 @@ export default function FinancePage() {
 
       {/* -------------------- TAB: BUDGET VARIANCE -------------------- */}
       {activeTab === 'budget' && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
-          <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+        <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-6">
+          <div className="border-b border-border pb-3 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
             <div>
-              <h3 className="font-bold text-slate-800 text-black">Analyse des Écarts Budgétaires</h3>
-              <p className="text-xs text-slate-500">Comparaison entre prévisions budgétaires et dépenses/revenus réels</p>
+              <h3 className="font-bold text-ink">Analyse des Écarts Budgétaires</h3>
+              <p className="text-xs text-ink-soft">Comparaison entre prévisions budgétaires et dépenses/revenus réels</p>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setShowAddBudgetModal(true)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors"
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-md transition-colors"
               >
                 + Ajouter une ligne
               </button>
               <button
                 onClick={() => setShowBudgetReportModal(true)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors"
+                className="px-4 py-2 bg-green hover:bg-green text-cream rounded-control text-xs font-bold shadow-md transition-colors"
               >
                 📊 Rapport d'écart
               </button>
@@ -1750,7 +1629,7 @@ export default function FinancePage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/20">
+                <tr className="border-b border-border text-xs font-bold text-ink-faint uppercase bg-bg/20">
                   <th className="px-4 py-3">Poste Budgétaire</th>
                   <th className="px-4 py-3">Catégorie</th>
                   <th className="px-4 py-3 text-right">Budget Prévu</th>
@@ -1760,16 +1639,16 @@ export default function FinancePage() {
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-black font-medium">
+              <tbody className="divide-y divide-border-row font-medium">
                 {budgetVariances.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/30">
+                  <tr key={idx} className="hover:bg-bg/30">
                     <td className="px-4 py-3 font-semibold">
                       {editingBudgetIndex === idx ? (
                         <input
                           type="text"
                           value={editBudgetPoste}
                           onChange={(e) => setEditBudgetPoste(e.target.value)}
-                          className="px-2 py-1 border border-indigo-200 rounded text-sm text-black w-full focus:outline-none"
+                          className="px-2 py-1 border border-outline rounded text-sm w-full focus:outline-none"
                           required
                         />
                       ) : (
@@ -1781,13 +1660,13 @@ export default function FinancePage() {
                         <select
                           value={editBudgetCategorie}
                           onChange={(e) => setEditBudgetCategorie(e.target.value as any)}
-                          className="px-2 py-1 border border-indigo-200 rounded text-sm text-black bg-white focus:outline-none"
+                          className="px-2 py-1 border border-outline rounded text-sm bg-surface focus:outline-none"
                         >
                           <option value="Revenu">Revenu</option>
                           <option value="Charge">Charge</option>
                         </select>
                       ) : (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.categorie === 'Revenu' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.categorie === 'Revenu' ? 'bg-green-bg text-green' : 'bg-red-bg text-accent'}`}>
                           {item.categorie}
                         </span>
                       )}
@@ -1798,7 +1677,7 @@ export default function FinancePage() {
                           type="number"
                           value={editBudgetPrevu}
                           onChange={(e) => setEditBudgetPrevu(e.target.value)}
-                          className="px-2 py-1 border border-indigo-200 rounded text-sm text-black w-28 text-right font-mono focus:outline-none"
+                          className="px-2 py-1 border border-outline rounded text-sm w-28 text-right font-mono focus:outline-none"
                           required
                           min="0"
                         />
@@ -1807,11 +1686,11 @@ export default function FinancePage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right font-mono">{formatMoney(item.realise)}</td>
-                    <td className={`px-4 py-3 text-right font-mono font-bold ${item.isFavorable ? 'text-emerald-500' : 'text-rose-500'}`}>
+                    <td className={`px-4 py-3 text-right font-mono font-bold ${item.isFavorable ? 'text-green' : 'text-accent'}`}>
                       {item.diff > 0 ? '+' : ''}{formatMoney(item.diff)} ({item.pct.toFixed(1)}%)
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.isFavorable ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.isFavorable ? 'bg-green-bg text-green' : 'bg-red-bg text-accent'}`}>
                         {item.isFavorable ? 'Favorable' : 'Défavorable'}
                       </span>
                     </td>
@@ -1820,13 +1699,13 @@ export default function FinancePage() {
                         <div className="flex gap-2 justify-end">
                           <button
                             onClick={handleSaveBudgetLine}
-                            className="text-emerald-600 hover:text-emerald-700 font-bold text-xs"
+                            className="text-green hover:text-green font-bold text-xs"
                           >
                             Sauver
                           </button>
                           <button
                             onClick={() => setEditingBudgetIndex(null)}
-                            className="text-slate-400 hover:text-slate-600 text-xs"
+                            className="text-ink-faint hover:text-ink-soft text-xs"
                           >
                             Annuler
                           </button>
@@ -1835,13 +1714,13 @@ export default function FinancePage() {
                         <div className="flex gap-2 justify-end">
                           <button
                             onClick={() => handleEditBudgetLine(idx)}
-                            className="text-indigo-600 hover:text-indigo-800 text-xs font-semibold"
+                            className="text-ink hover:text-ink text-xs font-semibold"
                           >
                             Modifier
                           </button>
                           <button
                             onClick={() => handleDeleteBudgetLine(idx)}
-                            className="text-rose-600 hover:text-rose-800 text-xs font-semibold"
+                            className="text-accent hover:text-accent text-xs font-semibold"
                           >
                             Supprimer
                           </button>
@@ -1858,43 +1737,43 @@ export default function FinancePage() {
 
       {/* -------------------- TAB: JOURNAL & BALANCE (OLD ACCOUNTING VIEW) -------------------- */}
       {activeTab === 'accounting' && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+        <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-border bg-bg flex justify-between items-center">
             <div className="flex gap-2">
               <button
                 onClick={() => setAccountingSubTab('journal')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  accountingSubTab === 'journal' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                className={`px-3 py-1.5 rounded-control text-xs font-bold transition-all ${
+                  accountingSubTab === 'journal' ? 'bg-surface shadow text-ink' : 'text-ink-soft hover:text-ink'
                 }`}
               >
                 Journal Comptable
               </button>
               <button
                 onClick={() => setAccountingSubTab('balance')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  accountingSubTab === 'balance' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                className={`px-3 py-1.5 rounded-control text-xs font-bold transition-all ${
+                  accountingSubTab === 'balance' ? 'bg-surface shadow text-ink' : 'text-ink-soft hover:text-ink'
                 }`}
               >
                 Balance des Comptes
               </button>
               <button
                 onClick={() => setAccountingSubTab('bilan')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  accountingSubTab === 'bilan' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                className={`px-3 py-1.5 rounded-control text-xs font-bold transition-all ${
+                  accountingSubTab === 'bilan' ? 'bg-surface shadow text-ink' : 'text-ink-soft hover:text-ink'
                 }`}
               >
                 Bilan Actif/Passif
               </button>
               <button
                 onClick={() => setAccountingSubTab('dsf')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  accountingSubTab === 'dsf' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                className={`px-3 py-1.5 rounded-control text-xs font-bold transition-all ${
+                  accountingSubTab === 'dsf' ? 'bg-surface shadow text-ink' : 'text-ink-soft hover:text-ink'
                 }`}
               >
                 Déclaration DSF
               </button>
             </div>
-            <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
+            <span className="text-xs font-bold bg-chip text-ink px-2.5 py-1 rounded-full">
               {accountingSubTab === 'journal' && `${ecritures.length} écritures OHADA`}
               {accountingSubTab === 'balance' && `${planComptable.filter(c => accountBalances[c.numero]?.debit > 0 || accountBalances[c.numero]?.credit > 0).length} comptes mouvementés`}
               {accountingSubTab === 'bilan' && "Bilan Équilibré"}
@@ -1905,9 +1784,9 @@ export default function FinancePage() {
           {/* Subtab content: Journal */}
           {accountingSubTab === 'journal' && (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse text-black">
+              <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 text-xs font-bold text-black uppercase bg-slate-50/20">
+                  <tr className="border-b border-border text-xs font-bold uppercase bg-bg/20">
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">Référence</th>
                     <th className="px-4 py-3">Compte</th>
@@ -1918,37 +1797,37 @@ export default function FinancePage() {
                     {isAdmin && <th className="px-4 py-3 text-center">Actions</th>}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border-row">
                   {ecritures.map(ecr => (
                     <React.Fragment key={ecr.id}>
                       {ecr.lignes.map((ligne, idx) => {
                         const compteDef = planComptable.find(c => c.numero === ligne.compteNumero);
                         return (
-                          <tr key={`${ecr.id}-${idx}`} className="hover:bg-slate-50/50">
+                          <tr key={`${ecr.id}-${idx}`} className="hover:bg-bg/50">
                             {idx === 0 && (
                               <>
-                                <td className="px-4 py-3 font-mono text-xs whitespace-nowrap align-top text-black font-semibold" rowSpan={ecr.lignes.length}>{new Date(ecr.date).toLocaleDateString('fr-FR')}</td>
-                                <td className="px-4 py-3 font-mono text-xs text-black font-semibold align-top" rowSpan={ecr.lignes.length}>{ecr.reference}</td>
+                                <td className="px-4 py-3 font-mono text-xs whitespace-nowrap align-top font-semibold" rowSpan={ecr.lignes.length}>{new Date(ecr.date).toLocaleDateString('fr-FR')}</td>
+                                <td className="px-4 py-3 font-mono text-xs font-semibold align-top" rowSpan={ecr.lignes.length}>{ecr.reference}</td>
                               </>
                             )}
-                            <td className="px-4 py-3 font-bold text-indigo-600">{ligne.compteNumero}</td>
-                            <td className="px-4 py-3 text-slate-700 font-semibold">
+                            <td className="px-4 py-3 font-bold text-ink">{ligne.compteNumero}</td>
+                            <td className="px-4 py-3 text-ink-soft font-semibold">
                               {ligne.compteNumero.startsWith('4') && ecr.partenaire ? ecr.partenaire : ''}
                             </td>
                             <td className="px-4 py-3">
-                              <div className="font-bold text-black flex items-center gap-2 flex-wrap">
+                              <div className="font-bold flex items-center gap-2 flex-wrap">
                                 <span>{ecr.libelle}</span>
                               </div>
-                              <div className="text-xs text-slate-400">{compteDef?.libelle || 'Compte inconnu'}</div>
+                              <div className="text-xs text-ink-faint">{compteDef?.libelle || 'Compte inconnu'}</div>
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-black font-bold">{ligne.debit > 0 ? formatMoney(ligne.debit) : ''}</td>
-                            <td className="px-4 py-3 text-right font-mono text-black font-bold">{ligne.credit > 0 ? formatMoney(ligne.credit) : ''}</td>
+                            <td className="px-4 py-3 text-right font-mono font-bold">{ligne.debit > 0 ? formatMoney(ligne.debit) : ''}</td>
+                            <td className="px-4 py-3 text-right font-mono font-bold">{ligne.credit > 0 ? formatMoney(ligne.credit) : ''}</td>
                             {idx === 0 && isAdmin && (
                               <td className="px-4 py-3 text-center align-middle" rowSpan={ecr.lignes.length}>
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteEcriture(ecr.id)}
-                                  className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 rounded font-bold text-xs transition-all border border-rose-100"
+                                  className="px-2 py-1 bg-red-bg hover:bg-red-bg text-accent hover:text-accent rounded font-bold text-xs transition-all border border-transparent"
                                 >
                                   Supprimer
                                 </button>
@@ -1967,9 +1846,9 @@ export default function FinancePage() {
           {/* Subtab content: Balance */}
           {accountingSubTab === 'balance' && (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse text-black">
+              <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 text-xs font-bold text-black uppercase bg-slate-50/20">
+                  <tr className="border-b border-border text-xs font-bold uppercase bg-bg/20">
                     <th className="px-4 py-3 w-24">Compte</th>
                     <th className="px-4 py-3">Tiers</th>
                     <th className="px-4 py-3">Intitulé</th>
@@ -1979,18 +1858,18 @@ export default function FinancePage() {
                     <th className="px-4 py-3 text-right">Solde Créditeur</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border-row">
                   {planComptable.filter(c => accountBalances[c.numero]?.debit > 0 || accountBalances[c.numero]?.credit > 0).map(compte => {
                     const b = accountBalances[compte.numero];
                     return (
-                      <tr key={compte.numero} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-indigo-600">{compte.numero}</td>
-                        <td className="px-4 py-3 text-slate-600 font-semibold">{getTiersForAccount(compte.numero)}</td>
-                        <td className="px-4 py-3 font-bold text-black">{compte.libelle}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs font-bold text-black">{formatMoney(b.debit)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs font-bold text-black">{formatMoney(b.credit)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs font-bold text-black">{b.solde > 0 ? formatMoney(b.solde) : ''}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs font-bold text-black">{b.solde < 0 ? formatMoney(Math.abs(b.solde)) : ''}</td>
+                      <tr key={compte.numero} className="hover:bg-bg">
+                        <td className="px-4 py-3 font-bold text-ink">{compte.numero}</td>
+                        <td className="px-4 py-3 text-ink-soft font-semibold">{getTiersForAccount(compte.numero)}</td>
+                        <td className="px-4 py-3 font-bold">{compte.libelle}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs font-bold">{formatMoney(b.debit)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs font-bold">{formatMoney(b.credit)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs font-bold">{b.solde > 0 ? formatMoney(b.solde) : ''}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs font-bold">{b.solde < 0 ? formatMoney(Math.abs(b.solde)) : ''}</td>
                       </tr>
                     );
                   })}
@@ -2004,54 +1883,54 @@ export default function FinancePage() {
           {/* Subtab content: Bilan */}
           {accountingSubTab === 'bilan' && (
             <div className="p-6 space-y-6">
-              <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 flex flex-col sm:flex-row gap-4 items-center justify-between text-black">
+              <div className="bg-bg/50 p-4 rounded-control border border-border flex flex-col sm:flex-row gap-4 items-center justify-between">
                 <div>
-                  <h4 className="font-bold text-slate-800 text-black text-sm">Bilan Comptable Système Minimal de Trésorerie (SMT) - OHADA</h4>
-                  <p className="text-xs text-slate-500 font-medium">Bilan équilibré généré en temps réel basé sur les écritures comptables saisies et constatées.</p>
+                  <h4 className="font-bold text-ink text-sm">Bilan Comptable Système Minimal de Trésorerie (SMT) - OHADA</h4>
+                  <p className="text-xs text-ink-soft font-medium">Bilan équilibré généré en temps réel basé sur les écritures comptables saisies et constatées.</p>
                 </div>
                 {Math.abs(totalActif - totalPassif) > 0.01 && (
-                  <span className="bg-rose-100 text-rose-700 text-xs font-bold px-3 py-1 rounded-full border border-rose-200">
+                  <span className="bg-red-bg text-accent text-xs font-bold px-3 py-1 rounded-full border border-transparent">
                     ⚠️ Équilibre rompu (Écart: {formatMoney(Math.abs(totalActif - totalPassif))})
                   </span>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-black">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Actif */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2 flex justify-between">
+                <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+                  <h4 className="text-base font-bold text-ink border-b border-border pb-2 flex justify-between">
                     <span>ACTIF (Emplois)</span>
-                    <span className="text-xs text-slate-400 font-medium">Valeurs Brutes</span>
+                    <span className="text-xs text-ink-faint font-medium">Valeurs Brutes</span>
                   </h4>
                   <div className="space-y-3.5 text-sm">
-                    <div className="flex justify-between border-b border-slate-50 pb-2">
-                      <span className="font-semibold text-slate-700">Actif Immobilisé (Classe 2)</span>
+                    <div className="flex justify-between border-b border-border pb-2">
+                      <span className="font-semibold text-ink-soft">Actif Immobilisé (Classe 2)</span>
                       <span className="font-mono font-bold">{formatMoney(assetImmobilise)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-faint">
                       <span>Immobilisations corporelles & incorporelles</span>
                       <span>{formatMoney(assetImmobilise)}</span>
                     </div>
                     
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
-                      <span className="font-semibold text-slate-700">Actif Circulant (Créances - Classe 4)</span>
+                    <div className="flex justify-between border-b border-border pb-2 pt-2">
+                      <span className="font-semibold text-ink-soft">Actif Circulant (Créances - Classe 4)</span>
                       <span className="font-mono font-bold">{formatMoney(assetCreances)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-faint">
                       <span>Créances Clients & Scolarités (Compte 411...)</span>
                       <span>{formatMoney(assetCreances)}</span>
                     </div>
 
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
-                      <span className="font-semibold text-slate-700">Trésorerie Actif (Disponibilités - Classe 5)</span>
+                    <div className="flex justify-between border-b border-border pb-2 pt-2">
+                      <span className="font-semibold text-ink-soft">Trésorerie Actif (Disponibilités - Classe 5)</span>
                       <span className="font-mono font-bold">{formatMoney(assetTresor)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-faint">
                       <span>Soldes Banques & Caisses (Comptes 52, 57...)</span>
                       <span>{formatMoney(assetTresor)}</span>
                     </div>
 
-                    <div className="flex justify-between bg-indigo-600 text-white font-black p-4 rounded-xl text-base mt-6 shadow-md">
+                    <div className="flex justify-between bg-accent text-cream font-black p-4 rounded-control text-base mt-6 shadow-md">
                       <span>TOTAL ACTIF</span>
                       <span className="font-mono">{formatMoney(totalActif)}</span>
                     </div>
@@ -2059,51 +1938,51 @@ export default function FinancePage() {
                 </div>
 
                 {/* Passif */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2 flex justify-between">
+                <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+                  <h4 className="text-base font-bold text-ink border-b border-border pb-2 flex justify-between">
                     <span>PASSIF (Ressources)</span>
-                    <span className="text-xs text-slate-400 font-medium">Capitaux & Dettes</span>
+                    <span className="text-xs text-ink-faint font-medium">Capitaux & Dettes</span>
                   </h4>
                   <div className="space-y-3.5 text-sm">
-                    <div className="flex justify-between border-b border-slate-50 pb-2">
-                      <span className="font-semibold text-slate-700">Capitaux Propres (Classe 1)</span>
+                    <div className="flex justify-between border-b border-border pb-2">
+                      <span className="font-semibold text-ink-soft">Capitaux Propres (Classe 1)</span>
                       <span className="font-mono font-bold">{formatMoney(passifEquity)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-faint">
                       <span>Capital Social & Réserves réglementaires</span>
                       <span>{formatMoney(passifEquity)}</span>
                     </div>
 
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
-                      <span className="font-semibold text-slate-700">Résultat net de l'exercice</span>
-                      <span className={`font-mono font-bold ${netProfit2026 >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    <div className="flex justify-between border-b border-border pb-2 pt-2">
+                      <span className="font-semibold text-ink-soft">Résultat net de l'exercice</span>
+                      <span className={`font-mono font-bold ${netProfit2026 >= 0 ? 'text-green' : 'text-accent'}`}>
                         {formatMoney(netProfit2026)}
                       </span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-faint">
                       <span>Bénéfice de l'exercice (Solde Créditeur)</span>
                       <span>{formatMoney(netProfit2026)}</span>
                     </div>
 
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
-                      <span className="font-semibold text-slate-700">Dettes Financières (Moyen/Long terme - Cl. 16)</span>
+                    <div className="flex justify-between border-b border-border pb-2 pt-2">
+                      <span className="font-semibold text-ink-soft">Dettes Financières (Moyen/Long terme - Cl. 16)</span>
                       <span className="font-mono font-bold">{formatMoney(passifDebtsFin)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-faint">
                       <span>Emprunts et dettes financières assimilées</span>
                       <span>{formatMoney(passifDebtsFin)}</span>
                     </div>
 
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pt-2">
-                      <span className="font-semibold text-slate-700">Dettes Circulantes (Tiers Passif - Classe 4)</span>
+                    <div className="flex justify-between border-b border-border pb-2 pt-2">
+                      <span className="font-semibold text-ink-soft">Dettes Circulantes (Tiers Passif - Classe 4)</span>
                       <span className="font-mono font-bold">{formatMoney(passifDebtsCirc)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 pl-4 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-border pb-2 pl-4 text-xs text-ink-faint">
                       <span>Dettes Fournisseurs, CNPS, État (Comptes 40, 42, 44...)</span>
                       <span>{formatMoney(passifDebtsCirc)}</span>
                     </div>
 
-                    <div className="flex justify-between bg-indigo-600 text-white font-black p-4 rounded-xl text-base mt-6 shadow-md">
+                    <div className="flex justify-between bg-accent text-cream font-black p-4 rounded-control text-base mt-6 shadow-md">
                       <span>TOTAL PASSIF</span>
                       <span className="font-mono">{formatMoney(totalPassif)}</span>
                     </div>
@@ -2115,16 +1994,16 @@ export default function FinancePage() {
 
           {/* Subtab content: DSF */}
           {accountingSubTab === 'dsf' && (
-            <div className="p-6 space-y-6 text-black">
-              <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 flex justify-between items-center">
+            <div className="p-6 space-y-6">
+              <div className="bg-bg/50 p-4 rounded-control border border-border flex justify-between items-center">
                 <div>
-                  <h4 className="font-bold text-slate-800 text-black text-sm">Déclaration Statistique et Fiscale (DSF) Provisoire</h4>
-                  <p className="text-xs text-slate-500 font-medium">Formulaires de synthèse fiscale et détermination de l'Impôt sur les Sociétés (IS) - Cameroun / CEMAC.</p>
+                  <h4 className="font-bold text-ink text-sm">Déclaration Statistique et Fiscale (DSF) Provisoire</h4>
+                  <p className="text-xs text-ink-soft font-medium">Formulaires de synthèse fiscale et détermination de l'Impôt sur les Sociétés (IS) - Cameroun / CEMAC.</p>
                 </div>
                 <button
                   type="button"
                   onClick={exportDSFToExcel}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
+                  className="px-4 py-2 bg-green hover:bg-green text-cream rounded-control text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
                 >
                   📥 Télécharger Liasse DSF
                 </button>
@@ -2133,45 +2012,45 @@ export default function FinancePage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 
                 {/* Resultat Fiscal Box */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4 md:col-span-2">
-                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2">Détermination du Résultat Fiscal</h4>
+                <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4 md:col-span-2">
+                  <h4 className="text-base font-bold text-ink border-b border-border pb-2">Détermination du Résultat Fiscal</h4>
                   <div className="space-y-3.5 text-sm">
-                    <div className="flex justify-between border-b border-slate-50 pb-2">
-                      <span className="text-slate-600">Résultat Comptable Net de l'exercice</span>
+                    <div className="flex justify-between border-b border-border pb-2">
+                      <span className="text-ink-soft">Résultat Comptable Net de l'exercice</span>
                       <span className="font-mono font-bold">{formatMoney(resultatComptableDSF)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 text-xs">
-                      <span className="text-slate-500 pl-4">+ Réintégrations Fiscales (Charges non déductibles)</span>
-                      <span className="font-mono text-slate-600">+{formatMoney(reintegrationsDSF)}</span>
+                    <div className="flex justify-between border-b border-border pb-2 text-xs">
+                      <span className="text-ink-soft pl-4">+ Réintégrations Fiscales (Charges non déductibles)</span>
+                      <span className="font-mono text-ink-soft">+{formatMoney(reintegrationsDSF)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-2 text-xs">
-                      <span className="text-slate-500 pl-4">- Déductions Fiscales (Produits exonérés)</span>
-                      <span className="font-mono text-slate-600">-{formatMoney(deductionsDSF)}</span>
+                    <div className="flex justify-between border-b border-border pb-2 text-xs">
+                      <span className="text-ink-soft pl-4">- Déductions Fiscales (Produits exonérés)</span>
+                      <span className="font-mono text-ink-soft">-{formatMoney(deductionsDSF)}</span>
                     </div>
-                    <div className="flex justify-between border-b-2 border-slate-200 pb-2 pt-2 text-base font-bold">
-                      <span className="text-slate-800 text-black">Résultat Fiscal Imposable (Base IS)</span>
-                      <span className="font-mono text-indigo-600">{formatMoney(resultatFiscalDSF)}</span>
+                    <div className="flex justify-between border-b-2 border-border pb-2 pt-2 text-base font-bold">
+                      <span className="text-ink">Résultat Fiscal Imposable (Base IS)</span>
+                      <span className="font-mono text-ink">{formatMoney(resultatFiscalDSF)}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Impot du Box */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2">Calcul de l'Impôt Dû (Cameroun)</h4>
+                <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+                  <h4 className="text-base font-bold text-ink border-b border-border pb-2">Calcul de l'Impôt Dû (Cameroun)</h4>
                   <div className="space-y-3 text-xs">
                     <div className="flex justify-between">
-                      <span className="text-slate-500 font-semibold">Taux standard IS (28% + 10% CAC = 30.8%)</span>
+                      <span className="text-ink-soft font-semibold">Taux standard IS (28% + 10% CAC = 30.8%)</span>
                       <span className="font-mono">{formatMoney(isSurResultat)}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-100 pb-2">
-                      <span className="text-slate-500 font-semibold">Impôt Minimum Légal (2.2% du CA total)</span>
+                    <div className="flex justify-between border-b border-border pb-2">
+                      <span className="text-ink-soft font-semibold">Impôt Minimum Légal (2.2% du CA total)</span>
                       <span className="font-mono">{formatMoney(impotMinimum)}</span>
                     </div>
-                    <div className="flex justify-between pt-2 text-sm font-bold text-rose-600">
+                    <div className="flex justify-between pt-2 text-sm font-bold text-accent">
                       <span>Impôt Définitif Dû (Le plus élevé)</span>
                       <span className="font-mono font-extrabold">{formatMoney(impotDufinal)}</span>
                     </div>
-                    <div className="flex justify-between pt-3 border-t border-slate-100 text-sm font-bold text-emerald-600">
+                    <div className="flex justify-between pt-3 border-t border-border text-sm font-bold text-green">
                       <span>Résultat Net après impôt</span>
                       <span className="font-mono font-extrabold">{formatMoney(netResultatApresImpot)}</span>
                     </div>
@@ -2180,23 +2059,23 @@ export default function FinancePage() {
               </div>
 
               {/* Other fiscal declarations summary */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                <h4 className="text-base font-bold text-indigo-700 border-b border-slate-100 pb-2">Autres Taxes et Déclarations Périodiques</h4>
+              <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+                <h4 className="text-base font-bold text-ink border-b border-border pb-2">Autres Taxes et Déclarations Périodiques</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">TVA Net à Reverser</span>
-                    <h4 className="text-lg font-black text-rose-600">{formatMoney(tvaNetReverser)}</h4>
-                    <span className="text-[9px] text-slate-400 font-medium block mt-1">Calculé sur TVA Collectée: {formatMoney(tvaCollectee)} • Déductible: {formatMoney(tvaDeductible)}</span>
+                  <div className="p-4 bg-bg rounded-control border border-border">
+                    <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">TVA Net à Reverser</span>
+                    <h4 className="text-lg font-black text-accent">{formatMoney(tvaNetReverser)}</h4>
+                    <span className="text-[9px] text-ink-faint font-medium block mt-1">Calculé sur TVA Collectée: {formatMoney(tvaCollectee)} • Déductible: {formatMoney(tvaDeductible)}</span>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">IRPP / IRSA (Retenue Salaires)</span>
-                    <h4 className="text-lg font-black text-slate-800 text-black">{formatMoney(masseSalarialeAnnuelle2026 * 0.1)}</h4>
-                    <span className="text-[9px] text-slate-400 font-medium block mt-1">Estimation 10% de la masse salariale brute ({formatMoney(masseSalarialeAnnuelle2026)})</span>
+                  <div className="p-4 bg-bg rounded-control border border-border">
+                    <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">IRPP / IRSA (Retenue Salaires)</span>
+                    <h4 className="text-lg font-black text-ink">{formatMoney(masseSalarialeAnnuelle2026 * 0.1)}</h4>
+                    <span className="text-[9px] text-ink-faint font-medium block mt-1">Estimation 10% de la masse salariale brute ({formatMoney(masseSalarialeAnnuelle2026)})</span>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Cotisations Sociales CNPS</span>
-                    <h4 className="text-lg font-black text-slate-800 text-black">{formatMoney(masseSalarialeAnnuelle2026 * 0.22)}</h4>
-                    <span className="text-[9px] text-slate-400 font-medium block mt-1">Base de calcul CNPS 22% (Part employeur + salarié)</span>
+                  <div className="p-4 bg-bg rounded-control border border-border">
+                    <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block mb-1">Cotisations Sociales CNPS</span>
+                    <h4 className="text-lg font-black text-ink">{formatMoney(masseSalarialeAnnuelle2026 * 0.22)}</h4>
+                    <span className="text-[9px] text-ink-faint font-medium block mt-1">Base de calcul CNPS 22% (Part employeur + salarié)</span>
                   </div>
                 </div>
               </div>
@@ -2207,22 +2086,22 @@ export default function FinancePage() {
 
       {/* -------------------- MODAL: COMPTE COPTABLE -------------------- */}
       {showAddAccountModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative">
-            <button onClick={() => setShowAddAccountModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold">✕</button>
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">Créer un Compte Plan OHADA</h3>
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login p-6 relative">
+            <button onClick={() => setShowAddAccountModal(false)} className="absolute right-4 top-4 text-ink-faint hover:text-ink-soft font-bold">✕</button>
+            <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">Créer un Compte Plan OHADA</h3>
             <form onSubmit={handleSaveAccount} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Numéro de Compte</label>
-                <input type="text" placeholder="Ex: 602" value={newAccNum} onChange={(e) => setNewAccNum(e.target.value)} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Numéro de Compte</label>
+                <input type="text" placeholder="Ex: 602" value={newAccNum} onChange={(e) => setNewAccNum(e.target.value)} required className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Libellé</label>
-                <input type="text" placeholder="Ex: Fourniture papeterie" value={newAccLibelle} onChange={(e) => setNewAccLibelle(e.target.value)} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" />
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Libellé</label>
+                <input type="text" placeholder="Ex: Fourniture papeterie" value={newAccLibelle} onChange={(e) => setNewAccLibelle(e.target.value)} required className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Classe OHADA</label>
-                <select value={newAccClasse} onChange={(e) => setNewAccClasse(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold">
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Classe OHADA</label>
+                <select value={newAccClasse} onChange={(e) => setNewAccClasse(e.target.value)} className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold">
                   <option value="2">Classe 2 - Immobilisations</option>
                   <option value="4">Classe 4 - Tiers</option>
                   <option value="5">Classe 5 - Trésorerie</option>
@@ -2231,8 +2110,8 @@ export default function FinancePage() {
                 </select>
               </div>
               <div className="pt-4 flex justify-end gap-3">
-                <button type="button" onClick={() => setShowAddAccountModal(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold">Annuler</button>
-                <button type="submit" className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-md">Enregistrer</button>
+                <button type="button" onClick={() => setShowAddAccountModal(false)} className="px-4 py-2 bg-chip text-ink-soft rounded-control text-sm font-bold">Annuler</button>
+                <button type="submit" className="px-6 py-2 bg-accent text-cream rounded-control text-sm font-bold shadow-md">Enregistrer</button>
               </div>
             </form>
           </div>
@@ -2241,35 +2120,35 @@ export default function FinancePage() {
 
       {/* -------------------- MODAL: SAISIE ECRITURE -------------------- */}
       {showExpenseModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-lg border border-slate-100 shadow-2xl p-6 relative">
-            <button onClick={() => setShowExpenseModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold">✕</button>
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">Saisir une Opération financière</h3>
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-lg border border-border shadow-login p-6 relative">
+            <button onClick={() => setShowExpenseModal(false)} className="absolute right-4 top-4 text-ink-faint hover:text-ink-soft font-bold">✕</button>
+            <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">Saisir une Opération financière</h3>
             <form onSubmit={handleSaveExpense} className="space-y-4">
               
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Type d'opération</label>
-                <div className="flex bg-slate-100 p-1 rounded-lg">
-                  <button type="button" onClick={() => setExpTypeSaisie('immediat')} className={`flex-1 text-xs py-2 px-2 rounded-md font-bold transition-colors ${expTypeSaisie === 'immediat' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500'}`}>Paiement Immédiat</button>
-                  <button type="button" onClick={() => setExpTypeSaisie('credit')} className={`flex-1 text-xs py-2 px-2 rounded-md font-bold transition-colors ${expTypeSaisie === 'credit' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500'}`}>Facture à Crédit</button>
-                  <button type="button" onClick={() => setExpTypeSaisie('reglement')} className={`flex-1 text-xs py-2 px-2 rounded-md font-bold transition-colors ${expTypeSaisie === 'reglement' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500'}`}>Règlement Tiers</button>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Type d'opération</label>
+                <div className="flex bg-chip p-1 rounded-control">
+                  <button type="button" onClick={() => setExpTypeSaisie('immediat')} className={`flex-1 text-xs py-2 px-2 rounded-md font-bold transition-colors ${expTypeSaisie === 'immediat' ? 'bg-surface shadow-sm text-ink' : 'text-ink-soft'}`}>Paiement Immédiat</button>
+                  <button type="button" onClick={() => setExpTypeSaisie('credit')} className={`flex-1 text-xs py-2 px-2 rounded-md font-bold transition-colors ${expTypeSaisie === 'credit' ? 'bg-surface shadow-sm text-ink' : 'text-ink-soft'}`}>Facture à Crédit</button>
+                  <button type="button" onClick={() => setExpTypeSaisie('reglement')} className={`flex-1 text-xs py-2 px-2 rounded-md font-bold transition-colors ${expTypeSaisie === 'reglement' ? 'bg-surface shadow-sm text-ink' : 'text-ink-soft'}`}>Règlement Tiers</button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date</label>
-                  <input type="date" value={expDate} onChange={(e) => setExpDate(e.target.value)} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" />
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Date</label>
+                  <input type="date" value={expDate} onChange={(e) => setExpDate(e.target.value)} required className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Référence Pièce</label>
-                  <input type="text" placeholder="Ex: CHQ-882" value={expReference} onChange={(e) => setExpReference(e.target.value)} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Référence Pièce</label>
+                  <input type="text" placeholder="Ex: CHQ-882" value={expReference} onChange={(e) => setExpReference(e.target.value)} required className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono" />
                 </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Libellé</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Libellé</label>
                   <input 
                     type="text" 
                     placeholder="Ex: Facture électricité mensuelle" 
@@ -2420,17 +2299,17 @@ export default function FinancePage() {
                       }
                     }} 
                     required 
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" 
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Nom du Tiers (Bénéficiaire / Client)</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Nom du Tiers (Bénéficiaire / Client)</label>
                   <input 
                     type="text" 
                     placeholder="Ex: ENEO, CNPS, Nom du tiers..." 
                     value={expPartenaire} 
                     onChange={(e) => setExpPartenaire(e.target.value)} 
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold" 
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold" 
                   />
                 </div>
               </div>
@@ -2438,8 +2317,8 @@ export default function FinancePage() {
               <div className="grid grid-cols-2 gap-4">
                 {(expTypeSaisie === 'immediat' || expTypeSaisie === 'credit') && (
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Compte Débit (Charge)</label>
-                    <select value={expCompteDebit} onChange={(e) => setExpCompteDebit(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold">
+                    <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Compte Débit (Charge)</label>
+                    <select value={expCompteDebit} onChange={(e) => setExpCompteDebit(e.target.value)} className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold">
                       {planComptable.filter(c => c.classe === 6 || c.classe === 2 || c.classe === 4).map(c => (
                         <option key={c.numero} value={c.numero}>{c.numero} - {c.libelle}</option>
                       ))}
@@ -2447,8 +2326,8 @@ export default function FinancePage() {
                   </div>
                 )}
                 <div className={expTypeSaisie === 'reglement' ? 'col-span-2' : ''}>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Compte Tiers</label>
-                  <select value={expCompteTiers} onChange={(e) => setExpCompteTiers(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold">
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Compte Tiers</label>
+                  <select value={expCompteTiers} onChange={(e) => setExpCompteTiers(e.target.value)} className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold">
                     {planComptable.filter(c => c.classe === 4).map(c => (
                       <option key={c.numero} value={c.numero}>{c.numero} - {c.libelle}</option>
                     ))}
@@ -2459,12 +2338,12 @@ export default function FinancePage() {
               {(expTypeSaisie === 'immediat' || expTypeSaisie === 'credit') && (
                 <div className="grid grid-cols-2 gap-4 items-end">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Montant Facture TTC</label>
-                    <input type="number" min="1" placeholder="Ex: 120000" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                    <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Montant Facture TTC</label>
+                    <input type="number" min="1" placeholder="Ex: 120000" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} required className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono" />
                   </div>
                   <div className="pb-2">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-700 select-none">
-                      <input type="checkbox" checked={expTva} onChange={(e) => setExpTva(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4" />
+                    <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-ink-soft select-none">
+                      <input type="checkbox" checked={expTva} onChange={(e) => setExpTva(e.target.checked)} className="rounded border-border text-ink focus:border-accent w-4 h-4" />
                       Soumis à TVA (19.25%)
                     </label>
                   </div>
@@ -2473,15 +2352,15 @@ export default function FinancePage() {
 
               {(expTypeSaisie === 'credit' || expTypeSaisie === 'reglement') && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Montant Payé</label>
-                  <input type="number" min="0" placeholder="Ex: 50000" value={expAmountPaye} onChange={(e) => setExpAmountPaye(e.target.value)} required={expTypeSaisie === 'reglement'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono" />
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Montant Payé</label>
+                  <input type="number" min="0" placeholder="Ex: 50000" value={expAmountPaye} onChange={(e) => setExpAmountPaye(e.target.value)} required={expTypeSaisie === 'reglement'} className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono" />
                 </div>
               )}
 
               {(expTypeSaisie === 'immediat' || (expTypeSaisie === 'credit' && Number(expAmountPaye) > 0) || expTypeSaisie === 'reglement') && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Compte Crédit (Trésorerie)</label>
-                  <select value={expCompteCredit} onChange={(e) => setExpCompteCredit(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold bg-indigo-50">
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Compte Crédit (Trésorerie)</label>
+                  <select value={expCompteCredit} onChange={(e) => setExpCompteCredit(e.target.value)} className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold bg-chip">
                     {planComptable.filter(c => c.classe === 5).map(c => (
                       <option key={c.numero} value={c.numero}>{c.numero} - {c.libelle}</option>
                     ))}
@@ -2489,9 +2368,9 @@ export default function FinancePage() {
                 </div>
               )}
 
-              <div className="pt-2 flex justify-end gap-3 border-t border-slate-100">
-                <button type="button" onClick={() => setShowExpenseModal(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold">Annuler</button>
-                <button type="submit" className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-md">Valider</button>
+              <div className="pt-2 flex justify-end gap-3 border-t border-border">
+                <button type="button" onClick={() => setShowExpenseModal(false)} className="px-4 py-2 bg-chip text-ink-soft rounded-control text-sm font-bold">Annuler</button>
+                <button type="submit" className="px-6 py-2 bg-accent text-cream rounded-control text-sm font-bold shadow-md">Valider</button>
               </div>
             </form>
           </div>
@@ -2499,35 +2378,35 @@ export default function FinancePage() {
       )}
       {/* -------------------- MODAL: AJOUTER LIGNE BUDGETAIRE -------------------- */}
       {showAddBudgetModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative">
-            <button onClick={() => setShowAddBudgetModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold">✕</button>
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 text-black">Ajouter un Poste Budgétaire</h3>
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login p-6 relative">
+            <button onClick={() => setShowAddBudgetModal(false)} className="absolute right-4 top-4 text-ink-faint hover:text-ink-soft font-bold">✕</button>
+            <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">Ajouter un Poste Budgétaire</h3>
             <form onSubmit={handleAddBudgetLine} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Poste Budgétaire / Intitulé</label>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Poste Budgétaire / Intitulé</label>
                 <input
                   type="text"
                   placeholder="Ex: Achat fournitures de bureau"
                   value={newBudgetPoste}
                   onChange={(e) => setNewBudgetPoste(e.target.value)}
                   required
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Catégorie</label>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Catégorie</label>
                 <select
                   value={newBudgetCategorie}
                   onChange={(e) => setNewBudgetCategorie(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                 >
                   <option value="Charge">Charge (Dépense)</option>
                   <option value="Revenu">Revenu (Recette)</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Montant Budgétisé (FCFA)</label>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Montant Budgétisé (FCFA)</label>
                 <input
                   type="number"
                   placeholder="Ex: 1500000"
@@ -2535,12 +2414,12 @@ export default function FinancePage() {
                   onChange={(e) => setNewBudgetPrevu(e.target.value)}
                   required
                   min="0"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono"
                 />
               </div>
               <div className="pt-4 flex justify-end gap-3">
-                <button type="button" onClick={() => setShowAddBudgetModal(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold">Annuler</button>
-                <button type="submit" className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-md">Enregistrer</button>
+                <button type="button" onClick={() => setShowAddBudgetModal(false)} className="px-4 py-2 bg-chip text-ink-soft rounded-control text-sm font-bold">Annuler</button>
+                <button type="submit" className="px-6 py-2 bg-accent text-cream rounded-control text-sm font-bold shadow-md">Enregistrer</button>
               </div>
             </form>
           </div>
@@ -2566,81 +2445,81 @@ export default function FinancePage() {
         const unfavorableLines = variances.filter(v => !v.isFavorable);
 
         return (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <div className="bg-white rounded-2xl w-full max-w-2xl border border-slate-100 shadow-2xl p-6 relative max-h-[90vh] overflow-y-auto">
-              <button onClick={() => setShowBudgetReportModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold">✕</button>
+          <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-surface rounded-card w-full max-w-2xl border border-border shadow-login p-6 relative max-h-[90vh] overflow-y-auto">
+              <button onClick={() => setShowBudgetReportModal(false)} className="absolute right-4 top-4 text-ink-faint hover:text-ink-soft font-bold">✕</button>
               
-              <div className="border-b border-slate-100 pb-3 mb-6">
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider animate-pulse">Génération Automatique</span>
-                <h3 className="text-xl font-bold text-slate-800 text-black mt-2">Rapport d'Analyse des Écarts Budgétaires</h3>
-                <p className="text-xs text-slate-400">Date d'analyse : {new Date().toLocaleDateString('fr-FR')} • Année Académique Active : 2025/2026</p>
+              <div className="border-b border-border pb-3 mb-6">
+                <span className="text-[10px] bg-green-bg text-green px-2.5 py-1 rounded-full font-bold uppercase tracking-wider animate-pulse">Génération Automatique</span>
+                <h3 className="text-xl font-bold text-ink mt-2">Rapport d'Analyse des Écarts Budgétaires</h3>
+                <p className="text-xs text-ink-faint">Date d'analyse : {new Date().toLocaleDateString('fr-FR')} • Année Académique Active : 2025/2026</p>
               </div>
 
-              <div className="space-y-6 text-sm text-slate-700">
+              <div className="space-y-6 text-sm text-ink-soft">
                 {/* Executive Summary Cards */}
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Écart Recettes</span>
-                    <span className={`text-lg font-black block mt-1 ${diffRevenu >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <div className="bg-bg p-4 rounded-control border border-border">
+                    <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Écart Recettes</span>
+                    <span className={`text-lg font-black block mt-1 ${diffRevenu >= 0 ? 'text-green' : 'text-accent'}`}>
                       {diffRevenu > 0 ? '+' : ''}{formatMoney(diffRevenu)}
                     </span>
-                    <span className="text-[9px] text-slate-400 font-semibold block mt-0.5">Budget réalisé à {totRevenuPrevu > 0 ? ((totRevenuRealise/totRevenuPrevu)*100).toFixed(0) : 0}%</span>
+                    <span className="text-[9px] text-ink-faint font-semibold block mt-0.5">Budget réalisé à {totRevenuPrevu > 0 ? ((totRevenuRealise/totRevenuPrevu)*100).toFixed(0) : 0}%</span>
                   </div>
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Écart Dépenses</span>
-                    <span className={`text-lg font-black block mt-1 ${diffCharge >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <div className="bg-bg p-4 rounded-control border border-border">
+                    <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Écart Dépenses</span>
+                    <span className={`text-lg font-black block mt-1 ${diffCharge >= 0 ? 'text-green' : 'text-accent'}`}>
                       {diffCharge >= 0 ? 'Sous-consommé' : 'Sur-consommé'}
                     </span>
-                    <span className={`text-[9px] font-semibold block mt-0.5 ${diffCharge >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatMoney(Math.abs(totChargeRealise - totChargePrevu))}</span>
+                    <span className={`text-[9px] font-semibold block mt-0.5 ${diffCharge >= 0 ? 'text-green' : 'text-accent'}`}>{formatMoney(Math.abs(totChargeRealise - totChargePrevu))}</span>
                   </div>
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Écart Résultat Net</span>
-                    <span className={`text-lg font-black block mt-1 ${diffProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <div className="bg-bg p-4 rounded-control border border-border">
+                    <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Écart Résultat Net</span>
+                    <span className={`text-lg font-black block mt-1 ${diffProfit >= 0 ? 'text-green' : 'text-accent'}`}>
                       {diffProfit > 0 ? '+' : ''}{formatMoney(diffProfit)}
                     </span>
-                    <span className="text-[9px] text-slate-400 font-semibold block mt-0.5">Performance globale</span>
+                    <span className="text-[9px] text-ink-faint font-semibold block mt-0.5">Performance globale</span>
                   </div>
                 </div>
 
                 {/* Analysis section */}
                 <div className="space-y-3">
-                  <h4 className="font-bold text-slate-800 text-black text-base">Faits Marquants & Éléments Favorables</h4>
+                  <h4 className="font-bold text-ink text-base">Faits Marquants & Éléments Favorables</h4>
                   <ul className="list-disc pl-5 space-y-1.5 text-xs">
                     {favorableLines.length > 0 ? (
                       favorableLines.map((line, idx) => (
                         <li key={idx}>
-                          <span className="font-semibold text-slate-800 text-black">{line.poste}</span> : 
-                          Écart positif de <span className="text-emerald-600 font-bold">+{formatMoney(Math.abs(line.diff))}</span>. Le réalisé ({formatMoney(line.realise)}) s'établit de manière favorable par rapport aux prévisions budgétaires ({formatMoney(line.budgetPrevu)}).
+                          <span className="font-semibold text-ink">{line.poste}</span> : 
+                          Écart positif de <span className="text-green font-bold">+{formatMoney(Math.abs(line.diff))}</span>. Le réalisé ({formatMoney(line.realise)}) s'établit de manière favorable par rapport aux prévisions budgétaires ({formatMoney(line.budgetPrevu)}).
                         </li>
                       ))
                     ) : (
-                      <li className="text-slate-400 italic">Aucun écart favorable constaté sur cette période.</li>
+                      <li className="text-ink-faint italic">Aucun écart favorable constaté sur cette période.</li>
                     )}
                   </ul>
                 </div>
 
                 <div className="space-y-3">
-                  <h4 className="font-bold text-slate-800 text-black text-base">Points de Vigilance (Écarts Défavorables)</h4>
+                  <h4 className="font-bold text-ink text-base">Points de Vigilance (Écarts Défavorables)</h4>
                   <ul className="list-disc pl-5 space-y-1.5 text-xs">
                     {unfavorableLines.length > 0 ? (
                       unfavorableLines.map((line, idx) => (
                         <li key={idx}>
-                          <span className="font-semibold text-slate-800 text-black">{line.poste}</span> : 
-                          Écart négatif de <span className="text-rose-600 font-bold">{formatMoney(line.diff)}</span>. Le réalisé ({formatMoney(line.realise)}) dépasse ou n'atteint pas l'objectif budgétaire initial ({formatMoney(line.budgetPrevu)}).
+                          <span className="font-semibold text-ink">{line.poste}</span> : 
+                          Écart négatif de <span className="text-accent font-bold">{formatMoney(line.diff)}</span>. Le réalisé ({formatMoney(line.realise)}) dépasse ou n'atteint pas l'objectif budgétaire initial ({formatMoney(line.budgetPrevu)}).
                         </li>
                       ))
                     ) : (
-                      <li className="text-slate-400 italic">Excellent! Aucun point de vigilance ou écart négatif constaté.</li>
+                      <li className="text-ink-faint italic">Excellent! Aucun point de vigilance ou écart négatif constaté.</li>
                     )}
                   </ul>
                 </div>
 
                 {/* Strategic Advice */}
-                <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 space-y-2">
-                  <h4 className="font-bold text-indigo-900 text-sm flex items-center gap-1.5">
+                <div className="bg-chip p-4 rounded-control border border-outline space-y-2">
+                  <h4 className="font-bold text-ink text-sm flex items-center gap-1.5">
                     💡 Recommandations Stratégiques
                   </h4>
-                  <p className="text-xs text-indigo-700 leading-relaxed">
+                  <p className="text-xs text-ink leading-relaxed">
                     {diffProfit >= 0 
                       ? "La situation financière globale est satisfaisante. Le résultat net est supérieur aux prévisions. Il est recommandé de maintenir la discipline sur les charges fixes d'exploitation et de flécher l'excédent vers l'investissement dans les infrastructures numériques scolaires."
                       : "Un écart négatif global est observé sur le résultat net. Il convient de revoir en priorité les postes ayant subi des surconsommations (vérifier les charges de fluides et loyers) et d'intensifier le recouvrement des tranches de scolarité restantes auprès des familles d'élèves pour rétablir la balance."
@@ -2649,10 +2528,10 @@ export default function FinancePage() {
                 </div>
               </div>
 
-              <div className="pt-6 border-t border-slate-100 mt-6 flex justify-end gap-3">
+              <div className="pt-6 border-t border-border mt-6 flex justify-end gap-3">
                 <button
                   onClick={() => setShowBudgetReportModal(false)}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
+                  className="px-5 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-md shadow-cta transition-colors"
                 >
                   Fermer
                 </button>

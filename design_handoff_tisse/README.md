@@ -62,13 +62,26 @@ background: repeating-linear-gradient(90deg, #b5502f 0 56px, #2b2318 56px 112px)
 | Finance (onglets pills, journal OHADA) | `src/app/(dashboard)/finance/` |
 | Évaluations (synthèse, rangs, mentions) | `src/app/(dashboard)/evaluations/` |
 | Classes (cartes par section) | `src/app/(dashboard)/classes/` + `sections/` |
-| Emploi du temps (grille 6 jours) | `src/app/(dashboard)/emploi-du-temps/` |
+| **Emploi du temps** (nouveau module — grille 6 jours) | `src/app/(dashboard)/emploi-du-temps/` |
 | Enseignants | `src/app/(dashboard)/enseignants/` |
 | Ressources humaines | `src/app/(dashboard)/rh/` |
 | Paramètres | `src/app/(dashboard)/settings/` |
 | Bulletin MINESEC (`Bulletin MINESEC.dc.html`, format A4) | gabarit d'impression/PDF des bulletins |
 
 **Changement structurel majeur** : la navigation passe d'une **sidebar sombre** (design actuel) à un **header horizontal sticky** sur fond `#fffdf8` avec nav en pills (item actif : fond `#2b2318`, texte `#fdf3e3` ; inactif : texte `#6b5f4a`, hover fond chip). La bande kenté est au-dessus du header sur chaque écran (login, landing, app).
+
+## Module Emploi du temps — détail (nouveau)
+
+Écran à construire (route probablement absente ou vide actuellement) :
+- Header : titre "Emploi du temps" + sous-titre, `<select>` de classe à droite (style input standard, options : ex. Terminale D, 6ème A, Seconde C, Form 1) — brancher sur la liste réelle des classes.
+- Carte tableau (`#fffdf8`, bordure `#e9e1cf`, radius 20px, `overflow: hidden`) contenant une grille CSS `grid-template-columns: 150px repeat(6, 1fr)` :
+  - Ligne d'en-tête : fond `#f8f4eb`, colonnes Lundi→Samedi, texte 12px/800/uppercase/letter-spacing 1px couleur `#a3947a`, séparateurs verticaux `1px solid #f0e9d8`.
+  - Une ligne par créneau horaire (ex. 07h-09h, 09h-11h, …), hauteur min 88px, séparateur horizontal `1px solid #f0e9d8` :
+    - Colonne "Créneaux" : libellé du créneau (12px/800/ink) + durée (10px/600/faint).
+    - 6 cellules jour : si un cours est planifié → pastille colorée (radius 12px, padding 10px 12px) avec nom de la matière (13px/800, couleur = `cell.color`) et nom du professeur (11px/600, même couleur, opacité 0.7) ; fond `cell.bg` = teinte pastel dérivée de la matière (mapper chaque matière à une couleur cohérente, palette pastel sur les tokens : ex. beige chip, vert clair, terracotta clair…) ; cellule vide si pas de cours.
+  - Ligne "pause déjeuner" : au lieu de 6 cellules, une seule bande pleine largeur fond `#f8f4eb`, texte centré uppercase letter-spacing 2px "Pause déjeuner".
+- Données à modéliser côté back : table `emploi_du_temps` (ou équivalent) avec classe, jour, créneau, matière, enseignant — alimentée depuis Supabase, pas de mock en dur.
+- Actions attendues (à confirmer avec le produit) : édition d'un créneau au clic (modal ou inline), génération auto depuis les affectations enseignants/matières.
 
 ## Interactions & états
 - Boutons CTA : fond `#b5502f`, texte `#fdf3e3`, weight 800, hover `#9d4326`.

@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, use } from 'react';
-import { mockStudents } from '@/mock/students';
-import { mockClassFees, mockTransactions } from '@/mock/fees';
+import { mockClassFees } from '@/mock/fees';
 import Link from 'next/link';
 import {
   ChevronLeftIcon,
@@ -197,20 +196,20 @@ export default function FicheElevePage({ params }: PageProps) {
 
   if (!isLoaded) {
     return (
-      <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl shadow-sm">
-        <p className="text-slate-500">Chargement de la fiche élève...</p>
+      <div className="text-center py-16 bg-surface border border-border rounded-card shadow-sm">
+        <p className="text-ink-soft">Chargement de la fiche élève...</p>
       </div>
     );
   }
 
   if (!student) {
     return (
-      <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
-        <h2 className="text-xl font-bold text-slate-800">Élève introuvable</h2>
-        <p className="text-slate-500">L&apos;identifiant fourni ne correspond à aucun élève de notre base.</p>
+      <div className="text-center py-16 bg-surface border border-border rounded-card shadow-sm space-y-4">
+        <h2 className="text-xl font-bold text-ink">Élève introuvable</h2>
+        <p className="text-ink-soft">L&apos;identifiant fourni ne correspond à aucun élève de notre base.</p>
         <Link
           href="/eleves"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-semibold transition-colors"
         >
           Retourner à la liste
         </Link>
@@ -440,8 +439,8 @@ export default function FicheElevePage({ params }: PageProps) {
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 border border-slate-800 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3 animate-in slide-in-from-bottom-6 duration-300">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3 animate-fade-up">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
@@ -450,35 +449,35 @@ export default function FicheElevePage({ params }: PageProps) {
       <div className="flex items-center gap-4">
         <Link
           href="/eleves"
-          className="p-2 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-slate-600 transition-colors"
+          className="p-2 bg-surface border border-border hover:border-border rounded-control text-ink-soft transition-colors"
         >
           <ChevronLeftIcon size={20} />
         </Link>
         <div>
-          <h1 className="text-xl lg:text-2xl font-bold text-slate-800 tracking-tight text-black">
+          <h1 className="text-[26px] lg:text-[32px] font-extrabold text-ink tracking-[-1px] leading-tight">
             Fiche Élève : {student.nom} {student.prenom}
           </h1>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-soft">
             Matricule : <span className="font-mono font-semibold">{student.matricule}</span> • Classe : <span className="font-semibold">{displayClasse}</span>
           </p>
         </div>
       </div>
 
       {/* Main Student Header Card */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      <div className="bg-surface rounded-card border border-border p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex items-center gap-4">
           <div className={`w-16 h-16 rounded-full font-black text-2xl flex items-center justify-center border shadow-inner ${
             student.sexe === 'F' 
-              ? 'bg-rose-50 text-rose-600 border-rose-100'
-              : 'bg-blue-50 text-blue-600 border-blue-100'
+              ? 'bg-red-bg text-accent border-transparent'
+              : 'bg-chip text-ink-soft border-transparent'
           }`}>
             {(student.prenom || '')[0] || ''}{(student.nom || '')[0] || ''}
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-800 text-black">{student.nom} {student.prenom}</h2>
-            <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500 font-medium">
+            <h2 className="text-lg font-bold text-ink">{student.nom} {student.prenom}</h2>
+            <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-ink-soft font-medium">
               <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                student.sexe === 'F' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
+                student.sexe === 'F' ? 'bg-chip text-ink-soft' : 'bg-chip text-ink-soft'
               }`}>
                 {student.sexe}
               </span>
@@ -491,26 +490,26 @@ export default function FicheElevePage({ params }: PageProps) {
         {/* Status Badge */}
         <span className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold border ${
           student.statut === 'actif'
-            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+            ? 'bg-green-bg text-green border-transparent'
             : student.statut === 'suspendu'
-            ? 'bg-red-50 text-red-700 border-red-100'
-            : 'bg-slate-100 text-slate-600 border-slate-200'
+            ? 'bg-red-bg text-accent border-transparent'
+            : 'bg-chip text-ink-soft border-border'
         }`}>
           <span className={`w-1.5 h-1.5 rounded-full ${
-            student.statut === 'actif' ? 'bg-emerald-500' : 'bg-red-500'
+            student.statut === 'actif' ? 'bg-green' : 'bg-accent'
           }`}></span>
           {student.statut === 'actif' ? 'Inscrit / Actif' : 'Suspendu'}
         </span>
       </div>
 
       {/* Tabs list */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-border">
         <button
           onClick={() => setActiveTab('info')}
           className={`px-5 py-3.5 text-sm font-bold border-b-2 transition-all -mb-px ${
             activeTab === 'info'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+              ? 'border-accent text-ink'
+              : 'border-transparent text-ink-soft hover:text-ink hover:border-border'
           }`}
         >
           Informations Générales
@@ -519,8 +518,8 @@ export default function FicheElevePage({ params }: PageProps) {
           onClick={() => setActiveTab('finance')}
           className={`px-5 py-3.5 text-sm font-bold border-b-2 transition-all -mb-px ${
             activeTab === 'finance'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+              ? 'border-accent text-ink'
+              : 'border-transparent text-ink-soft hover:text-ink hover:border-border'
           }`}
         >
           Scolarité & Finance
@@ -529,8 +528,8 @@ export default function FicheElevePage({ params }: PageProps) {
           onClick={() => setActiveTab('grades')}
           className={`px-5 py-3.5 text-sm font-bold border-b-2 transition-all -mb-px ${
             activeTab === 'grades'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+              ? 'border-accent text-ink'
+              : 'border-transparent text-ink-soft hover:text-ink hover:border-border'
           }`}
         >
           Notes & Bulletins
@@ -539,8 +538,8 @@ export default function FicheElevePage({ params }: PageProps) {
           onClick={() => setActiveTab('discipline')}
           className={`px-5 py-3.5 text-sm font-bold border-b-2 transition-all -mb-px ${
             activeTab === 'discipline'
-              ? 'border-rose-600 text-rose-600'
-              : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+              ? 'border-accent text-accent'
+              : 'border-transparent text-ink-soft hover:text-ink hover:border-border'
           }`}
         >
           Discipline & Absences
@@ -553,66 +552,66 @@ export default function FicheElevePage({ params }: PageProps) {
         {activeTab === 'info' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-200">
             {/* Identity Info Card */}
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+            <div className="bg-surface rounded-card border border-border p-6 shadow-sm space-y-4">
+              <h3 className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] border-b border-border pb-2">
                 Fiche d&apos;Identité de l&apos;élève
               </h3>
               
               <div className="grid grid-cols-2 gap-4 text-sm leading-relaxed">
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Nom complet</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.nom} {student.prenom}</span>
+                  <span className="text-[10px] text-ink-faint font-bold block uppercase">Nom complet</span>
+                  <span className="font-semibold text-ink">{student.nom} {student.prenom}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Matricule</span>
-                  <span className="font-mono font-bold text-indigo-600">{student.matricule}</span>
+                  <span className="text-[10px] text-ink-faint font-bold block uppercase">Matricule</span>
+                  <span className="font-mono font-bold text-ink">{student.matricule}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Genre</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.sexe === 'M' ? 'Masculin' : 'Féminin'}</span>
+                  <span className="text-[10px] text-ink-faint font-bold block uppercase">Genre</span>
+                  <span className="font-semibold text-ink">{student.sexe === 'M' ? 'Masculin' : 'Féminin'}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Classe</span>
-                  <span className="font-semibold text-slate-800 text-black">{displayClasse}</span>
+                  <span className="text-[10px] text-ink-faint font-bold block uppercase">Classe</span>
+                  <span className="font-semibold text-ink">{displayClasse}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Date de naissance</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.dateNaissance}</span>
+                  <span className="text-[10px] text-ink-faint font-bold block uppercase">Date de naissance</span>
+                  <span className="font-semibold text-ink">{student.dateNaissance}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Lieu de naissance</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.lieuNaissance}</span>
+                  <span className="text-[10px] text-ink-faint font-bold block uppercase">Lieu de naissance</span>
+                  <span className="font-semibold text-ink">{student.lieuNaissance}</span>
                 </div>
               </div>
             </div>
 
             {/* Parent contact card */}
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+            <div className="bg-surface rounded-card border border-border p-6 shadow-sm space-y-4">
+              <h3 className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] border-b border-border pb-2">
                 Responsable Légal (Parent)
               </h3>
               
               <div className="space-y-3.5">
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Nom du parent</span>
-                  <span className="font-semibold text-slate-800 text-black">{student.nomParent}</span>
+                  <span className="text-[10px] text-ink-faint font-bold block uppercase">Nom du parent</span>
+                  <span className="font-semibold text-ink">{student.nomParent}</span>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <PhoneIcon size={14} className="text-slate-400" />
+                <div className="flex items-center gap-2 text-sm text-ink-soft">
+                  <PhoneIcon size={14} className="text-ink-faint" />
                   <span>Téléphone : </span>
-                  <a href={`tel:${student.telephoneParent}`} className="font-semibold text-indigo-600 hover:underline">
+                  <a href={`tel:${student.telephoneParent}`} className="font-semibold text-ink hover:underline">
                     {student.telephoneParent}
                   </a>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <MailIcon size={14} className="text-slate-400" />
+                <div className="flex items-center gap-2 text-sm text-ink-soft">
+                  <MailIcon size={14} className="text-ink-faint" />
                   <span>Email : </span>
                   {student.emailParent !== 'N/A' ? (
-                    <a href={`mailto:${student.emailParent}`} className="font-semibold text-indigo-600 hover:underline">
+                    <a href={`mailto:${student.emailParent}`} className="font-semibold text-ink hover:underline">
                       {student.emailParent}
                     </a>
                   ) : (
-                    <span className="text-slate-400 italic">Non communiqué</span>
+                    <span className="text-ink-faint italic">Non communiqué</span>
                   )}
                 </div>
               </div>
@@ -624,35 +623,35 @@ export default function FicheElevePage({ params }: PageProps) {
         {activeTab === 'finance' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* Financial indicators card */}
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 items-center">
+            <div className="bg-surface rounded-card border border-border p-6 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 items-center">
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Frais Totaux Annuel</span>
-                <span className="text-xl font-extrabold text-slate-800 block mt-1 text-black">{formatFCFA(totalDue)}</span>
-                <span className="text-[10px] text-slate-400 mt-1 block">Classe : {displayClasse}</span>
+                <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Frais Totaux Annuel</span>
+                <span className="text-xl font-extrabold text-ink block mt-1">{formatFCFA(totalDue)}</span>
+                <span className="text-[10px] text-ink-faint mt-1 block">Classe : {displayClasse}</span>
               </div>
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Montant Payé</span>
-                <span className="text-xl font-extrabold text-emerald-600 block mt-1">{formatFCFA(totalPaid)}</span>
+                <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Montant Payé</span>
+                <span className="text-xl font-extrabold text-green block mt-1">{formatFCFA(totalPaid)}</span>
                 
                 {/* Progress bar */}
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2 max-w-[200px]">
+                <div className="w-full bg-chip h-1.5 rounded-full overflow-hidden mt-2 max-w-[200px]">
                   <div 
-                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                    className="h-full bg-green rounded-full transition-all duration-300"
                     style={{ width: `${paymentProgressPct}%` }}
                   ></div>
                 </div>
               </div>
               <div className="flex justify-between items-center sm:block">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Reste à recouvrer</span>
-                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount > 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                  <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Reste à recouvrer</span>
+                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount > 0 ? 'text-accent' : 'text-ink-soft'}`}>
                     {formatFCFA(pendingAmount)}
                   </span>
                 </div>
                 {pendingAmount > 0 && (
                   <button
                     onClick={() => setShowAddPaymentModal(true)}
-                    className="mt-3.5 px-4.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-md shadow-indigo-600/10 transition-colors"
+                    className="mt-3.5 px-4 py-2 bg-accent hover:bg-accent-hover text-cream text-xs font-bold rounded-control shadow-cta transition-colors"
                   >
                     Enregistrer un paiement
                   </button>
@@ -661,14 +660,14 @@ export default function FicheElevePage({ params }: PageProps) {
             </div>
 
             {/* Payments history table */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">Historique des versements</span>
+            <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-bg/50">
+                <span className="text-xs font-bold text-ink uppercase tracking-wider block">Historique des versements</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+                    <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                       <th className="px-6 py-3">Réf / Reçu</th>
                       <th className="px-6 py-3">Date</th>
                       <th className="px-6 py-3">Type</th>
@@ -677,27 +676,27 @@ export default function FicheElevePage({ params }: PageProps) {
                       <th className="px-6 py-3">Statut</th>
                     </tr>
                   </thead>
-                  <tbody className="text-sm divide-y divide-slate-100">
+                  <tbody className="text-sm divide-y divide-border-row">
                     {((student.paiements || []) || [])?.length > 0 ? (
                       ((student.paiements || []) || [])?.map((pay) => (
-                        <tr key={pay.id} className="hover:bg-slate-50/40 transition-colors">
-                          <td className="px-6 py-4 font-mono text-xs font-semibold text-slate-500">{pay.reference}</td>
-                          <td className="px-6 py-4 text-slate-500 text-xs">{pay.date}</td>
+                        <tr key={pay.id} className="hover:bg-row-hover transition-colors">
+                          <td className="px-6 py-4 font-mono text-xs font-semibold text-ink-soft">{pay.reference}</td>
+                          <td className="px-6 py-4 text-ink-soft text-xs">{pay.date}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              pay.typeFrais === 'Inscription' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-blue-50 text-blue-700 border border-blue-100'
+                              pay.typeFrais === 'Inscription' ? 'bg-chip text-ink-soft border border-transparent' : 'bg-chip text-ink-soft border border-transparent'
                             }`}>
                               {pay.typeFrais}
                             </span>
                           </td>
-                          <td className="px-6 py-4 font-bold text-slate-800 text-black">{formatFCFA(pay.montant)}</td>
-                          <td className="px-6 py-4 text-slate-500 text-xs">{pay.modePaiement}</td>
+                          <td className="px-6 py-4 font-bold text-ink">{formatFCFA(pay.montant)}</td>
+                          <td className="px-6 py-4 text-ink-soft text-xs">{pay.modePaiement}</td>
                           <td className="px-6 py-4">
                             <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
-                              pay.statut === 'paid' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-amber-600 bg-amber-50 border-amber-100'
+                              pay.statut === 'paid' ? 'text-green bg-green-bg border-transparent' : 'text-ink-soft bg-chip border-transparent'
                             } px-2 py-0.5 rounded-full border`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${
-                                pay.statut === 'paid' ? 'bg-emerald-500' : 'bg-amber-500'
+                                pay.statut === 'paid' ? 'bg-green' : 'bg-accent'
                               }`}></span>
                               {pay.statut === 'paid' ? 'Validé' : 'En attente'}
                             </span>
@@ -706,7 +705,7 @@ export default function FicheElevePage({ params }: PageProps) {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-sm">
+                        <td colSpan={6} className="px-6 py-12 text-center text-ink-faint text-sm">
                           Aucun paiement enregistré pour le moment.
                         </td>
                       </tr>
@@ -722,34 +721,34 @@ export default function FicheElevePage({ params }: PageProps) {
         {activeTab === 'grades' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* Average summaries card */}
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="bg-surface rounded-card border border-border p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex flex-wrap gap-8 w-full">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Moyenne Trimestre 1</span>
-                  <span className={`text-3xl font-extrabold block ${avgTrim1 >= 10 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                    {avgTrim1 > 0 ? avgTrim1.toFixed(2) : '--'} <span className="text-sm text-slate-500 font-semibold">/ 20</span>
+                  <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Moyenne Trimestre 1</span>
+                  <span className={`text-3xl font-extrabold block ${avgTrim1 >= 10 ? 'text-ink' : 'text-accent'}`}>
+                    {avgTrim1 > 0 ? avgTrim1.toFixed(2) : '--'} <span className="text-sm text-ink-soft font-semibold">/ 20</span>
                   </span>
-                  {avgTrim1 > 0 && <span className="text-xs font-bold text-slate-500 mt-1 block">Mention: {mentionTrim1}</span>}
+                  {avgTrim1 > 0 && <span className="text-xs font-bold text-ink-soft mt-1 block">Mention: {mentionTrim1}</span>}
                 </div>
                 
-                <div className="border-l border-slate-100 pl-8">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rang / Effectif</span>
-                  <span className="text-3xl font-extrabold block text-slate-800 text-black">
-                    {myRank} <span className="text-sm text-slate-500 font-semibold">/ {classmates.length}</span>
+                <div className="border-l border-border pl-8">
+                  <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Rang / Effectif</span>
+                  <span className="text-3xl font-extrabold block text-ink">
+                    {myRank} <span className="text-sm text-ink-soft font-semibold">/ {classmates.length}</span>
                   </span>
-                  <span className="text-xs font-bold text-slate-500 mt-1 block">Dans la classe {displayClasse}</span>
+                  <span className="text-xs font-bold text-ink-soft mt-1 block">Dans la classe {displayClasse}</span>
                 </div>
 
-                <div className="border-l border-slate-100 pl-8">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total des points</span>
-                  <span className="text-3xl font-extrabold block text-slate-800 text-black">
+                <div className="border-l border-border pl-8">
+                  <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Total des points</span>
+                  <span className="text-3xl font-extrabold block text-ink">
                     {totalPointsTrim1}
                   </span>
                 </div>
               </div>
               <button
                 onClick={handleDownloadBulletin}
-                className="px-4 py-2 border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/20 hover:text-indigo-600 text-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                className="px-4 py-2 border border-border hover:border-ink hover:bg-chip/20 hover:text-ink text-ink-soft rounded-control text-xs font-bold transition-all flex items-center gap-1.5"
               >
                 <DownloadIcon size={14} />
                 Télécharger bulletin
@@ -757,14 +756,14 @@ export default function FicheElevePage({ params }: PageProps) {
             </div>
 
             {/* Grades list by Term */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block text-black">Détails des notes par matière</span>
+            <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-bg/50 flex items-center justify-between">
+                <span className="text-xs font-bold text-ink uppercase tracking-wider block">Détails des notes par matière</span>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-slate-400">Trimestre 1</span>
+                  <span className="text-xs font-semibold text-ink-faint">Trimestre 1</span>
                   <button
                     onClick={() => setShowAddGradeModal(true)}
-                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-xs font-bold rounded-lg transition-colors"
+                    className="px-3 py-1.5 bg-chip hover:bg-chip-hover text-ink text-xs font-bold rounded-control transition-colors"
                   >
                     + Ajouter une note
                   </button>
@@ -773,7 +772,7 @@ export default function FicheElevePage({ params }: PageProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+                    <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                       <th className="px-6 py-3">Matière</th>
                       <th className="px-6 py-3 text-center">Coefficient</th>
                       <th className="px-6 py-3 text-center">Évaluation / Note</th>
@@ -782,19 +781,19 @@ export default function FicheElevePage({ params }: PageProps) {
                       <th className="px-6 py-3 text-center">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="text-sm divide-y divide-slate-100">
+                  <tbody className="text-sm divide-y divide-border-row">
                     {firstTermGrades.length > 0 ? (
                       firstTermGrades.map((g, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/40 transition-colors">
-                          <td className="px-6 py-4 font-semibold text-slate-800 text-black">{g.matiereId}</td>
-                          <td className="px-6 py-4 text-center text-slate-600 font-medium">{g.evaluationMaternelle ? '-' : 1}</td>
-                          <td className={`px-6 py-4 text-center font-bold ${editingGradeId === g.id ? '' : (g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'text-emerald-600' : g.evaluationMaternelle === 'En cours' ? 'text-amber-500' : 'text-rose-600') : (((g.note || 0)) >= 12 ? 'text-emerald-600' : ((g.note || 0)) >= 10 ? 'text-indigo-600' : 'text-rose-600'))}`}>
+                        <tr key={idx} className="hover:bg-row-hover transition-colors">
+                          <td className="px-6 py-4 font-semibold text-ink">{g.matiereId}</td>
+                          <td className="px-6 py-4 text-center text-ink-soft font-medium">{g.evaluationMaternelle ? '-' : 1}</td>
+                          <td className={`px-6 py-4 text-center font-bold ${editingGradeId === g.id ? '' : (g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'text-green' : g.evaluationMaternelle === 'En cours' ? 'text-ink-soft' : 'text-accent') : (((g.note || 0)) >= 12 ? 'text-green' : ((g.note || 0)) >= 10 ? 'text-ink' : 'text-accent'))}`}>
                             {editingGradeId === g.id ? (
                               g.evaluationMaternelle ? (
                                 <select 
                                   value={editingGradeValue} 
                                   onChange={(e) => setEditingGradeValue(e.target.value)}
-                                  className="border border-indigo-200 rounded px-2 py-1 text-xs text-black w-full"
+                                  className="border border-outline rounded px-2 py-1 text-xs w-full"
                                 >
                                   <option value="Acquis">Acquis</option>
                                   <option value="En cours">En cours</option>
@@ -806,17 +805,17 @@ export default function FicheElevePage({ params }: PageProps) {
                                   min="0" max="20" step="0.25"
                                   value={editingGradeValue} 
                                   onChange={(e) => setEditingGradeValue(e.target.value)}
-                                  className="border border-indigo-200 rounded px-2 py-1 text-xs text-black w-20 text-center"
+                                  className="border border-outline rounded px-2 py-1 text-xs w-20 text-center"
                                 />
                               )
                             ) : (
                               g.evaluationMaternelle ? g.evaluationMaternelle : `${((g.note || 0))} / 20`
                             )}
                           </td>
-                          <td className="px-6 py-4 text-slate-500 font-medium">{g.enseignantId}</td>
+                          <td className="px-6 py-4 text-ink-soft font-medium">{g.enseignantId}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                              g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'bg-emerald-50 text-emerald-700' : g.evaluationMaternelle === 'En cours' ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700') : (((g.note || 0)) >= 14 ? 'bg-emerald-50 text-emerald-700' : ((g.note || 0)) >= 10 ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700')
+                              g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'bg-green-bg text-green' : g.evaluationMaternelle === 'En cours' ? 'bg-chip text-ink' : 'bg-red-bg text-accent') : (((g.note || 0)) >= 14 ? 'bg-green-bg text-green' : ((g.note || 0)) >= 10 ? 'bg-chip text-ink' : 'bg-red-bg text-accent')
                             }`}>
                               {g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'Très Bien' : g.evaluationMaternelle === 'En cours' ? 'En Progression' : 'A Renforcer') : (((g.note || 0)) >= 16 ? 'Très Bien' : ((g.note || 0)) >= 14 ? 'Bien' : ((g.note || 0)) >= 12 ? 'Assez Bien' : ((g.note || 0)) >= 10 ? 'Passable' : 'Insuffisant')}
                             </span>
@@ -824,8 +823,8 @@ export default function FicheElevePage({ params }: PageProps) {
                           <td className="px-6 py-4 text-center">
                             {editingGradeId === g.id ? (
                               <div className="flex items-center justify-center gap-2">
-                                <button onClick={() => handleSaveGrade(g.id, !!g.evaluationMaternelle)} className="text-emerald-600 hover:text-emerald-700 font-bold text-xs">Enregistrer</button>
-                                <button onClick={() => setEditingGradeId(null)} className="text-slate-400 hover:text-slate-600 text-xs">Annuler</button>
+                                <button onClick={() => handleSaveGrade(g.id, !!g.evaluationMaternelle)} className="text-green hover:text-green font-bold text-xs">Enregistrer</button>
+                                <button onClick={() => setEditingGradeId(null)} className="text-ink-faint hover:text-ink-soft text-xs">Annuler</button>
                               </div>
                             ) : (
                               <button
@@ -833,7 +832,7 @@ export default function FicheElevePage({ params }: PageProps) {
                                   setEditingGradeId(g.id);
                                   setEditingGradeValue(g.evaluationMaternelle || g.note || 0);
                                 }}
-                                className="text-indigo-600 hover:text-indigo-800 text-xs font-semibold"
+                                className="text-ink hover:text-ink text-xs font-semibold"
                               >
                                 Modifier
                               </button>
@@ -843,27 +842,27 @@ export default function FicheElevePage({ params }: PageProps) {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-sm">
+                        <td colSpan={6} className="px-6 py-12 text-center text-ink-faint text-sm">
                           Aucune note enregistrée pour ce trimestre.
                         </td>
                       </tr>
                     )}
                   </tbody>
                   {firstTermGrades.length > 0 && (
-                    <tfoot className="bg-slate-50 font-bold border-t border-slate-200 text-black">
+                    <tfoot className="bg-bg font-bold border-t border-border">
                       <tr>
                         <td colSpan={2} className="px-6 py-4 text-right uppercase text-xs tracking-wider">Bilan du Trimestre :</td>
-                        <td className="px-6 py-4 text-center text-indigo-600 text-base">
+                        <td className="px-6 py-4 text-center text-ink text-base">
                           {firstTermGrades.some(g => g.evaluationMaternelle) ? 'N/A' : (firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length).toFixed(2) + ' / 20'}
                         </td>
-                        <td colSpan={3} className="px-6 py-4 text-sm text-slate-500">
+                        <td colSpan={3} className="px-6 py-4 text-sm text-ink-soft">
                           {firstTermGrades.some(g => g.evaluationMaternelle) ? (
-                            <span className="text-emerald-600 font-medium">Évaluation par compétences (Maternelle)</span>
+                            <span className="text-green font-medium">Évaluation par compétences (Maternelle)</span>
                           ) : (
                             <div className="flex flex-col gap-1">
                               <span>Total des points: {firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0)}</span>
                               <span>Rang estimé: {student.id === 'stud-1' ? '1er' : '3ème'} / 45</span>
-                              <span className="text-xs font-semibold text-indigo-500">Mention: {(firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length) >= 12 ? 'Tableau d\'Honneur' : 'Encouragements'}</span>
+                              <span className="text-xs font-semibold text-accent">Mention: {(firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length) >= 12 ? 'Tableau d\'Honneur' : 'Encouragements'}</span>
                             </div>
                           )}
                         </td>
@@ -880,32 +879,32 @@ export default function FicheElevePage({ params }: PageProps) {
         {activeTab === 'discipline' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* Summary cards */}
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-surface rounded-card border border-border p-6 shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Absences</span>
-                <span className="text-2xl font-extrabold text-amber-500 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Absence').length}</span>
+                <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Absences</span>
+                <span className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-none block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Absence').length}</span>
               </div>
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Retards</span>
-                <span className="text-2xl font-extrabold text-amber-500 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Retard').length}</span>
+                <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Retards</span>
+                <span className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-none block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Retard').length}</span>
               </div>
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Avertissements</span>
-                <span className="text-2xl font-extrabold text-rose-500 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Avertissement').length}</span>
+                <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Avertissements</span>
+                <span className="text-2xl font-extrabold text-accent block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Avertissement').length}</span>
               </div>
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Exclusions</span>
-                <span className="text-2xl font-extrabold text-rose-700 block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Exclusion').length}</span>
+                <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Exclusions</span>
+                <span className="text-2xl font-extrabold text-accent block mt-1">{(student.discipline || []).filter(d => d.typeIncident === 'Exclusion').length}</span>
               </div>
             </div>
 
             {/* Discipline History List */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block text-black">Historique Disciplinaire</span>
+            <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-bg/50 flex items-center justify-between">
+                <span className="text-xs font-bold text-ink uppercase tracking-wider block">Historique Disciplinaire</span>
                 <button
                   onClick={() => setShowAddDisciplineModal(true)}
-                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold rounded-lg transition-colors"
+                  className="px-3 py-1.5 bg-red-bg hover:bg-red-bg text-accent text-xs font-bold rounded-control transition-colors"
                 >
                   + Signaler un incident
                 </button>
@@ -913,7 +912,7 @@ export default function FicheElevePage({ params }: PageProps) {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+                    <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                       <th className="px-6 py-3">Date</th>
                       <th className="px-6 py-3">Type</th>
                       <th className="px-6 py-3">Motif détaillé</th>
@@ -921,32 +920,32 @@ export default function FicheElevePage({ params }: PageProps) {
                       <th className="px-6 py-3">Statut Parent</th>
                     </tr>
                   </thead>
-                  <tbody className="text-sm divide-y divide-slate-100">
+                  <tbody className="text-sm divide-y divide-border-row">
                     {student.discipline && student.discipline.length > 0 ? (
                       student.discipline.map((disc, idx) => (
-                        <tr key={disc.id || idx} className="hover:bg-slate-50/40 transition-colors">
-                          <td className="px-6 py-4 text-slate-600 font-medium whitespace-nowrap">{disc.dateIncident}</td>
+                        <tr key={disc.id || idx} className="hover:bg-row-hover transition-colors">
+                          <td className="px-6 py-4 text-ink-soft font-medium whitespace-nowrap">{disc.dateIncident}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              ['Avertissement', 'Blâme', 'Exclusion'].includes(disc.typeIncident) ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
+                              ['Avertissement', 'Blâme', 'Exclusion'].includes(disc.typeIncident) ? 'bg-red-bg text-accent border border-transparent' : 'bg-chip text-ink-soft border border-transparent'
                             }`}>
                               {disc.typeIncident}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-slate-800 text-black font-medium">{disc.motif}</td>
-                          <td className="px-6 py-4 text-slate-500 italic">{disc.sanction || '-'}</td>
+                          <td className="px-6 py-4 text-ink font-medium">{disc.motif}</td>
+                          <td className="px-6 py-4 text-ink-soft italic">{disc.sanction || '-'}</td>
                           <td className="px-6 py-4">
                             <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
-                              disc.statut === 'Notifié au parent' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 
-                              disc.statut === 'Convoqué' ? 'text-rose-600 bg-rose-50 border-rose-100' : 
-                              disc.statut === 'Clos' ? 'text-slate-600 bg-slate-50 border-slate-200' : 
-                              'text-amber-600 bg-amber-50 border-amber-100'
+                              disc.statut === 'Notifié au parent' ? 'text-green bg-green-bg border-transparent' : 
+                              disc.statut === 'Convoqué' ? 'text-accent bg-red-bg border-transparent' : 
+                              disc.statut === 'Clos' ? 'text-ink-soft bg-bg border-border' : 
+                              'text-ink-soft bg-chip border-transparent'
                             } px-2 py-0.5 rounded-full border`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${
-                                disc.statut === 'Notifié au parent' ? 'bg-emerald-500' : 
-                                disc.statut === 'Convoqué' ? 'bg-rose-500' : 
-                                disc.statut === 'Clos' ? 'bg-slate-500' : 
-                                'bg-amber-500'
+                                disc.statut === 'Notifié au parent' ? 'bg-green' : 
+                                disc.statut === 'Convoqué' ? 'bg-accent' : 
+                                disc.statut === 'Clos' ? 'bg-ink-faint' : 
+                                'bg-accent'
                               }`}></span>
                               {disc.statut}
                             </span>
@@ -955,7 +954,7 @@ export default function FicheElevePage({ params }: PageProps) {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm">
+                        <td colSpan={5} className="px-6 py-12 text-center text-ink-faint text-sm">
                           Aucun incident disciplinaire ni absence à signaler.
                         </td>
                       </tr>
@@ -970,24 +969,24 @@ export default function FicheElevePage({ params }: PageProps) {
 
       {/* Simulated Add Payment Modal */}
       {showAddPaymentModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login p-6 relative animate-in zoom-in-95 duration-200">
             <button
               onClick={() => setShowAddPaymentModal(false)}
-              className="absolute right-4 top-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              className="absolute right-4 top-4 p-1.5 rounded-control text-ink-faint hover:text-ink-soft hover:bg-chip transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
 
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 text-black">
+            <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">
               Enregistrer un paiement
             </h3>
 
             <form onSubmit={handleAddPayment} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Montant (FCFA)
                 </label>
                 <input
@@ -995,19 +994,19 @@ export default function FicheElevePage({ params }: PageProps) {
                   placeholder="Saisissez le montant"
                   value={payAmount}
                   onChange={(e) => setPayAmount(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Type de frais
                 </label>
                 <select
                   value={payType}
                   onChange={(e) => setPayType(e.target.value as Paiement['typeFrais'])}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg outline-none focus:border-accent focus:bg-surface"
                 >
                   <option value="Scolarité">Frais de Scolarité</option>
                   <option value="Inscription">Frais d&apos;Inscription</option>
@@ -1016,13 +1015,13 @@ export default function FicheElevePage({ params }: PageProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Mode de règlement
                 </label>
                 <select
                   value={payMethod}
                   onChange={(e) => setPayMethod(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg outline-none focus:border-accent focus:bg-surface"
                 >
                   <option value="Orange Money">Orange Money</option>
                   <option value="MTN Mobile Money">MTN Mobile Money</option>
@@ -1031,17 +1030,17 @@ export default function FicheElevePage({ params }: PageProps) {
                 </select>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100">
+              <div className="flex gap-3 pt-4 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAddPaymentModal(false)}
-                  className="flex-1 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-700 transition-colors"
+                  className="flex-1 px-4 py-2 border border-border hover:bg-bg rounded-control text-xs font-bold text-ink-soft transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
+                  className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-cta transition-colors"
                 >
                   Enregistrer
                 </button>
@@ -1053,24 +1052,24 @@ export default function FicheElevePage({ params }: PageProps) {
 
       {/* Add Grade Modal */}
       {showAddGradeModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login p-6 relative animate-in zoom-in-95 duration-200">
             <button
               onClick={() => setShowAddGradeModal(false)}
-              className="absolute right-4 top-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              className="absolute right-4 top-4 p-1.5 rounded-control text-ink-faint hover:text-ink-soft hover:bg-chip transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
 
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 text-black">
+            <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">
               Ajouter une note (Trimestre 1)
             </h3>
 
             <form onSubmit={handleAddGrade} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Matière
                 </label>
                 <input
@@ -1078,13 +1077,13 @@ export default function FicheElevePage({ params }: PageProps) {
                   placeholder="ex: Mathématiques"
                   value={newGradeMatiere}
                   onChange={(e) => setNewGradeMatiere(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Type d'évaluation
                 </label>
                 <select
@@ -1093,7 +1092,7 @@ export default function FicheElevePage({ params }: PageProps) {
                     setNewGradeType(e.target.value);
                     setNewGradeValue('');
                   }}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg outline-none focus:border-accent focus:bg-surface"
                 >
                   <option value="Classique">Note sur 20 (Classique)</option>
                   <option value="Maternelle">Compétence (Maternelle)</option>
@@ -1101,14 +1100,14 @@ export default function FicheElevePage({ params }: PageProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Évaluation / Note
                 </label>
                 {newGradeType === 'Maternelle' ? (
                   <select
                     value={newGradeValue}
                     onChange={(e) => setNewGradeValue(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg outline-none focus:border-accent focus:bg-surface"
                     required
                   >
                     <option value="">Sélectionnez...</option>
@@ -1123,7 +1122,7 @@ export default function FicheElevePage({ params }: PageProps) {
                     placeholder="Note sur 20"
                     value={newGradeValue}
                     onChange={(e) => setNewGradeValue(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface"
                     required
                   />
                 )}
@@ -1131,7 +1130,7 @@ export default function FicheElevePage({ params }: PageProps) {
 
               {newGradeType === 'Classique' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                     Coefficient
                   </label>
                   <input
@@ -1139,23 +1138,23 @@ export default function FicheElevePage({ params }: PageProps) {
                     min="1" max="10"
                     value={newGradeCoef}
                     onChange={(e) => setNewGradeCoef(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface"
                     required
                   />
                 </div>
               )}
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100">
+              <div className="flex gap-3 pt-4 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAddGradeModal(false)}
-                  className="flex-1 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-700 transition-colors"
+                  className="flex-1 px-4 py-2 border border-border hover:bg-bg rounded-control text-xs font-bold text-ink-soft transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
+                  className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-cta transition-colors"
                 >
                   Ajouter la note
                 </button>
@@ -1167,30 +1166,30 @@ export default function FicheElevePage({ params }: PageProps) {
 
       {/* Add Discipline Modal */}
       {showAddDisciplineModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login p-6 relative animate-in zoom-in-95 duration-200">
             <button
               onClick={() => setShowAddDisciplineModal(false)}
-              className="absolute right-4 top-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              className="absolute right-4 top-4 p-1.5 rounded-control text-ink-faint hover:text-ink-soft hover:bg-chip transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
 
-            <h3 className="text-lg font-bold text-rose-700 border-b border-slate-100 pb-3 mb-4">
+            <h3 className="text-lg font-bold text-accent border-b border-border pb-3 mb-4">
               Signaler un incident / Absence
             </h3>
 
             <form onSubmit={handleAddDiscipline} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Type d'incident *
                 </label>
                 <select
                   value={newDisciplineType}
                   onChange={(e) => setNewDisciplineType(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg outline-none focus:border-accent focus:bg-surface"
                 >
                   <option value="Absence">Absence</option>
                   <option value="Retard">Retard</option>
@@ -1202,21 +1201,21 @@ export default function FicheElevePage({ params }: PageProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Motif détaillé *
                 </label>
                 <textarea
                   placeholder="Expliquez la situation..."
                   value={newDisciplineMotif}
                   onChange={(e) => setNewDisciplineMotif(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black resize-none"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface resize-none"
                   rows={3}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Sanction (Optionnelle)
                 </label>
                 <input
@@ -1224,18 +1223,18 @@ export default function FicheElevePage({ params }: PageProps) {
                   placeholder="ex: 2h de colle, Mise à pied de 2 jours..."
                   value={newDisciplineSanction}
                   onChange={(e) => setNewDisciplineSanction(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Statut vis-à-vis des parents
                 </label>
                 <select
                   value={newDisciplineStatut}
                   onChange={(e) => setNewDisciplineStatut(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-black"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg outline-none focus:border-accent focus:bg-surface"
                 >
                   <option value="Non notifié">Non notifié au parent</option>
                   <option value="Notifié au parent">Notifié (SMS/Email/Carnet)</option>
@@ -1244,17 +1243,17 @@ export default function FicheElevePage({ params }: PageProps) {
                 </select>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100">
+              <div className="flex gap-3 pt-4 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAddDisciplineModal(false)}
-                  className="flex-1 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-700 transition-colors"
+                  className="flex-1 px-4 py-2 border border-border hover:bg-bg rounded-control text-xs font-bold text-ink-soft transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-md shadow-rose-600/10 transition-colors"
+                  className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-cta transition-colors"
                 >
                   Enregistrer
                 </button>

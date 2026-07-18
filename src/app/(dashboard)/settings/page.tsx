@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 interface AcademicYear {
   id: string;
@@ -81,7 +82,7 @@ export default function SettingsPage() {
         triggerToast(`Année scolaire ${createdYear.nom} créée et sélectionnée !`);
       }
     } catch (err: any) {
-      console.error('Error creating academic year:', err);
+      captureError(err, { context: 'Error creating academic year:' });
       triggerToast(`Erreur : ${err.message || err}`);
     }
   };
@@ -155,7 +156,7 @@ export default function SettingsPage() {
           setAcademicYears(years);
         }
       } catch (err) {
-        console.error('Error loading settings from Supabase:', err);
+        captureError(err, { context: 'Error loading settings from Supabase:' });
       }
 
       // 3. Load other configurations from localStorage
@@ -261,7 +262,7 @@ export default function SettingsPage() {
 
       triggerToast('Paramètres enregistrés avec succès !');
     } catch (err: any) {
-      console.error('Error saving settings:', err);
+      captureError(err, { context: 'Error saving settings:' });
       triggerToast(`Erreur d'enregistrement : ${err.message || err}`);
     } finally {
       setSaving(false);
@@ -349,14 +350,14 @@ export default function SettingsPage() {
       // Redirect
       window.location.href = '/login';
     } catch (err: any) {
-      console.error("Erreur lors de la suppression du compte :", err);
+      captureError(err, { context: "Erreur lors de la suppression du compte :" });
       alert(`Erreur de suppression : ${err.message || err}`);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh] text-slate-500 font-semibold">
+      <div className="flex items-center justify-center min-h-[60vh] text-ink-soft font-semibold">
         Chargement des paramètres de l'établissement...
       </div>
     );
@@ -366,22 +367,22 @@ export default function SettingsPage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toast}</span>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-6 rounded-card border border-border shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 text-black">Paramètres de l'Établissement</h1>
-          <p className="text-sm text-slate-500 mt-1">Configuration générale, seuils académiques, monnaies, taxes et branding PWA/SaaS</p>
+          <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Paramètres de l'Établissement</h1>
+          <p className="text-sm text-ink-soft mt-1">Configuration générale, seuils académiques, monnaies, taxes et branding PWA/SaaS</p>
         </div>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-600/10 transition-colors disabled:opacity-50"
+          className="px-6 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md shadow-cta transition-colors disabled:opacity-50"
         >
           {saving ? 'Enregistrement...' : 'Sauvegarder les modifications'}
         </button>
@@ -393,90 +394,90 @@ export default function SettingsPage() {
         <div className="lg:col-span-2 space-y-6">
           
           {/* Card 1: General Info */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-ink border-b border-border pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"/></svg>
               Identité de l'Établissement
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nom de l'École *</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Nom de l'École *</label>
                 <input
                   type="text"
                   required
                   value={schoolName}
                   onChange={(e) => setSchoolName(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Devise / Slogan</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Devise / Slogan</label>
                 <input
                   type="text"
                   value={schoolMotto}
                   onChange={(e) => setSchoolMotto(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nom du Directeur / Principal</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Nom du Directeur / Principal</label>
                 <input
                   type="text"
                   value={directorName}
                   onChange={(e) => setDirectorName(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Email de Contact</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Email de Contact</label>
                 <input
                   type="email"
                   value={schoolEmail}
                   onChange={(e) => setSchoolEmail(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Téléphone de l'Établissement</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Téléphone de l'Établissement</label>
                 <input
                   type="text"
                   value={schoolPhone}
                   onChange={(e) => setSchoolPhone(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Adresse Physique</label>
+              <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Adresse Physique</label>
               <input
                 type="text"
                 value={schoolAddress}
                 onChange={(e) => setSchoolAddress(e.target.value)}
-                className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
               />
             </div>
           </div>
 
           {/* Card 2: Academic parameters */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-ink border-b border-border pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
               Règles Académiques & Année en cours
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Année Scolaire Active</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px]">Année Scolaire Active</label>
                   <button
                     type="button"
                     onClick={() => setShowAddYearForm(!showAddYearForm)}
-                    className="text-[10px] text-indigo-600 hover:text-indigo-700 font-bold transition-colors cursor-pointer"
+                    className="text-[10px] text-ink hover:text-ink font-bold transition-colors cursor-pointer"
                   >
                     {showAddYearForm ? "Annuler" : "+ Nouvelle Année"}
                   </button>
@@ -485,7 +486,7 @@ export default function SettingsPage() {
                   <select
                     value={activeYearId}
                     onChange={(e) => setActiveYearId(e.target.value)}
-                    className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold cursor-pointer"
+                    className="w-full px-3.5 py-2 border border-border rounded-control text-sm outline-none focus:ring-2 focus:border-accent font-semibold cursor-pointer"
                   >
                     <option value="">Sélectionnez l'année active</option>
                     {academicYears.map((y) => (
@@ -493,41 +494,41 @@ export default function SettingsPage() {
                     ))}
                   </select>
                 ) : (
-                  <div className="space-y-2.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="space-y-2.5 p-3.5 bg-bg border border-border rounded-control">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nom (Ex: 2026/2027)</label>
+                      <label className="block text-[10px] font-bold text-ink-soft uppercase mb-1">Nom (Ex: 2026/2027)</label>
                       <input
                         type="text"
                         placeholder="2026/2027"
                         value={newYearName}
                         onChange={(e) => setNewYearName(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-black focus:ring-1 focus:ring-indigo-500 outline-none font-semibold"
+                        className="w-full px-2.5 py-1.5 border border-border rounded-control text-xs focus:ring-1 focus:border-accent outline-none font-semibold"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Début</label>
+                        <label className="block text-[10px] font-bold text-ink-soft uppercase mb-1">Début</label>
                         <input
                           type="date"
                           value={newYearStart}
                           onChange={(e) => setNewYearStart(e.target.value)}
-                          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-[11px] text-black focus:ring-1 focus:ring-indigo-500 outline-none"
+                          className="w-full px-2 py-1 border border-border rounded-control text-[11px] focus:ring-1 focus:border-accent outline-none"
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fin</label>
+                        <label className="block text-[10px] font-bold text-ink-soft uppercase mb-1">Fin</label>
                         <input
                           type="date"
                           value={newYearEnd}
                           onChange={(e) => setNewYearEnd(e.target.value)}
-                          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-[11px] text-black focus:ring-1 focus:ring-indigo-500 outline-none"
+                          className="w-full px-2 py-1 border border-border rounded-control text-[11px] focus:ring-1 focus:border-accent outline-none"
                         />
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={handleCreateYear}
-                      className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
+                      className="w-full py-1.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold transition-all shadow-sm cursor-pointer"
                     >
                       Ajouter & Sélectionner
                     </button>
@@ -535,7 +536,7 @@ export default function SettingsPage() {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Seuil de Réussite Académique (Note minimum de passage)</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Seuil de Réussite Académique (Note minimum de passage)</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -544,33 +545,33 @@ export default function SettingsPage() {
                     max="20"
                     value={passingScore}
                     onChange={(e) => setPassingScore(parseFloat(e.target.value) || 10)}
-                    className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                   />
-                  <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">/ 20</span>
+                  <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">/ 20</span>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Card 3: Financial Defaults */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="18"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-ink border-b border-border pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="18"/></svg>
               Configurations Comptables & Fiscales
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Devise Locale</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Devise Locale</label>
                 <input
                   type="text"
                   disabled
                   value="Franc CFA (FCFA / XAF)"
-                  className="w-full px-3.5 py-2 border border-slate-200 bg-slate-50 rounded-lg text-sm text-slate-500 outline-none font-semibold"
+                  className="w-full px-3.5 py-2 border border-border bg-bg rounded-control text-sm text-ink-soft outline-none font-semibold"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Taux de TVA standard</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Taux de TVA standard</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -579,20 +580,20 @@ export default function SettingsPage() {
                     max="100"
                     value={tvaRate}
                     onChange={(e) => setTvaRate(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                   />
-                  <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                  <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">%</span>
                 </div>
               </div>
             </div>
 
             {/* Other Cameroon Taxes */}
-            <div className="border-t border-slate-100 pt-4">
-              <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Autres Taxes & Charges Salariales/Patronales (Cameroun)</h4>
+            <div className="border-t border-border pt-4">
+              <h4 className="text-xs font-bold text-ink uppercase tracking-wider mb-3">Autres Taxes & Charges Salariales/Patronales (Cameroun)</h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">CNPS - Part Employé</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">CNPS - Part Employé</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -601,14 +602,14 @@ export default function SettingsPage() {
                       max="100"
                       value={cnpsEmployeeRate}
                       onChange={(e) => setCnpsEmployeeRate(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                    <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">%</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">CNPS - Part Employeur</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">CNPS - Part Employeur</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -617,14 +618,14 @@ export default function SettingsPage() {
                       max="100"
                       value={cnpsEmployerRate}
                       onChange={(e) => setCnpsEmployerRate(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                    <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">%</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Crédit Foncier (CFC) - Part Employé</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Crédit Foncier (CFC) - Part Employé</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -633,14 +634,14 @@ export default function SettingsPage() {
                       max="100"
                       value={cfcEmployeeRate}
                       onChange={(e) => setCfcEmployeeRate(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                    <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">%</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Crédit Foncier (CFC) - Part Employeur</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Crédit Foncier (CFC) - Part Employeur</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -649,14 +650,14 @@ export default function SettingsPage() {
                       max="100"
                       value={cfcEmployerRate}
                       onChange={(e) => setCfcEmployerRate(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                    <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">%</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Fonds National Emploi (FNE) - Part Employeur</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Fonds National Emploi (FNE) - Part Employeur</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -665,14 +666,14 @@ export default function SettingsPage() {
                       max="100"
                       value={fneRate}
                       onChange={(e) => setFneRate(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                    <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">%</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Centimes Additionnels Communaux (CAC)</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Centimes Additionnels Communaux (CAC)</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -681,14 +682,14 @@ export default function SettingsPage() {
                       max="100"
                       value={cacRate}
                       onChange={(e) => setCacRate(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                    <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">%</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Redevance Audio Visuelle (RAV) — Montant mensuel</label>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Redevance Audio Visuelle (RAV) — Montant mensuel</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -696,42 +697,42 @@ export default function SettingsPage() {
                       min="0"
                       value={ravMensuel}
                       onChange={(e) => setRavMensuel(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                     />
-                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">FCFA</span>
+                    <span className="absolute right-3.5 top-2.5 text-xs text-ink-faint font-bold">FCFA</span>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">13 000 FCFA/an soit ~1 083 FCFA/mois par défaut</p>
+                  <p className="text-[10px] text-ink-faint mt-1">13 000 FCFA/an soit ~1 083 FCFA/mois par défaut</p>
                 </div>
                 
-                <div className="md:col-span-2 mt-4 pt-4 border-t border-slate-100">
-                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Barème IRPP (Impôt sur le Revenu)</label>
+                <div className="md:col-span-2 mt-4 pt-4 border-t border-border">
+                  <label className="block text-xs font-bold text-ink uppercase tracking-wider mb-3">Barème IRPP (Impôt sur le Revenu)</label>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="block text-[10px] text-slate-500 mb-1">0 - 2M FCFA</label>
+                      <label className="block text-[10px] text-ink-soft mb-1">0 - 2M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux1} onChange={(e) => setIrppTaux1(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
-                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                        <input type="number" step="0.1" value={irppTaux1} onChange={(e) => setIrppTaux1(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-500 mb-1">2M - 3M FCFA</label>
+                      <label className="block text-[10px] text-ink-soft mb-1">2M - 3M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux2} onChange={(e) => setIrppTaux2(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
-                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                        <input type="number" step="0.1" value={irppTaux2} onChange={(e) => setIrppTaux2(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-500 mb-1">3M - 5M FCFA</label>
+                      <label className="block text-[10px] text-ink-soft mb-1">3M - 5M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux3} onChange={(e) => setIrppTaux3(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
-                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                        <input type="number" step="0.1" value={irppTaux3} onChange={(e) => setIrppTaux3(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-500 mb-1">&gt; 5M FCFA</label>
+                      <label className="block text-[10px] text-ink-soft mb-1">&gt; 5M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux4} onChange={(e) => setIrppTaux4(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black outline-none focus:border-indigo-500 font-mono" />
-                        <span className="absolute right-3 top-1.5 text-xs text-slate-400 font-bold">%</span>
+                        <input type="number" step="0.1" value={irppTaux4} onChange={(e) => setIrppTaux4(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
                   </div>
@@ -742,40 +743,40 @@ export default function SettingsPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Compte Trésorerie - Banque par défaut</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Compte Trésorerie - Banque par défaut</label>
                 <input
                   type="text"
                   value={defaultBankAcc}
                   onChange={(e) => setDefaultBankAcc(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Compte Trésorerie - Caisse par défaut</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Compte Trésorerie - Caisse par défaut</label>
                 <input
                   type="text"
                   value={defaultCashAcc}
                   onChange={(e) => setDefaultCashAcc(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none font-mono"
                 />
               </div>
             </div>
           </div>
 
           {/* Card 4: Bulletin Customization */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-ink border-b border-border pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               Configuration des Bulletins Scolaires
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Style de Mise en Page du Bulletin</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Style de Mise en Page du Bulletin</label>
                 <select
                   value={bulletinTemplate}
                   onChange={(e) => setBulletinTemplate(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold cursor-pointer"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm outline-none focus:ring-2 focus:border-accent font-semibold cursor-pointer"
                 >
                   <option value="classic">Classique Camerounais (Double Entête + Drapeau)</option>
                   <option value="modern">Design Moderne Épuré (Centré avec Logo)</option>
@@ -784,47 +785,47 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Logo de l'Établissement (URL ou Image URL)</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Logo de l'Établissement (URL ou Image URL)</label>
                 <input
                   type="text"
                   placeholder="https://mon-ecole.com/logo.png"
                   value={logoUrl}
                   onChange={(e) => setLogoUrl(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Entête Gauche du Bulletin (Ministère, Délégation...)</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Entête Gauche du Bulletin (Ministère, Délégation...)</label>
                 <input
                   type="text"
                   value={bulletinHeaderLeft}
                   onChange={(e) => setBulletinHeaderLeft(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Entête Droite du Bulletin (Traduction ou infos)</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Entête Droite du Bulletin (Traduction ou infos)</label>
                 <input
                   type="text"
                   value={bulletinHeaderRight}
                   onChange={(e) => setBulletinHeaderRight(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Slogan / Devise du Bulletin</label>
+              <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">Slogan / Devise du Bulletin</label>
               <input
                 type="text"
                 placeholder="Ex: Excellence & Mérite"
                 value={bulletinSlogan}
                 onChange={(e) => setBulletinSlogan(e.target.value)}
-                className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                className="w-full px-3.5 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
               />
             </div>
           </div>
@@ -834,50 +835,50 @@ export default function SettingsPage() {
         <div className="space-y-6">
           
           {/* Card 5: Subscription / SaaS info */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-800 text-black border-b border-slate-100 pb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-ink border-b border-border pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               Abonnement SaaS & Licence
             </h3>
 
-            <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-2">
+            <div className="bg-chip/50 p-4 rounded-control border border-outline space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 font-semibold">Formule active</span>
-                <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full">SaaS Élite Pro</span>
+                <span className="text-ink-soft font-semibold">Formule active</span>
+                <span className="bg-chip text-ink font-bold px-2 py-0.5 rounded-full">SaaS Élite Pro</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 font-semibold">Statut licence</span>
-                <span className="text-emerald-600 font-black flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                <span className="text-ink-soft font-semibold">Statut licence</span>
+                <span className="text-green font-black flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green inline-block"></span>
                   Licence Validée
                 </span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 font-semibold">Date d'expiration</span>
-                <span className="font-mono text-black font-bold">11/06/2027</span>
+                <span className="text-ink-soft font-semibold">Date d'expiration</span>
+                <span className="font-mono font-bold">11/06/2027</span>
               </div>
             </div>
 
-            <div className="text-[10px] text-slate-400 text-center leading-relaxed">
+            <div className="text-[10px] text-ink-faint text-center leading-relaxed">
               Pour toute mise à niveau de licence, ajout de modules ou modification de quota d'élèves/parents, contactez le support MboaSchool.
             </div>
           </div>
 
           {/* Card 6: Danger Zone - Delete Account */}
-          <div className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm space-y-4 bg-rose-50/5">
-            <h3 className="text-base font-bold text-rose-600 border-b border-rose-100 pb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-600"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-transparent shadow-sm space-y-4 bg-red-bg/5">
+            <h3 className="text-base font-bold text-accent border-b border-transparent pb-3 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               Zone de Danger
             </h3>
 
-            <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+            <p className="text-xs text-ink-soft leading-relaxed font-semibold">
               La suppression de votre compte effacera définitivement toutes vos données d'accès. Si vous êtes administrateur, toutes les données de l'établissement (élèves, paiements, écritures comptables, enseignants, etc.) seront également détruites.
             </p>
 
             <button
               type="button"
               onClick={handleDeleteAccount}
-              className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 hover:border-rose-300 text-rose-600 hover:text-rose-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-red-bg hover:bg-red-bg border border-transparent hover:border-transparent text-accent hover:text-accent rounded-control text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
               Supprimer définitivement mon compte

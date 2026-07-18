@@ -30,3 +30,20 @@ export async function getClassRankings(
   if (error) throw error;
   return (data as ClassRanking[]) ?? [];
 }
+
+/**
+ * Moyenne générale de l'établissement (moyenne des moyennes pondérées par
+ * élève, élèves sans note exclus). p_trimestre optionnel : NULL agrège toutes
+ * les notes, quel que soit le trimestre. Retourne null si aucun élève n'a de note.
+ */
+export async function getMoyenneGenerale(
+  etablissementId: string,
+  trimestre?: string | null
+): Promise<number | null> {
+  const { data, error } = await supabase.rpc('get_moyenne_generale', {
+    p_etablissement_id: etablissementId,
+    p_trimestre: trimestre ?? null,
+  });
+  if (error) throw error;
+  return data === null || data === undefined ? null : Number(data);
+}

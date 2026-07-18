@@ -2,20 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { 
-  MembrePersonnel, 
-  MasseSalarialeHistorique, 
-  AbsenceRecord, 
-  MouvementPersonnel, 
-  EvaluationRH, 
+import {
+  MembrePersonnel,
+  AbsenceRecord,
+  MouvementPersonnel,
+  EvaluationRH,
   FormationRH,
-  FicheDePaie 
+  FicheDePaie
 } from '@/types/domain';
-import { 
-  getPersonnel, 
-  getAbsences, 
-  getMouvements, 
-  getEvaluationsRH, 
+import {
+  getPersonnel,
+  getAbsences,
+  getMouvements,
+  getEvaluationsRH,
   getFormations,
   updatePersonnel,
   insertAbsence,
@@ -23,19 +22,15 @@ import {
   insertPersonnel,
   getFichesDePaie,
   insertFichesDePaie,
-  updateFichesDePaieStatut
+  updateFichesDePaieStatut,
+  getMasseSalarialeHistorique,
+  MasseSalarialeHistoriquePoint
 } from '@/lib/queries/rh';
 import { addEcritureComptable } from '@/lib/queries/finance';
 import { calculerFicheDePaie, calculerPrimeAnciennete, getAnneesService, getTauxFromLocalStorage, genererEcrituresComptablesPaie, PLAFOND_CNPS } from '@/lib/payroll';
 import { validatePasswordStrength } from '@/lib/validation/password';
 import { useEtablissement } from '@/contexts/etablissement-context';
-import { 
-  mockPersonnel, 
-  mockAbsences, 
-  mockMouvements, 
-  mockEvaluationsRH, 
-  mockFormations 
-} from '@/mock/rh';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 const isPeriodInAcademicYear = (period: string, academicYearName: string): boolean => {
   if (!period) return false;
@@ -65,7 +60,7 @@ export default function RHPage() {
 
   // State loaded from localStorage or mock
   const [personnelList, setPersonnelList] = useState<MembrePersonnel[]>([]);
-  const [masseHistorique, setMasseHistorique] = useState<MasseSalarialeHistorique[]>([]);
+  const [masseHistorique, setMasseHistorique] = useState<MasseSalarialeHistoriquePoint[]>([]);
   const [absences, setAbsences] = useState<AbsenceRecord[]>([]);
   const [mouvements, setMouvements] = useState<MouvementPersonnel[]>([]);
   const [evaluations, setEvaluations] = useState<EvaluationRH[]>([]);
@@ -246,7 +241,7 @@ export default function RHPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user?.email) currentUserEmail = user.email;
       } catch (e) {
-        console.warn("Could not get auth user email:", e);
+        captureMessage("Could not get auth user email:", { detail: e });
       }
       
       if (!currentUserEmail && typeof window !== 'undefined') {
@@ -269,7 +264,7 @@ export default function RHPage() {
       const filtered = (data || []).filter(p => p.email !== currentUserEmail);
       setProfiles(filtered);
     } catch (err) {
-      console.warn("Failed to fetch profiles from Supabase, loading from localStorage fallback:", err);
+      captureMessage("Failed to fetch profiles from Supabase, loading from localStorage fallback:", { detail: err });
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('mboaschool_profiles');
         if (stored) {
@@ -373,7 +368,7 @@ export default function RHPage() {
       setNewAccEmail('');
       setNewAccPassword('');
     } catch (err: any) {
-      console.warn("Supabase account creation failed, checking error type:", err);
+      captureMessage("Supabase account creation failed, checking error type:", { detail: err });
       
       // If it's a real API auth error from Supabase, show the error toast instead of falling back to offline mode.
       if (err.status || err.code || (err.message && !err.message.includes('fetch') && !err.message.includes('network') && !err.message.includes('Failed to fetch'))) {
@@ -456,7 +451,7 @@ export default function RHPage() {
         setProfiles(prev => prev.filter(p => p.id !== profileId));
       }
     } catch (err: any) {
-      console.warn("Failed to delete account on Supabase, attempting local delete:", err);
+      captureMessage("Failed to delete account on Supabase, attempting local delete:", { detail: err });
       // Fallback local storage delete
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('mboaschool_profiles');
@@ -498,7 +493,7 @@ export default function RHPage() {
       setProfiles(prev => prev.map(p => p.id === editingProfile.id ? { ...p, permissions: editingPermissions } : p));
       setEditingProfile(null);
     } catch (err: any) {
-      console.warn("Database permission update failed, updating locally:", err);
+      captureMessage("Database permission update failed, updating locally:", { detail: err });
 
       // Offline fallback
       const stored = localStorage.getItem('mboaschool_profiles');
@@ -511,7 +506,7 @@ export default function RHPage() {
           setProfiles(updated.filter((p: any) => p.etablissement_id === etablissementId || !p.etablissement_id));
           triggerToast(`Habilitations (Local/Hors-ligne) de ${editingProfile.email} mises à jour.`);
         } catch (e) {
-          console.error("Failed offline permissions update", e);
+          captureError(e, { context: "Failed offline permissions update" });
         }
       }
       setEditingProfile(null);
@@ -541,7 +536,7 @@ export default function RHPage() {
           }));
           setPersonnelList(mapped);
         } catch (error) {
-          console.error("Error loading personnel:", error);
+          captureError(error, { context: "Error loading personnel:" });
           setPersonnelList([]);
         }
 
@@ -550,7 +545,7 @@ export default function RHPage() {
           const abs = await getAbsences(etablissementId);
           setAbsences(abs || []);
         } catch (error) {
-          console.error("Error loading absences:", error);
+          captureError(error, { context: "Error loading absences:" });
           setAbsences([]);
         }
 
@@ -559,7 +554,7 @@ export default function RHPage() {
           const mouvs = await getMouvements(etablissementId);
           setMouvements(mouvs || []);
         } catch (error) {
-          console.error("Error loading movements:", error);
+          captureError(error, { context: "Error loading movements:" });
           setMouvements([]);
         }
 
@@ -568,7 +563,7 @@ export default function RHPage() {
           const evs = await getEvaluationsRH(etablissementId);
           setEvaluations(evs || []);
         } catch (error) {
-          console.error("Error loading evaluations:", error);
+          captureError(error, { context: "Error loading evaluations:" });
           setEvaluations([]);
         }
 
@@ -577,7 +572,7 @@ export default function RHPage() {
           const forms = await getFormations(etablissementId);
           setFormations(forms || []);
         } catch (error) {
-          console.error("Error loading formations:", error);
+          captureError(error, { context: "Error loading formations:" });
           setFormations([]);
         }
 
@@ -585,18 +580,17 @@ export default function RHPage() {
         try {
           await loadProfiles();
         } catch (error) {
-          console.error("Error loading profiles:", error);
+          captureError(error, { context: "Error loading profiles:" });
         }
 
-        // Mocks for masseHistorique until DB is expanded for payroll charts
-        const mockHist = [
-          { periode: '2026-01', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.5 },
-          { periode: '2026-02', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 0, tauxCroissance: 0.0 },
-          { periode: '2026-03', valeurTotal: 2640000, nombreSalaries: 12, salaireMoyen: 220000, interessement: 200000, tauxCroissance: 0.0 },
-          { periode: '2026-04', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 4.1 },
-          { periode: '2026-05', valeurTotal: 2750000, nombreSalaries: 12, salaireMoyen: 229166, interessement: 0, tauxCroissance: 0.0 }
-        ];
-        setMasseHistorique(mockHist);
+        // 7. Historique masse salariale (calculé depuis les fiches de paie validées)
+        try {
+          const hist = await getMasseSalarialeHistorique(etablissementId, 6);
+          setMasseHistorique(hist);
+        } catch (error) {
+          captureError(error, { context: "Error loading masse salariale historique:" });
+          setMasseHistorique([]);
+        }
       };
       
       loadData();
@@ -952,6 +946,40 @@ export default function RHPage() {
   const avgTeacherAdherenceJob = filteredEvaluations.length > 0 ? filteredEvaluations.reduce((sum, ev) => sum + ev.adherenceJobRole, 0) / filteredEvaluations.length : 0;
   const avgTeacherAdherenceVal = filteredEvaluations.length > 0 ? filteredEvaluations.reduce((sum, ev) => sum + ev.adherenceValeurs, 0) / filteredEvaluations.length : 0;
 
+  // Géométrie du graphique d'évolution de la masse salariale, calculée depuis
+  // masseHistorique (fiches de paie réellement validées/payées). Nécessite au
+  // moins 2 points pour tracer une ligne ; sinon le graphique affiche un état
+  // honnête plutôt que des données fabriquées.
+  const massChartGeometry = React.useMemo(() => {
+    if (masseHistorique.length < 2) return null;
+    const chartLeft = 40, chartRight = 480, chartTop = 20, chartBottom = 180;
+    const values = masseHistorique.map(h => h.valeurTotal);
+    const minV = Math.min(...values);
+    const maxV = Math.max(...values);
+    const range = maxV - minV || 1;
+    const n = masseHistorique.length;
+    const points = masseHistorique.map((h, i) => ({
+      ...h,
+      x: chartLeft + (i / (n - 1)) * (chartRight - chartLeft),
+      y: chartBottom - ((h.valeurTotal - minV) / range) * (chartBottom - chartTop),
+    }));
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+    const areaPath = `M ${points[0].x} ${chartBottom} ` + points.map(p => `L ${p.x} ${p.y}`).join(' ') + ` L ${points[points.length - 1].x} ${chartBottom} Z`;
+    const croissanceMax = masseHistorique.reduce((max: number | null, h) => (h.tauxCroissance !== null && (max === null || h.tauxCroissance > max)) ? h.tauxCroissance : max, null);
+    return { points, linePath, areaPath, minV, maxV, chartTop, chartBottom, croissanceMax };
+  }, [masseHistorique]);
+
+  const dernierTauxCroissance = masseHistorique.length > 0 ? masseHistorique[masseHistorique.length - 1].tauxCroissance : null;
+
+  const moisAbrege = (periode: string) => {
+    const noms = ['Janv', 'Févr', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+    const idx = parseInt(periode.split('-')[1] ?? '', 10) - 1;
+    return noms[idx] ?? periode;
+  };
+
+  const formatMoneyCompact = (val: number) => {
+    return `${(val / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })}M XAF`;
+  };
 
   // Salariés non encore payés pour la période courante
   const unpaidStaff = React.useMemo(() => {
@@ -1078,7 +1106,7 @@ export default function RHPage() {
         }));
         await insertFichesDePaie(fichesDB, etablissementId!);
       } catch (dbErr) {
-        console.warn('Sauvegarde DB fiches de paie échouée, fallback localStorage:', dbErr);
+        captureMessage('Sauvegarde DB fiches de paie échouée, fallback localStorage:', { detail: dbErr });
       }
 
       // 2. Sauvegarder en localStorage (fallback + historique local)
@@ -1100,7 +1128,7 @@ export default function RHPage() {
         );
         triggerToast(`✅ ${fichesPaye.length} bulletin(s) validé(s) et comptabilité mouvementée !`);
       } catch (comptaErr: any) {
-        console.warn('Écriture comptable échouée (les comptes OHADA existent-ils ?):', comptaErr);
+        captureMessage('Écriture comptable échouée (les comptes OHADA existent-ils ?):', { detail: comptaErr });
         const errMsg = comptaErr?.message || (typeof comptaErr === 'object' ? JSON.stringify(comptaErr) : String(comptaErr));
         triggerToast(`${fichesPaye.length} bulletin(s) validé(s). ⚠️ Écriture comptable non créée : ${errMsg}`);
       }
@@ -1296,21 +1324,21 @@ export default function RHPage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toast}</span>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-6 rounded-card border border-border shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 text-black">Gestion des Ressources Humaines</h1>
-          <p className="text-sm text-slate-500 mt-1">Supervision du personnel, masse salariale, absences, formations & évaluations</p>
+          <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Gestion des Ressources Humaines</h1>
+          <p className="text-sm text-ink-soft mt-1">Supervision du personnel, masse salariale, absences, formations & évaluations</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-600/10 transition-colors flex items-center justify-center gap-2"
+          className="px-5 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md shadow-cta transition-colors flex items-center justify-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
           <span>Recruter un employé</span>
@@ -1318,7 +1346,7 @@ export default function RHPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm overflow-x-auto">
+      <div className="flex gap-2 bg-surface p-2 rounded-control border border-border shadow-sm overflow-x-auto">
         {[
           { id: 'dashboard', label: 'Tableau de bord RH' },
           { id: 'personnel', label: 'Effectifs & Contrats' },
@@ -1330,10 +1358,10 @@ export default function RHPage() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${
+            className={`px-4 py-2 rounded-control text-sm font-bold transition-all whitespace-nowrap ${
               activeTab === tab.id 
-                ? 'bg-indigo-50 text-indigo-700 shadow-sm' 
-                : 'text-slate-500 hover:bg-slate-50'
+                ? 'bg-chip text-ink shadow-sm' 
+                : 'text-ink-soft hover:bg-bg'
             }`}
           >
             {tab.label}
@@ -1346,51 +1374,59 @@ export default function RHPage() {
         <div className="space-y-6">
           {/* KPI Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Membres du Personnel</p>
-                <h2 className="text-3xl font-extrabold text-slate-800 text-black">{activeStaff.length}</h2>
+                <p className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1">Membres du Personnel</p>
+                <h2 className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{activeStaff.length}</h2>
                 <div className="flex items-center gap-1.5 mt-2">
-                  <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">{countCDI} CDI</span>
-                  <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">{countCDD} CDD</span>
+                  <span className="text-[10px] bg-chip text-ink px-2 py-0.5 rounded-full font-bold">{countCDI} CDI</span>
+                  <span className="text-[10px] bg-chip text-ink-soft px-2 py-0.5 rounded-full font-bold">{countCDD} CDD</span>
                 </div>
               </div>
-              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 bg-chip text-ink rounded-control flex items-center justify-center">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Masse Salariale Mensuelle</p>
-                <h2 className="text-2xl font-extrabold text-indigo-600">{formatMoney(totalMonthlyPayroll)}</h2>
-                <p className="text-xs text-slate-500 mt-2 font-medium flex items-center gap-1">
-                  <span className="text-emerald-500 font-bold">↑ +5.2%</span> par rapport à 2025
+                <p className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1">Masse Salariale Mensuelle</p>
+                <h2 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">{formatMoney(totalMonthlyPayroll)}</h2>
+                <p className="text-xs text-ink-soft mt-2 font-medium flex items-center gap-1">
+                  {dernierTauxCroissance !== null ? (
+                    <>
+                      <span className={`font-bold ${dernierTauxCroissance >= 0 ? 'text-green' : 'text-accent'}`}>
+                        {dernierTauxCroissance >= 0 ? '↑' : '↓'} {dernierTauxCroissance >= 0 ? '+' : ''}{dernierTauxCroissance.toFixed(1)}%
+                      </span> vs mois précédent (paie validée)
+                    </>
+                  ) : (
+                    <span className="text-ink-faint">Historique de paie insuffisant</span>
+                  )}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 bg-green-bg text-green rounded-control flex items-center justify-center">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="18"/></svg>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Salaire Moyen</p>
-                <h2 className="text-2xl font-extrabold text-slate-800 text-black">{formatMoney(avgMonthlySalary)}</h2>
-                <p className="text-xs text-slate-400 mt-2 font-medium">Calculé sur {activeStaff.length} titulaires</p>
+                <p className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1">Salaire Moyen</p>
+                <h2 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">{formatMoney(avgMonthlySalary)}</h2>
+                <p className="text-xs text-ink-faint mt-2 font-medium">Calculé sur {activeStaff.length} titulaires</p>
               </div>
-              <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 bg-chip text-ink-soft rounded-control flex items-center justify-center">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Ratio Formation / MS</p>
-                <h2 className="text-2xl font-extrabold text-violet-600">{trainingPayrollRatio.toFixed(2)} %</h2>
-                <p className="text-xs text-slate-500 mt-2 font-medium">Recommandé &gt; 1.5%</p>
+                <p className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1">Ratio Formation / MS</p>
+                <h2 className="text-2xl font-extrabold text-ink-soft">{trainingPayrollRatio.toFixed(2)} %</h2>
+                <p className="text-xs text-ink-soft mt-2 font-medium">Recommandé &gt; 1.5%</p>
               </div>
-              <div className="w-12 h-12 bg-violet-50 text-violet-600 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 bg-chip text-ink-soft rounded-control flex items-center justify-center">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
               </div>
             </div>
@@ -1399,80 +1435,87 @@ export default function RHPage() {
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Evolutionary Path Chart - SVG */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border lg:col-span-2">
+              <div className="flex items-center justify-between border-b border-border pb-4 mb-6">
                 <div>
-                  <h3 className="font-bold text-slate-800 text-black">Masse Salariale Mensuelle</h3>
-                  <p className="text-xs text-slate-500">Évolution de la masse salariale brute (5 derniers mois)</p>
+                  <h3 className="font-bold text-ink">Masse Salariale Mensuelle</h3>
+                  <p className="text-xs text-ink-soft">
+                    Évolution de la masse salariale brute ({masseHistorique.length} mois validé{masseHistorique.length > 1 ? 's' : ''})
+                  </p>
                 </div>
-                <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2.5 py-1 rounded-full flex items-center gap-1">
-                  ↑ +4.1% croissance max
-                </span>
+                {massChartGeometry && massChartGeometry.croissanceMax !== null && (
+                  <span className="text-xs font-bold text-green bg-green-bg px-2.5 py-1 rounded-full flex items-center gap-1">
+                    ↑ +{massChartGeometry.croissanceMax.toFixed(1)}% croissance max
+                  </span>
+                )}
               </div>
 
-              {/* Interactive SVG Line Graph */}
+              {/* Graphique SVG dynamique, calculé depuis les fiches de paie validées */}
               <div className="w-full h-64 relative">
-                <svg viewBox="0 0 500 200" className="w-full h-full">
-                  {/* Grid Lines */}
-                  <line x1="40" y1="20" x2="480" y2="20" stroke="#f1f5f9" strokeWidth="1" />
-                  <line x1="40" y1="60" x2="480" y2="60" stroke="#f1f5f9" strokeWidth="1" />
-                  <line x1="40" y1="100" x2="480" y2="100" stroke="#f1f5f9" strokeWidth="1" />
-                  <line x1="40" y1="140" x2="480" y2="140" stroke="#f1f5f9" strokeWidth="1" />
-                  <line x1="40" y1="180" x2="480" y2="180" stroke="#cbd5e1" strokeWidth="1.5" />
+                {!massChartGeometry ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-center px-6">
+                    <p className="text-sm font-bold text-ink-soft">
+                      {masseHistorique.length === 0 ? 'Aucune fiche de paie validée' : 'Historique insuffisant (1 mois)'}
+                    </p>
+                    <p className="text-xs text-ink-faint mt-1">
+                      Le graphique s&apos;affichera dès qu&apos;au moins 2 mois de paie auront été validés (statut &quot;validé&quot; ou &quot;payé&quot;).
+                    </p>
+                  </div>
+                ) : (
+                  <svg viewBox="0 0 500 200" className="w-full h-full">
+                    {/* Grid Lines */}
+                    <line x1="40" y1="20" x2="480" y2="20" stroke="#f1f5f9" strokeWidth="1" />
+                    <line x1="40" y1="60" x2="480" y2="60" stroke="#f1f5f9" strokeWidth="1" />
+                    <line x1="40" y1="100" x2="480" y2="100" stroke="#f1f5f9" strokeWidth="1" />
+                    <line x1="40" y1="140" x2="480" y2="140" stroke="#f1f5f9" strokeWidth="1" />
+                    <line x1="40" y1="180" x2="480" y2="180" stroke="#cbd5e1" strokeWidth="1.5" />
 
-                  {/* Y-axis Labels */}
-                  <text x="35" y="24" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="end">2,8M XAF</text>
-                  <text x="35" y="104" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="end">2,6M XAF</text>
-                  <text x="35" y="184" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="end">2,4M XAF</text>
+                    {/* Y-axis Labels (réels : min / milieu / max de la fenêtre) */}
+                    <text x="35" y="24" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="end">{formatMoneyCompact(massChartGeometry.maxV)}</text>
+                    <text x="35" y="104" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="end">{formatMoneyCompact((massChartGeometry.maxV + massChartGeometry.minV) / 2)}</text>
+                    <text x="35" y="184" fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="end">{formatMoneyCompact(massChartGeometry.minV)}</text>
 
-                  {/* Monthly points: Jan: 2.64M, Feb: 2.64M, Mar: 2.64M, Apr: 2.75M, May: 2.75M */}
-                  {/* Map values to coordinates: (40, 100) -> (140, 100) -> (240, 100) -> (340, 45) -> (440, 45) */}
-                  <path 
-                    d="M 40 100 L 140 100 L 240 100 L 340 45 L 440 45" 
-                    fill="none" 
-                    stroke="rgb(79, 70, 229)" 
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                    <path
+                      d={massChartGeometry.linePath}
+                      fill="none"
+                      stroke="rgb(79, 70, 229)"
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
 
-                  {/* Gradient Area under line */}
-                  <path
-                    d="M 40 180 L 40 100 L 140 100 L 240 100 L 340 45 L 440 45 L 440 180 Z"
-                    fill="url(#grad)"
-                    opacity="0.15"
-                  />
+                    <path
+                      d={massChartGeometry.areaPath}
+                      fill="url(#grad)"
+                      opacity="0.15"
+                    />
 
-                  {/* Definitions for gradient */}
-                  <defs>
-                    <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="rgb(79, 70, 229)" />
-                      <stop offset="100%" stopColor="rgb(79, 70, 229)" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
+                    <defs>
+                      <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="rgb(79, 70, 229)" />
+                        <stop offset="100%" stopColor="rgb(79, 70, 229)" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
 
-                  {/* Points */}
-                  <circle cx="40" cy="100" r="5.5" fill="rgb(79, 70, 229)" stroke="white" strokeWidth="2" className="cursor-pointer hover:r-8 transition-all" />
-                  <circle cx="140" cy="100" r="5.5" fill="rgb(79, 70, 229)" stroke="white" strokeWidth="2" />
-                  <circle cx="240" cy="100" r="5.5" fill="rgb(79, 70, 229)" stroke="white" strokeWidth="2" />
-                  <circle cx="340" cy="45" r="5.5" fill="rgb(79, 70, 229)" stroke="white" strokeWidth="2" />
-                  <circle cx="440" cy="45" r="5.5" fill="rgb(79, 70, 229)" stroke="white" strokeWidth="2" />
+                    {massChartGeometry.points.map((p) => (
+                      <circle key={p.periode} cx={p.x} cy={p.y} r="5.5" fill="rgb(79, 70, 229)" stroke="white" strokeWidth="2" />
+                    ))}
 
-                  {/* X-axis Labels */}
-                  <text x="40" y="195" fill="#64748b" fontSize="8" fontWeight="bold" textAnchor="middle">Janv</text>
-                  <text x="140" y="195" fill="#64748b" fontSize="8" fontWeight="bold" textAnchor="middle">Févr</text>
-                  <text x="240" y="195" fill="#64748b" fontSize="8" fontWeight="bold" textAnchor="middle">Mars</text>
-                  <text x="340" y="195" fill="#64748b" fontSize="8" fontWeight="bold" textAnchor="middle">Avril</text>
-                  <text x="440" y="195" fill="#64748b" fontSize="8" fontWeight="bold" textAnchor="middle">Mai</text>
-                </svg>
+                    {massChartGeometry.points.map((p) => (
+                      <text key={p.periode} x={p.x} y="195" fill="#64748b" fontSize="8" fontWeight="bold" textAnchor="middle">
+                        {moisAbrege(p.periode)}
+                      </text>
+                    ))}
+                  </svg>
+                )}
               </div>
             </div>
 
             {/* Contract Types Distribution Pie/Donut Chart */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <div className="border-b border-slate-100 pb-4 mb-6">
-                <h3 className="font-bold text-slate-800 text-black">Contrats & Effectifs</h3>
-                <p className="text-xs text-slate-500">Répartition par type de contrat</p>
+            <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+              <div className="border-b border-border pb-4 mb-6">
+                <h3 className="font-bold text-ink">Contrats & Effectifs</h3>
+                <p className="text-xs text-ink-soft">Répartition par type de contrat</p>
               </div>
 
               {/* Simple beautiful SVG representation of donut chart */}
@@ -1496,39 +1539,39 @@ export default function RHPage() {
                     <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(139, 92, 246)" strokeWidth="3.5" strokeDasharray="8.3 91.7" strokeDashoffset="-91.7" />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-2xl font-black text-slate-800 text-black">{activeStaff.length}</span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Actifs</span>
+                    <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{activeStaff.length}</span>
+                    <span className="text-[10px] font-bold text-ink-faint uppercase">Actifs</span>
                   </div>
                 </div>
 
                 {/* Legend */}
                 <div className="grid grid-cols-2 gap-4 w-full text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 block"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-accent block"></span>
                     <div>
-                      <span className="font-bold text-slate-800 text-black">CDI</span>
-                      <span className="text-slate-400 block text-[10px]">{countCDI} salariés ({Math.round(countCDI/activeStaff.length*100)}%)</span>
+                      <span className="font-bold text-ink">CDI</span>
+                      <span className="text-ink-faint block text-[10px]">{countCDI} salariés ({Math.round(countCDI/activeStaff.length*100)}%)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 block"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-green block"></span>
                     <div>
-                      <span className="font-bold text-slate-800 text-black">CDD</span>
-                      <span className="text-slate-400 block text-[10px]">{countCDD} salariés ({Math.round(countCDD/activeStaff.length*100)}%)</span>
+                      <span className="font-bold text-ink">CDD</span>
+                      <span className="text-ink-faint block text-[10px]">{countCDD} salariés ({Math.round(countCDD/activeStaff.length*100)}%)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 block"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-accent block"></span>
                     <div>
-                      <span className="font-bold text-slate-800 text-black">Intérim</span>
-                      <span className="text-slate-400 block text-[10px]">{countInterim} salariés ({Math.round(countInterim/activeStaff.length*100)}%)</span>
+                      <span className="font-bold text-ink">Intérim</span>
+                      <span className="text-ink-faint block text-[10px]">{countInterim} salariés ({Math.round(countInterim/activeStaff.length*100)}%)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-violet-500 block"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-ink block"></span>
                     <div>
-                      <span className="font-bold text-slate-800 text-black">Stagiaire</span>
-                      <span className="text-slate-400 block text-[10px]">{countStage} salariés ({Math.round(countStage/activeStaff.length*100)}%)</span>
+                      <span className="font-bold text-ink">Stagiaire</span>
+                      <span className="text-ink-faint block text-[10px]">{countStage} salariés ({Math.round(countStage/activeStaff.length*100)}%)</span>
                     </div>
                   </div>
                 </div>
@@ -1538,64 +1581,64 @@ export default function RHPage() {
 
           {/* Evaluations / Formations mini panel */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-              <h3 className="font-bold text-slate-800 text-black mb-4 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+              <h3 className="font-bold text-ink mb-4 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 Indicateurs Enseignants
               </h3>
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-slate-500">Note d'Évaluation Moyenne</span>
-                    <span className="text-indigo-600 font-extrabold">{avgTeacherScore.toFixed(1)} / 100</span>
+                    <span className="text-ink-soft">Note d'Évaluation Moyenne</span>
+                    <span className="text-ink font-extrabold">{avgTeacherScore.toFixed(1)} / 100</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${avgTeacherScore}%` }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-slate-500">Adhérence au Job Role</span>
-                    <span className="text-emerald-500 font-extrabold">{avgTeacherAdherenceJob.toFixed(1)}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${avgTeacherAdherenceJob}%` }}></div>
+                  <div className="w-full bg-chip h-2 rounded-full overflow-hidden">
+                    <div className="bg-accent h-full rounded-full" style={{ width: `${avgTeacherScore}%` }}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-slate-500">Adhérence aux Valeurs</span>
-                    <span className="text-violet-500 font-extrabold">{avgTeacherAdherenceVal.toFixed(1)}%</span>
+                    <span className="text-ink-soft">Adhérence au Job Role</span>
+                    <span className="text-green font-extrabold">{avgTeacherAdherenceJob.toFixed(1)}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-violet-500 h-full rounded-full" style={{ width: `${avgTeacherAdherenceVal}%` }}></div>
+                  <div className="w-full bg-chip h-2 rounded-full overflow-hidden">
+                    <div className="bg-green h-full rounded-full" style={{ width: `${avgTeacherAdherenceJob}%` }}></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs font-bold mb-1">
+                    <span className="text-ink-soft">Adhérence aux Valeurs</span>
+                    <span className="text-ink-soft font-extrabold">{avgTeacherAdherenceVal.toFixed(1)}%</span>
+                  </div>
+                  <div className="w-full bg-chip h-2 rounded-full overflow-hidden">
+                    <div className="bg-ink h-full rounded-full" style={{ width: `${avgTeacherAdherenceVal}%` }}></div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-              <h3 className="font-bold text-slate-800 text-black mb-4 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-600"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+              <h3 className="font-bold text-ink mb-4 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-soft"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                 Dernières Formations
               </h3>
               <div className="space-y-3">
                 {filteredFormations.map(f => (
-                  <div key={f.id} className="flex justify-between items-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                  <div key={f.id} className="flex justify-between items-center p-3 rounded-control bg-bg border border-border">
                     <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-800 text-black truncate">{f.theme}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{f.organisme} • {f.beneficiairesIds.length} bénéficiaire(s)</p>
+                      <p className="text-xs font-bold text-ink truncate">{f.theme}</p>
+                      <p className="text-[10px] text-ink-faint mt-0.5">{f.organisme} • {f.beneficiairesIds.length} bénéficiaire(s)</p>
                     </div>
                     <div className="text-right">
-                      <span className="text-xs font-extrabold text-slate-800 text-black block">{formatMoney(f.coutTotal)}</span>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${f.statut === 'terminé' ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                      <span className="text-xs font-extrabold text-ink block">{formatMoney(f.coutTotal)}</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${f.statut === 'terminé' ? 'bg-green-bg text-green' : 'bg-chip text-ink'}`}>
                         {f.statut}
                       </span>
                     </div>
                   </div>
                 ))}
                 {filteredFormations.length === 0 && (
-                  <div className="text-center text-slate-400 py-6 text-xs">Aucune formation enregistrée.</div>
+                  <div className="text-center text-ink-faint py-6 text-xs">Aucune formation enregistrée.</div>
                 )}
               </div>
             </div>
@@ -1605,13 +1648,13 @@ export default function RHPage() {
 
       {/* -------------------- TAB: PERSONNEL / EFFECTIFS -------------------- */}
       {activeTab === 'personnel' && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-6">
+        <div className="bg-surface rounded-card border border-border shadow-sm p-6 space-y-6">
           {/* Filters Bar */}
-          <div className="flex flex-col md:flex-row gap-4 items-center justify-between border-b border-slate-100 pb-6">
+          <div className="flex flex-col md:flex-row gap-4 items-center justify-between border-b border-border pb-6">
             <div className="w-full md:w-auto flex flex-wrap gap-4 items-center">
               {/* Search */}
               <div className="relative w-full md:w-64">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-ink-faint">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 </span>
                 <input
@@ -1619,7 +1662,7 @@ export default function RHPage() {
                   placeholder="Nom, prénom, email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 pl-9 pr-4 py-2 rounded-lg text-sm text-black outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full bg-bg border border-border pl-9 pr-4 py-2 rounded-control text-sm outline-none focus:bg-surface focus:ring-2 focus:border-accent"
                 />
               </div>
 
@@ -1627,7 +1670,7 @@ export default function RHPage() {
               <select
                 value={contratFilter}
                 onChange={(e) => setContratFilter(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-black bg-slate-50 font-semibold"
+                className="px-3 py-2 border border-border rounded-control text-sm bg-bg font-semibold"
               >
                 <option value="all">Tous contrats</option>
                 <option value="CDI">CDI</option>
@@ -1640,7 +1683,7 @@ export default function RHPage() {
               <select
                 value={categorieFilter}
                 onChange={(e) => setCategorieFilter(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-black bg-slate-50 font-semibold"
+                className="px-3 py-2 border border-border rounded-control text-sm bg-bg font-semibold"
               >
                 <option value="all">Toutes catégories</option>
                 <option value="Administration">Administration</option>
@@ -1649,7 +1692,7 @@ export default function RHPage() {
                 <option value="Personnel d'appui">Personnel d'appui</option>
               </select>
             </div>
-            <div className="text-xs font-bold text-slate-400">
+            <div className="text-xs font-bold text-ink-faint">
               {filteredPersonnel.length} membre(s) trouvé(s)
             </div>
           </div>
@@ -1658,7 +1701,7 @@ export default function RHPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/30">
+                <tr className="border-b border-border text-xs font-bold text-ink-faint uppercase bg-bg/30">
                   <th className="px-6 py-4">Nom complet</th>
                   <th className="px-6 py-4">Catégorie</th>
                   <th className="px-6 py-4">Contrat</th>
@@ -1668,29 +1711,29 @@ export default function RHPage() {
                   <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
+              <tbody className="divide-y divide-border-row text-sm">
                 {filteredPersonnel.map(emp => (
-                  <tr key={emp.id} className="hover:bg-slate-50/30 transition-colors">
+                  <tr key={emp.id} className="hover:bg-bg/30 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="font-semibold text-slate-800 text-black">{emp.nom} {emp.prenom}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">{emp.email} • {emp.telephone}</div>
+                      <div className="font-semibold text-ink">{emp.nom} {emp.prenom}</div>
+                      <div className="text-xs text-ink-faint mt-0.5">{emp.email} • {emp.telephone}</div>
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        emp.categorie === 'Enseignant' ? 'bg-indigo-50 text-indigo-700' :
-                        emp.categorie === 'Administration' ? 'bg-amber-50 text-amber-700' :
-                        emp.categorie === 'Technique' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'
+                        emp.categorie === 'Enseignant' ? 'bg-chip text-ink' :
+                        emp.categorie === 'Administration' ? 'bg-chip text-ink-soft' :
+                        emp.categorie === 'Technique' ? 'bg-green-bg text-green' : 'bg-chip text-ink-soft'
                       }`}>
                         {emp.categorie}
                       </span>
                     </td>
-                    <td className="px-6 py-4 font-bold text-slate-600">{emp.typeContrat}</td>
-                    <td className="px-6 py-4 text-slate-500 font-mono text-xs">{new Date(emp.dateEmbauche).toLocaleDateString('fr-FR')}</td>
-                    <td className="px-6 py-4 text-right font-mono font-bold text-black">{formatMoney(emp.salaireDeBase)}</td>
+                    <td className="px-6 py-4 font-bold text-ink-soft">{emp.typeContrat}</td>
+                    <td className="px-6 py-4 text-ink-soft font-mono text-xs">{new Date(emp.dateEmbauche).toLocaleDateString('fr-FR')}</td>
+                    <td className="px-6 py-4 text-right font-mono font-bold">{formatMoney(emp.salaireDeBase)}</td>
                     <td className="px-6 py-4 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        emp.statut === 'actif' ? 'bg-emerald-50 text-emerald-700' :
-                        emp.statut === 'quitte' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
+                        emp.statut === 'actif' ? 'bg-green-bg text-green' :
+                        emp.statut === 'quitte' ? 'bg-red-bg text-accent' : 'bg-chip text-ink-soft'
                       }`}>
                         {emp.statut === 'actif' ? 'Actif' : emp.statut === 'quitte' ? 'Quitté' : emp.statut || 'Suspendu'}
                       </span>
@@ -1698,7 +1741,7 @@ export default function RHPage() {
                     <td className="px-6 py-4 text-right">
                       <button
                         onClick={() => handleOpenProfile(emp)}
-                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors"
+                        className="px-3 py-1.5 bg-chip hover:bg-chip-hover text-ink rounded-control text-xs font-bold transition-colors"
                       >
                         Fiche Employé
                       </button>
@@ -1707,7 +1750,7 @@ export default function RHPage() {
                 ))}
                 {filteredPersonnel.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">Aucun membre du personnel trouvé.</td>
+                    <td colSpan={7} className="px-6 py-12 text-center text-ink-faint">Aucun membre du personnel trouvé.</td>
                   </tr>
                 )}
               </tbody>
@@ -1720,29 +1763,29 @@ export default function RHPage() {
       {activeTab === 'masse' && (
         <div className="space-y-6">
           {/* Period Selector + Actions Bar */}
-          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-wrap gap-4 items-center justify-between">
+          <div className="bg-surface p-4 rounded-control border border-border shadow-sm flex flex-wrap gap-4 items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <span className="text-xs font-bold text-slate-500 uppercase">Période de paie :</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px]">Période de paie :</span>
               </div>
               <input
                 type="month"
                 value={payrollPeriod}
                 onChange={(e) => { setPayrollPeriod(e.target.value); setPayrollCalculated(false); setFichesDePaieCalculees([]); }}
-                className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                className="px-3 py-1.5 border border-border rounded-control text-sm font-semibold outline-none focus:ring-2 focus:border-accent"
               />
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={toggleSelectAllPayroll}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+                className="px-3 py-1.5 bg-chip hover:bg-chip text-ink-soft rounded-control text-xs font-bold transition-colors"
               >
                 {selectedForPayroll.size === unpaidStaff.length ? 'Tout désélectionner' : 'Sélectionner tous'}
               </button>
               <button
                 onClick={handleCalculerPaie}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors flex items-center gap-1.5"
+                className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-md transition-colors flex items-center gap-1.5"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                 Calculer la paie
@@ -1752,7 +1795,7 @@ export default function RHPage() {
                   <button
                     onClick={handleValiderPaie}
                     disabled={payrollProcessing}
-                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-md transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    className="px-4 py-1.5 bg-green hover:bg-green text-cream rounded-control text-xs font-bold shadow-md transition-colors disabled:opacity-50 flex items-center gap-1.5"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                     {payrollProcessing ? 'Traitement...' : 'Valider & Payer'}
@@ -1765,15 +1808,15 @@ export default function RHPage() {
           {/* Main Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Payroll Table (3 cols) */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-3">
-              <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm lg:col-span-3">
+              <div className="flex items-center justify-between mb-4 border-b border-border pb-3">
                 <div>
-                  <h3 className="font-bold text-slate-800 text-black">Traitement des Salaires</h3>
-                  <p className="text-xs text-slate-500">{selectedForPayroll.size} employé(s) sélectionné(s) sur {unpaidStaff.length} à payer</p>
+                  <h3 className="font-bold text-ink">Traitement des Salaires</h3>
+                  <p className="text-xs text-ink-soft">{selectedForPayroll.size} employé(s) sélectionné(s) sur {unpaidStaff.length} à payer</p>
                 </div>
                 {payrollCalculated && (
-                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span className="px-2.5 py-1 bg-green-bg text-green text-xs font-bold rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green"></span>
                     Paie calculée
                   </span>
                 )}
@@ -1782,13 +1825,13 @@ export default function RHPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/20">
+                    <tr className="border-b border-border text-xs font-bold text-ink-faint uppercase bg-bg/20">
                       <th className="px-3 py-3 w-8">
                         <input
                           type="checkbox"
                           checked={selectedForPayroll.size === unpaidStaff.length && unpaidStaff.length > 0}
                           onChange={toggleSelectAllPayroll}
-                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer"
+                          className="rounded border-border text-ink focus:border-accent w-4 h-4 cursor-pointer"
                         />
                       </th>
                       <th className="px-3 py-3">Employé</th>
@@ -1800,13 +1843,13 @@ export default function RHPage() {
                         <>
                           <th className="px-3 py-3 text-right">Brut</th>
                           <th className="px-3 py-3 text-right">Retenues</th>
-                          <th className="px-3 py-3 text-right text-indigo-600">Net à Payer</th>
+                          <th className="px-3 py-3 text-right text-ink">Net à Payer</th>
                         </>
                       )}
                       {showCalculatedCols && <th className="px-3 py-3 text-center">Fiche</th>}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-border-row">
                     {activeStaff.map(emp => {
                       // Chercher d'abord si une fiche de paie a déjà été validée et enregistrée pour cet employé et ce mois
                       const ficheHistorique = fichesDePaieHistorique.find(
@@ -1818,33 +1861,33 @@ export default function RHPage() {
                       const primes = payrollPrimes[emp.id] || { transport: 0, logement: 0, autres: 0 };
                       const isSelected = selectedForPayroll.has(emp.id);
                       return (
-                        <tr key={emp.id} className={`transition-colors ${estPaye ? 'bg-emerald-50/10' : (isSelected ? 'bg-indigo-50/30' : 'hover:bg-slate-50/30')}`}>
+                        <tr key={emp.id} className={`transition-colors ${estPaye ? 'bg-green-bg/10' : (isSelected ? 'bg-chip/30' : 'hover:bg-bg/30')}`}>
                           <td className="px-3 py-3">
                             <input
                               type="checkbox"
                               checked={estPaye ? true : isSelected}
                               disabled={estPaye}
                               onChange={() => !estPaye && toggleEmployeeSelection(emp.id)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="rounded border-border text-ink focus:border-accent w-4 h-4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                           </td>
                           <td className="px-3 py-3">
-                            <div className="font-semibold text-slate-800 text-black text-xs">{emp.nom} {emp.prenom}</div>
-                            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                            <div className="font-semibold text-ink text-xs">{emp.nom} {emp.prenom}</div>
+                            <div className="text-[10px] text-ink-faint mt-0.5 flex items-center gap-1">
                               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                emp.categorie === 'Enseignant' ? 'bg-indigo-50 text-indigo-700' :
-                                emp.categorie === 'Administration' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                                emp.categorie === 'Enseignant' ? 'bg-chip text-ink' :
+                                emp.categorie === 'Administration' ? 'bg-chip text-ink-soft' : 'bg-chip text-ink-soft'
                               }`}>{emp.categorie}</span>
                               <span>{emp.typeContrat}</span>
                               {getAnneesService(emp.dateEmbauche) >= 2 && (
-                                <span className="text-emerald-600 font-bold">+{Math.min(getAnneesService(emp.dateEmbauche) * 2, 30)}% anc.</span>
+                                <span className="text-green font-bold">+{Math.min(getAnneesService(emp.dateEmbauche) * 2, 30)}% anc.</span>
                               )}
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-right font-mono text-black font-semibold text-xs">{formatMoney(emp.salaireDeBase)}</td>
+                          <td className="px-3 py-3 text-right font-mono font-semibold text-xs">{formatMoney(emp.salaireDeBase)}</td>
                           <td className="px-3 py-2">
                             {estPaye ? (
-                              <div className="w-20 px-2 py-1 text-xs text-slate-500 text-right font-mono font-semibold">
+                              <div className="w-20 px-2 py-1 text-xs text-ink-soft text-right font-mono font-semibold">
                                 {formatMoney(fiche?.primeTransport || 0)}
                               </div>
                             ) : (
@@ -1854,13 +1897,13 @@ export default function RHPage() {
                                 value={primes.transport || ''}
                                 onChange={(e) => updatePrime(emp.id, 'transport', Number(e.target.value) || 0)}
                                 placeholder="0"
-                                className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black text-right font-mono outline-none focus:border-indigo-500"
+                                className="w-20 px-2 py-1 border border-border rounded text-xs text-right font-mono outline-none focus:border-accent"
                               />
                             )}
                           </td>
                           <td className="px-3 py-2">
                             {estPaye ? (
-                              <div className="w-20 px-2 py-1 text-xs text-slate-500 text-right font-mono font-semibold">
+                              <div className="w-20 px-2 py-1 text-xs text-ink-soft text-right font-mono font-semibold">
                                 {formatMoney(fiche?.primeLogement || 0)}
                               </div>
                             ) : (
@@ -1870,13 +1913,13 @@ export default function RHPage() {
                                 value={primes.logement || ''}
                                 onChange={(e) => updatePrime(emp.id, 'logement', Number(e.target.value) || 0)}
                                 placeholder="0"
-                                className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black text-right font-mono outline-none focus:border-indigo-500"
+                                className="w-20 px-2 py-1 border border-border rounded text-xs text-right font-mono outline-none focus:border-accent"
                               />
                             )}
                           </td>
                           <td className="px-3 py-2">
                             {estPaye ? (
-                              <div className="w-20 px-2 py-1 text-xs text-slate-500 text-right font-mono font-semibold">
+                              <div className="w-20 px-2 py-1 text-xs text-ink-soft text-right font-mono font-semibold">
                                 {formatMoney(fiche?.autresPrimes || 0)}
                               </div>
                             ) : (
@@ -1886,19 +1929,19 @@ export default function RHPage() {
                                 value={primes.autres || ''}
                                 onChange={(e) => updatePrime(emp.id, 'autres', Number(e.target.value) || 0)}
                                 placeholder="0"
-                                className="w-20 px-2 py-1 border border-slate-200 rounded text-xs text-black text-right font-mono outline-none focus:border-indigo-500"
+                                className="w-20 px-2 py-1 border border-border rounded text-xs text-right font-mono outline-none focus:border-accent"
                               />
                             )}
                           </td>
                           {showCalculatedCols && fiche && (
                             <>
-                              <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-slate-700">{formatMoney(fiche.salaireBrut)}</td>
-                              <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-rose-600">-{formatMoney(fiche.totalRetenues)}</td>
-                              <td className="px-3 py-3 text-right font-mono text-xs font-black text-indigo-700">
+                              <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-ink-soft">{formatMoney(fiche.salaireBrut)}</td>
+                              <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-accent">-{formatMoney(fiche.totalRetenues)}</td>
+                              <td className="px-3 py-3 text-right font-mono text-xs font-black text-ink">
                                 <div className="flex flex-col items-end">
                                   <span>{formatMoney(fiche.netAPayer)}</span>
                                   {estPaye && (
-                                    <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded font-bold uppercase mt-0.5">Payé</span>
+                                    <span className="text-[9px] text-green bg-green-bg px-1 py-0.2 rounded font-bold uppercase mt-0.5">Payé</span>
                                   )}
                                 </div>
                               </td>
@@ -1909,14 +1952,14 @@ export default function RHPage() {
                               <button
                                 type="button"
                                 onClick={() => setSelectedPayslip(fiche)}
-                                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-[10px] font-bold transition-colors cursor-pointer"
+                                className="px-2 py-1 bg-chip hover:bg-chip-hover text-ink rounded text-[10px] font-bold transition-colors cursor-pointer"
                               >
                                 Voir
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handlePrintPayslip(fiche)}
-                                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[10px] font-bold transition-colors cursor-pointer"
+                                className="px-2 py-1 bg-bg hover:bg-chip text-ink-soft border border-border rounded text-[10px] font-bold transition-colors cursor-pointer"
                               >
                                 Imprimer
                               </button>
@@ -1924,7 +1967,7 @@ export default function RHPage() {
                           )}
                           {showCalculatedCols && !fiche && (
                             <>
-                              <td className="px-3 py-3 text-center text-slate-300 text-xs" colSpan={4}>—</td>
+                              <td className="px-3 py-3 text-center text-ink-faint text-xs" colSpan={4}>—</td>
                             </>
                           )}
                         </tr>
@@ -1936,53 +1979,53 @@ export default function RHPage() {
             </div>
 
             {/* Résumé de la Paie Sidebar */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between h-fit">
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col justify-between h-fit">
               <div>
-                <div className="border-b border-slate-100 pb-3 mb-4">
-                  <h3 className="font-bold text-slate-800 text-black">Résumé de la Paie</h3>
-                  <p className="text-xs text-slate-500">Période: {payrollPeriod}</p>
+                <div className="border-b border-border pb-3 mb-4">
+                  <h3 className="font-bold text-ink">Résumé de la Paie</h3>
+                  <p className="text-xs text-ink-soft">Période: {payrollPeriod}</p>
                 </div>
 
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 font-semibold">Employés sélectionnés</span>
-                    <span className="font-bold text-slate-800 text-black">{selectedForPayroll.size}</span>
+                  <div className="flex justify-between items-center text-sm border-b border-border pb-2">
+                    <span className="text-ink-soft font-semibold">Employés sélectionnés</span>
+                    <span className="font-bold text-ink">{selectedForPayroll.size}</span>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 font-semibold">Masse Brute Totale</span>
-                    <span className="font-mono font-bold text-slate-800 text-black">{formatMoney(totalGross)}</span>
+                  <div className="flex justify-between items-center text-sm border-b border-border pb-2">
+                    <span className="text-ink-soft font-semibold">Masse Brute Totale</span>
+                    <span className="font-mono font-bold text-ink">{formatMoney(totalGross)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 font-semibold">Retenues Salariales</span>
-                    <span className="font-mono font-bold text-rose-600">-{formatMoney(totalRetenues)}</span>
+                  <div className="flex justify-between items-center text-sm border-b border-border pb-2">
+                    <span className="text-ink-soft font-semibold">Retenues Salariales</span>
+                    <span className="font-mono font-bold text-accent">-{formatMoney(totalRetenues)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 font-semibold">Charges Patronales</span>
-                    <span className="font-mono font-bold text-slate-800 text-black">{formatMoney(totalEmployerTaxes)}</span>
+                  <div className="flex justify-between items-center text-sm border-b border-border pb-2">
+                    <span className="text-ink-soft font-semibold">Charges Patronales</span>
+                    <span className="font-mono font-bold text-ink">{formatMoney(totalEmployerTaxes)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                    <span className="text-slate-500 font-semibold">Coût Total Employeur</span>
-                    <span className="font-mono font-bold text-slate-800 text-black">{formatMoney(totalGross + totalEmployerTaxes)}</span>
+                  <div className="flex justify-between items-center text-sm border-b border-border pb-2">
+                    <span className="text-ink-soft font-semibold">Coût Total Employeur</span>
+                    <span className="font-mono font-bold text-ink">{formatMoney(totalGross + totalEmployerTaxes)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center text-base pt-2 font-black border-t border-slate-100">
-                    <span className="text-indigo-600">Net Total à Payer</span>
-                    <span className="font-mono text-indigo-700">{formatMoney(totalNet)}</span>
+                  <div className="flex justify-between items-center text-base pt-2 font-black border-t border-border">
+                    <span className="text-ink">Net Total à Payer</span>
+                    <span className="font-mono text-ink">{formatMoney(totalNet)}</span>
                   </div>
                 </div>
               </div>
 
               {payrollCalculated && fichesDePaieCalculees.length > 0 && (
-                <div className="pt-6 mt-4 border-t border-slate-100">
+                <div className="pt-6 mt-4 border-t border-border">
                   <button
                     onClick={() => {
                       fichesDePaieCalculees.forEach(f => handlePrintPayslip(f));
                     }}
-                    className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 bg-chip hover:bg-chip-hover text-ink border border-outline rounded-control text-xs font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                     Imprimer les fiches de paie
@@ -1998,17 +2041,17 @@ export default function RHPage() {
       {activeTab === 'mouvements' && (
         <div className="space-y-6">
           {/* Periodic Filter Banner */}
-          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-wrap gap-4 items-center justify-between">
-            <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
+          <div className="bg-surface p-4 rounded-control border border-border shadow-sm flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex gap-2 bg-chip p-1 rounded-control">
               <button
                 onClick={() => setMouvPeriod('all')}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${mouvPeriod === 'all' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${mouvPeriod === 'all' ? 'bg-surface shadow text-ink' : 'text-ink-soft'}`}
               >
                 Tout l'historique
               </button>
               <button
                 onClick={() => setMouvPeriod('mensuel')}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${mouvPeriod === 'mensuel' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${mouvPeriod === 'mensuel' ? 'bg-surface shadow text-ink' : 'text-ink-soft'}`}
               >
                 Mensuel
               </button>
@@ -2016,11 +2059,11 @@ export default function RHPage() {
 
             {mouvPeriod === 'mensuel' && (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 font-bold">Mois :</span>
+                <span className="text-xs text-ink-soft font-bold">Mois :</span>
                 <select
                   value={mouvMonth}
                   onChange={(e) => setMouvMonth(e.target.value)}
-                  className="px-2 py-1 border border-slate-200 rounded text-xs text-black font-semibold"
+                  className="px-2 py-1 border border-border rounded text-xs font-semibold"
                 >
                   <option value="2026-05">Mai 2026</option>
                   <option value="2026-04">Avril 2026</option>
@@ -2034,36 +2077,36 @@ export default function RHPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Absences Panel */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-              <h3 className="font-bold text-slate-800 text-black mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-500"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+              <h3 className="font-bold text-ink mb-4 flex items-center gap-2 border-b border-border pb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Registre des Absences ({getFilteredAbsences().length})
               </h3>
               <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
                 {getFilteredAbsences().map(a => (
-                  <div key={a.id} className="flex justify-between items-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                  <div key={a.id} className="flex justify-between items-center p-3 rounded-control bg-bg border border-border">
                     <div>
-                      <div className="font-bold text-slate-800 text-black">{a.nomPersonnel}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Motif: {a.motif} • du {new Date(a.dateDebut).toLocaleDateString('fr-FR')} au {new Date(a.dateFin).toLocaleDateString('fr-FR')}</div>
+                      <div className="font-bold text-ink">{a.nomPersonnel}</div>
+                      <div className="text-xs text-ink-faint mt-0.5">Motif: {a.motif} • du {new Date(a.dateDebut).toLocaleDateString('fr-FR')} au {new Date(a.dateFin).toLocaleDateString('fr-FR')}</div>
                     </div>
-                    <span className="text-xs font-black bg-rose-50 text-rose-600 px-2 py-1 rounded-lg">
+                    <span className="text-xs font-black bg-red-bg text-accent px-2 py-1 rounded-control">
                       {a.dureeJours} jour(s)
                     </span>
                   </div>
                 ))}
                 {getFilteredAbsences().length === 0 && (
-                  <div className="text-center text-slate-400 py-12">Aucune absence enregistrée sur cette période.</div>
+                  <div className="text-center text-ink-faint py-12">Aucune absence enregistrée sur cette période.</div>
                 )}
               </div>
             </div>
 
             {/* Movements Timeline */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-              <h3 className="font-bold text-slate-800 text-black mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-500"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+              <h3 className="font-bold text-ink mb-4 flex items-center gap-2 border-b border-border pb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-soft"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                 Mouvements de Personnel ({getFilteredMouvements().length})
               </h3>
-              <div className="space-y-6 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100 max-h-96 overflow-y-auto pr-1 pl-2">
+              <div className="space-y-6 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-chip max-h-96 overflow-y-auto pr-1 pl-2">
                 {getFilteredMouvements().map(m => {
                   const isEmbauche = m.type === 'embauche';
                   const isDepart = m.type === 'depart_volontaire';
@@ -2074,31 +2117,31 @@ export default function RHPage() {
                     <div key={m.id} className="relative pl-8">
                       {/* Timeline Dot */}
                       <span className={`absolute left-2 top-1.5 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center -translate-x-1/2 ${
-                        isEmbauche ? 'bg-emerald-500 shadow shadow-emerald-500/20' :
-                        isDepart ? 'bg-amber-500' :
-                        isLicenciement ? 'bg-rose-500' : 'bg-blue-500'
+                        isEmbauche ? 'bg-green shadow shadow-emerald-500/20' :
+                        isDepart ? 'bg-accent' :
+                        isLicenciement ? 'bg-accent' : 'bg-ink'
                       }`}></span>
                       
                       <div>
-                        <span className="text-[10px] text-slate-400 font-mono font-bold block">{new Date(m.date).toLocaleDateString('fr-FR')}</span>
-                        <div className="font-bold text-slate-800 text-black mt-0.5">{m.nomPersonnel}</div>
-                        <div className="text-xs text-slate-500 mt-1 font-semibold flex items-center gap-1.5">
+                        <span className="text-[10px] text-ink-faint font-mono font-bold block">{new Date(m.date).toLocaleDateString('fr-FR')}</span>
+                        <div className="font-bold text-ink mt-0.5">{m.nomPersonnel}</div>
+                        <div className="text-xs text-ink-soft mt-1 font-semibold flex items-center gap-1.5">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                            isEmbauche ? 'bg-emerald-50 text-emerald-700' :
-                            isDepart ? 'bg-amber-50 text-amber-700' :
-                            isLicenciement ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'
+                            isEmbauche ? 'bg-green-bg text-green' :
+                            isDepart ? 'bg-chip text-ink-soft' :
+                            isLicenciement ? 'bg-red-bg text-accent' : 'bg-chip text-ink-soft'
                           }`}>
                             {m.type.toUpperCase().replace('_', ' ')}
                           </span>
-                          <span className="text-slate-400">•</span>
-                          <span className="font-normal text-slate-500 italic">{m.details}</span>
+                          <span className="text-ink-faint">•</span>
+                          <span className="font-normal text-ink-soft italic">{m.details}</span>
                         </div>
                       </div>
                     </div>
                   );
                 })}
                 {getFilteredMouvements().length === 0 && (
-                  <div className="text-center text-slate-400 py-12 pl-0 before:hidden">Aucun mouvement de personnel enregistré sur cette période.</div>
+                  <div className="text-center text-ink-faint py-12 pl-0 before:hidden">Aucun mouvement de personnel enregistré sur cette période.</div>
                 )}
               </div>
             </div>
@@ -2110,90 +2153,90 @@ export default function RHPage() {
       {activeTab === 'evals' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Teacher Evaluations */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
-            <h3 className="font-bold text-slate-800 text-black flex items-center gap-2 border-b border-slate-100 pb-3">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-6">
+            <h3 className="font-bold text-ink flex items-center gap-2 border-b border-border pb-3">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               Évaluations Professionnelles
             </h3>
 
             <div className="space-y-6">
               {filteredEvaluations.map(ev => (
-                <div key={ev.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-4">
+                <div key={ev.id} className="p-4 rounded-control border border-border bg-bg/50 space-y-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-bold text-slate-800 text-black">{ev.nomEnseignant}</h4>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Évalué par {ev.evaluateur} le {new Date(ev.dateEvaluation).toLocaleDateString('fr-FR')}</p>
+                      <h4 className="font-bold text-ink">{ev.nomEnseignant}</h4>
+                      <p className="text-[10px] text-ink-faint mt-0.5">Évalué par {ev.evaluateur} le {new Date(ev.dateEvaluation).toLocaleDateString('fr-FR')}</p>
                     </div>
-                    <span className="text-sm font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                    <span className="text-sm font-extrabold text-ink bg-chip px-2.5 py-1 rounded-control">
                       {ev.noteMoyenne} / 100
                     </span>
                   </div>
 
                   <div className="grid grid-cols-3 gap-4 text-center">
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-100">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Job Role</span>
-                      <span className="text-lg font-black text-slate-800 text-black mt-1 block">{ev.adherenceJobRole}%</span>
+                    <div className="bg-surface p-2.5 rounded-control border border-border">
+                      <span className="text-[9px] font-bold text-ink-faint uppercase tracking-wider block">Job Role</span>
+                      <span className="text-lg font-black text-ink mt-1 block">{ev.adherenceJobRole}%</span>
                     </div>
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-100">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Valeurs</span>
-                      <span className="text-lg font-black text-emerald-500 mt-1 block">{ev.adherenceValeurs}%</span>
+                    <div className="bg-surface p-2.5 rounded-control border border-border">
+                      <span className="text-[9px] font-bold text-ink-faint uppercase tracking-wider block">Valeurs</span>
+                      <span className="text-lg font-black text-green mt-1 block">{ev.adherenceValeurs}%</span>
                     </div>
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-100">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Notes Formations</span>
-                      <span className="text-lg font-black text-violet-500 mt-1 block">{ev.noteFormationMoyenne} <span className="text-[10px] font-semibold text-slate-400">/20</span></span>
+                    <div className="bg-surface p-2.5 rounded-control border border-border">
+                      <span className="text-[9px] font-bold text-ink-faint uppercase tracking-wider block">Notes Formations</span>
+                      <span className="text-lg font-black text-ink-soft mt-1 block">{ev.noteFormationMoyenne} <span className="text-[10px] font-semibold text-ink-faint">/20</span></span>
                     </div>
                   </div>
                 </div>
               ))}
               {filteredEvaluations.length === 0 && (
-                <div className="text-center text-slate-400 py-12">Aucune évaluation enregistrée pour cette année scolaire.</div>
+                <div className="text-center text-ink-faint py-12">Aucune évaluation enregistrée pour cette année scolaire.</div>
               )}
             </div>
           </div>
 
           {/* Formations list & analysis */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
-            <h3 className="font-bold text-slate-800 text-black flex items-center gap-2 border-b border-slate-100 pb-3">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-600"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-6">
+            <h3 className="font-bold text-ink flex items-center gap-2 border-b border-border pb-3">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-soft"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
               Suivi des Formations
             </h3>
 
-            <div className="bg-violet-50/50 p-4 rounded-xl border border-violet-100 flex items-center justify-between gap-4">
+            <div className="bg-chip p-4 rounded-control border border-transparent flex items-center justify-between gap-4">
               <div>
-                <span className="text-xs font-bold text-violet-700 block">Total Dépenses Formation</span>
-                <span className="text-2xl font-black text-violet-900 mt-1 block">{formatMoney(totalTrainingCosts)}</span>
+                <span className="text-xs font-bold text-ink-soft block">Total Dépenses Formation</span>
+                <span className="text-2xl font-black text-ink mt-1 block">{formatMoney(totalTrainingCosts)}</span>
               </div>
               <div className="text-right">
-                <span className="text-[10px] font-bold text-slate-400 uppercase block">Impact masse salariale</span>
-                <span className="text-sm font-extrabold text-slate-700 block mt-1">{trainingPayrollRatio.toFixed(2)} %</span>
+                <span className="text-[10px] font-bold text-ink-faint uppercase block">Impact masse salariale</span>
+                <span className="text-sm font-extrabold text-ink-soft block mt-1">{trainingPayrollRatio.toFixed(2)} %</span>
               </div>
             </div>
 
             <div className="space-y-4">
               {filteredFormations.map(f => (
-                <div key={f.id} className="p-4 rounded-xl border border-slate-100 space-y-3">
+                <div key={f.id} className="p-4 rounded-control border border-border space-y-3">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-bold text-slate-800 text-black text-sm leading-snug">{f.theme}</h4>
-                      <span className="text-xs text-slate-400 font-bold block mt-1">{f.organisme} • du {new Date(f.dateDebut).toLocaleDateString('fr-FR')} au {new Date(f.dateFin).toLocaleDateString('fr-FR')}</span>
+                      <h4 className="font-bold text-ink text-sm leading-snug">{f.theme}</h4>
+                      <span className="text-xs text-ink-faint font-bold block mt-1">{f.organisme} • du {new Date(f.dateDebut).toLocaleDateString('fr-FR')} au {new Date(f.dateFin).toLocaleDateString('fr-FR')}</span>
                     </div>
-                    <span className="font-mono font-bold text-slate-800 text-black text-sm">{formatMoney(f.coutTotal)}</span>
+                    <span className="font-mono font-bold text-ink text-sm">{formatMoney(f.coutTotal)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center pt-2 border-t border-slate-50">
+                  <div className="flex justify-between items-center pt-2 border-t border-border">
                     <div className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                      <span className="text-xs text-slate-500 font-semibold">{f.beneficiairesIds.length} bénéficiaire(s)</span>
+                      <span className="w-2 h-2 rounded-full bg-accent"></span>
+                      <span className="text-xs text-ink-soft font-semibold">{f.beneficiairesIds.length} bénéficiaire(s)</span>
                     </div>
 
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${f.statut === 'terminé' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${f.statut === 'terminé' ? 'bg-green-bg text-green' : 'bg-chip text-ink'}`}>
                       {f.statut}
                     </span>
                   </div>
                 </div>
               ))}
               {filteredFormations.length === 0 && (
-                <div className="text-center text-slate-400 py-12">Aucune formation enregistrée pour cette année scolaire.</div>
+                <div className="text-center text-ink-faint py-12">Aucune formation enregistrée pour cette année scolaire.</div>
               )}
             </div>
           </div>
@@ -2204,19 +2247,19 @@ export default function RHPage() {
       {activeTab === 'comptes' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Accounts List Pane */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2 space-y-6">
-            <h3 className="font-bold text-slate-800 text-black flex items-center gap-2 border-b border-slate-100 pb-3">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm lg:col-span-2 space-y-6">
+            <h3 className="font-bold text-ink flex items-center gap-2 border-b border-border pb-3">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               Comptes Utilisateurs & Habilitations
             </h3>
 
             {profilesLoading ? (
-              <div className="text-center py-12 text-slate-500 font-semibold">Chargement des comptes...</div>
+              <div className="text-center py-12 text-ink-soft font-semibold">Chargement des comptes...</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase bg-slate-50/30">
+                    <tr className="border-b border-border text-xs font-bold text-ink-faint uppercase bg-bg/30">
                       <th className="px-4 py-3">Collaborateur</th>
                       <th className="px-4 py-3">Rôle / Habilitation</th>
                       <th className="px-4 py-3">Créé le</th>
@@ -2224,27 +2267,27 @@ export default function RHPage() {
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
+                  <tbody className="divide-y divide-border-row text-sm">
                     {profiles.map((p) => (
-                      <tr key={p.id} className="hover:bg-slate-50/30">
+                      <tr key={p.id} className="hover:bg-bg/30">
                         <td className="px-4 py-3">
-                          <div className="font-semibold text-slate-800 text-black">{p.nom_complet || 'Non renseigné'}</div>
-                          <div className="text-xs text-slate-400 mt-0.5">{p.email}</div>
+                          <div className="font-semibold text-ink">{p.nom_complet || 'Non renseigné'}</div>
+                          <div className="text-xs text-ink-faint mt-0.5">{p.email}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
-                            p.role === 'admin' ? 'bg-indigo-50 text-indigo-700' :
-                            p.role === 'directeur' ? 'bg-amber-50 text-amber-700' :
-                            p.role === 'enseignant' ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
+                          <span className={`px-2.5 py-1 rounded-control text-xs font-bold uppercase ${
+                            p.role === 'admin' ? 'bg-chip text-ink' :
+                            p.role === 'directeur' ? 'bg-chip text-ink-soft' :
+                            p.role === 'enseignant' ? 'bg-green-bg text-green' : 'bg-chip text-ink-soft'
                           }`}>
                             {p.role}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-500 font-mono text-xs">
+                        <td className="px-4 py-3 text-ink-soft font-mono text-xs">
                           {p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR') : 'N/A'}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-bg text-green">
                             Actif
                           </span>
                         </td>
@@ -2261,13 +2304,13 @@ export default function RHPage() {
                               };
                               setEditingPermissions({ ...defaultPerms, ...(p.permissions || {}) });
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-chip hover:bg-chip text-ink-soft font-bold rounded-control text-xs transition-colors"
                           >
                             Habilitations
                           </button>
                           <button
                             onClick={() => handleDeleteAccount(p.id, p.email)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-lg text-xs transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-bg hover:bg-red-bg text-accent font-bold rounded-control text-xs transition-colors"
                           >
                             Supprimer
                           </button>
@@ -2276,7 +2319,7 @@ export default function RHPage() {
                     ))}
                     {profiles.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-4 py-12 text-center text-slate-400">Aucun compte trouvé.</td>
+                        <td colSpan={5} className="px-4 py-12 text-center text-ink-faint">Aucun compte trouvé.</td>
                       </tr>
                     )}
                   </tbody>
@@ -2286,55 +2329,55 @@ export default function RHPage() {
           </div>
 
           {/* Create Staff Account Form */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col justify-between">
             <form onSubmit={handleCreateAccount} className="space-y-6">
-              <div className="border-b border-slate-100 pb-3">
-                <h3 className="font-bold text-slate-800 text-black">Créer un Compte Personnel</h3>
-                <p className="text-xs text-slate-500">Ajouter un accès avec rôle spécifique pour vos collaborateurs</p>
+              <div className="border-b border-border pb-3">
+                <h3 className="font-bold text-ink">Créer un Compte Personnel</h3>
+                <p className="text-xs text-ink-soft">Ajouter un accès avec rôle spécifique pour vos collaborateurs</p>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nom Complet du collaborateur *</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Nom Complet du collaborateur *</label>
                 <input
                   type="text"
                   required
                   value={newAccNom}
                   onChange={(e) => setNewAccNom(e.target.value)}
                   placeholder="ex: Jean Dupont"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Adresse Email *</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Adresse Email *</label>
                 <input
                   type="email"
                   required
                   value={newAccEmail}
                   onChange={(e) => setNewAccEmail(e.target.value)}
                   placeholder="collaborateur@mboaschool.com"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Mot de passe provisoire *</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Mot de passe provisoire *</label>
                 <input
                   type="password"
                   required
                   value={newAccPassword}
                   onChange={(e) => setNewAccPassword(e.target.value)}
                   placeholder="Minimum 6 caractères"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Niveau d'habilitation / Rôle *</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Niveau d'habilitation / Rôle *</label>
                 <select
                   value={newAccRole}
                   onChange={(e) => handleRoleChange(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black bg-slate-50 font-semibold outline-none"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg font-semibold outline-none"
                 >
                   <option value="directeur">Directeur</option>
                   <option value="enseignant">Enseignant</option>
@@ -2343,8 +2386,8 @@ export default function RHPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Modules autorisés (Habilitations)</label>
-                <div className="grid grid-cols-2 gap-3 mt-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Modules autorisés (Habilitations)</label>
+                <div className="grid grid-cols-2 gap-3 mt-2 bg-bg p-4 rounded-control border border-border">
                   {Object.entries({
                     dashboard: 'Tableau de bord',
                     sections: 'Sections',
@@ -2356,12 +2399,12 @@ export default function RHPage() {
                     finance: 'Finance',
                     rh: 'Ressources Humaines'
                   }).map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer hover:text-indigo-600">
+                    <label key={key} className="flex items-center gap-2.5 text-xs font-semibold text-ink-soft cursor-pointer hover:text-ink">
                       <input
                         type="checkbox"
                         checked={newAccPermissions[key] || false}
                         onChange={(e) => setNewAccPermissions(prev => ({ ...prev, [key]: e.target.checked }))}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer"
+                        className="rounded border-border text-ink focus:border-accent w-4 h-4 cursor-pointer"
                       />
                       <span>{label}</span>
                     </label>
@@ -2372,7 +2415,7 @@ export default function RHPage() {
               <button
                 type="submit"
                 disabled={createAccLoading}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors flex items-center justify-center disabled:opacity-50"
+                className="w-full py-3 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors flex items-center justify-center disabled:opacity-50"
               >
                 {createAccLoading ? "Création du compte..." : "Créer le compte"}
               </button>
@@ -2383,85 +2426,85 @@ export default function RHPage() {
 
       {/* -------------------- RECRUITMENT FORM MODAL -------------------- */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-lg border border-slate-100 shadow-2xl p-6 relative">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-lg border border-border shadow-login p-6 relative">
             <button
               onClick={() => setShowAddModal(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold"
+              className="absolute right-4 top-4 text-ink-faint hover:text-ink-soft font-bold"
             >
               ✕
             </button>
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">Recruter un Nouveau Collaborateur</h3>
+            <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">Recruter un Nouveau Collaborateur</h3>
             
             <form onSubmit={handleAddPersonnel} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Nom *</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Nom *</label>
                   <input
                     type="text"
                     required
                     value={newNom}
                     onChange={(e) => setNewNom(e.target.value)}
                     placeholder="Nom de famille"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Prénom *</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Prénom *</label>
                   <input
                     type="text"
                     required
                     value={newPrenom}
                     onChange={(e) => setNewPrenom(e.target.value)}
                     placeholder="Prénoms"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Sexe *</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Sexe *</label>
                   <select
                     value={newSexe}
                     onChange={(e) => setNewSexe(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                   >
                     <option value="M">Masculin</option>
                     <option value="F">Féminin</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Téléphone</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Téléphone</label>
                   <input
                     type="text"
                     value={newTel}
                     onChange={(e) => setNewTel(e.target.value)}
                     placeholder="+237 6xx xx xx xx"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Adresse Email *</label>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Adresse Email *</label>
                 <input
                   type="email"
                   required
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
                   placeholder="nom@ecole.cm"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Catégorie Métier *</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Catégorie Métier *</label>
                   <select
                     value={newCategorie}
                     onChange={(e) => setNewCategorie(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                   >
                     <option value="Administration">Administration</option>
                     <option value="Technique">Technique</option>
@@ -2469,11 +2512,11 @@ export default function RHPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Type de Contrat *</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Type de Contrat *</label>
                   <select
                     value={newContrat}
                     onChange={(e) => setNewContrat(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                   >
                     <option value="CDI">CDI</option>
                     <option value="CDD">CDD</option>
@@ -2485,7 +2528,7 @@ export default function RHPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Salaire Mensuel Brut (FCFA) *</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Salaire Mensuel Brut (FCFA) *</label>
                   <input
                     type="number"
                     required
@@ -2493,28 +2536,28 @@ export default function RHPage() {
                     value={newSalaire}
                     onChange={(e) => setNewSalaire(e.target.value)}
                     placeholder="Ex: 250000"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date de Prise d'Effet *</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Date de Prise d'Effet *</label>
                   <input
                     type="date"
                     required
                     value={newDateEmbauche}
                     onChange={(e) => setNewDateEmbauche(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Mode de Paiement Préféré</label>
+                  <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Mode de Paiement Préféré</label>
                   <select
                     value={newModePaiement}
                     onChange={(e) => setNewModePaiement(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                   >
                     <option value="Banque">Virement Bancaire</option>
                     <option value="Caisse">Espèces (Caisse)</option>
@@ -2522,17 +2565,17 @@ export default function RHPage() {
                 </div>
               </div>
 
-              <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+              <div className="pt-4 flex justify-end gap-3 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold"
+                  className="px-4 py-2 bg-chip text-ink-soft rounded-control text-sm font-bold"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-md shadow-indigo-600/10 hover:bg-indigo-700"
+                  className="px-6 py-2 bg-accent text-cream rounded-control text-sm font-bold shadow-md shadow-cta hover:bg-accent-hover"
                 >
                   Valider l'embauche
                 </button>
@@ -2544,44 +2587,44 @@ export default function RHPage() {
 
       {/* -------------------- EMPLOYEE PROFILE SHEET MODAL ("FICHE EMPLOYÉ") -------------------- */}
       {selectedEmployee && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-4xl border border-slate-100 shadow-2xl p-6 relative flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-4xl border border-border shadow-login p-6 relative flex flex-col max-h-[90vh]">
             <button
               onClick={() => setSelectedEmployee(null)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold"
+              className="absolute right-4 top-4 text-ink-faint hover:text-ink-soft font-bold"
             >
               ✕
             </button>
             
-            <div className="border-b border-slate-100 pb-3 mb-4">
-              <h3 className="text-xl font-extrabold text-slate-800 text-black">
+            <div className="border-b border-border pb-3 mb-4">
+              <h3 className="text-xl font-extrabold text-ink">
                 Fiche Employé : {selectedEmployee.prenom} {selectedEmployee.nom}
               </h3>
-              <p className="text-xs text-slate-400 font-medium">Consulter et modifier les informations de l'employé, ses absences et ses mouvements de carrière.</p>
+              <p className="text-xs text-ink-faint font-medium">Consulter et modifier les informations de l'employé, ses absences et ses mouvements de carrière.</p>
             </div>
 
             {/* Modal Tabs */}
-            <div className="flex gap-2 border-b border-slate-100 pb-3 mb-4">
+            <div className="flex gap-2 border-b border-border pb-3 mb-4">
               <button
                 onClick={() => setProfileModalTab('profile')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
-                  profileModalTab === 'profile' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+                className={`px-4 py-2 rounded-control text-xs font-bold transition-colors ${
+                  profileModalTab === 'profile' ? 'bg-chip text-ink shadow-sm' : 'text-ink-soft hover:bg-bg'
                 }`}
               >
                 Informations Profil
               </button>
               <button
                 onClick={() => setProfileModalTab('absences')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
-                  profileModalTab === 'absences' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+                className={`px-4 py-2 rounded-control text-xs font-bold transition-colors ${
+                  profileModalTab === 'absences' ? 'bg-chip text-ink shadow-sm' : 'text-ink-soft hover:bg-bg'
                 }`}
               >
                 Suivi des Absences ({absences.filter(a => a.personnelId === selectedEmployee.id).length})
               </button>
               <button
                 onClick={() => setProfileModalTab('mouvements')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
-                  profileModalTab === 'mouvements' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+                className={`px-4 py-2 rounded-control text-xs font-bold transition-colors ${
+                  profileModalTab === 'mouvements' ? 'bg-chip text-ink shadow-sm' : 'text-ink-soft hover:bg-bg'
                 }`}
               >
                 Mouvements & Carrière ({mouvements.filter(m => m.personnelId === selectedEmployee.id).length})
@@ -2596,68 +2639,68 @@ export default function RHPage() {
                 <form onSubmit={handleSaveProfile} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Nom *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Nom *</label>
                       <input
                         type="text"
                         required
                         value={editEmpNom}
                         onChange={(e) => setEditEmpNom(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Prénom *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Prénom *</label>
                       <input
                         type="text"
                         required
                         value={editEmpPrenom}
                         onChange={(e) => setEditEmpPrenom(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Sexe *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Sexe *</label>
                       <select
                         value={editEmpSexe}
                         onChange={(e) => setEditEmpSexe(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                       >
                         <option value="M">Masculin</option>
                         <option value="F">Féminin</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Téléphone</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Téléphone</label>
                       <input
                         type="text"
                         value={editEmpTel}
                         onChange={(e) => setEditEmpTel(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Adresse Email *</label>
+                    <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Adresse Email *</label>
                     <input
                       type="email"
                       required
                       value={editEmpEmail}
                       onChange={(e) => setEditEmpEmail(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                      className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                     />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Catégorie Métier *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Catégorie Métier *</label>
                       <select
                         value={editEmpCategorie}
                         onChange={(e) => setEditEmpCategorie(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                       >
                         <option value="Administration">Administration</option>
                         <option value="Enseignant">Enseignant</option>
@@ -2666,11 +2709,11 @@ export default function RHPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Type de Contrat *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Type de Contrat *</label>
                       <select
                         value={editEmpContrat}
                         onChange={(e) => setEditEmpContrat(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                       >
                         <option value="CDI">CDI</option>
                         <option value="CDD">CDD</option>
@@ -2682,32 +2725,32 @@ export default function RHPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Salaire Mensuel Brut (FCFA) *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Salaire Mensuel Brut (FCFA) *</label>
                       <input
                         type="number"
                         required
                         min="1"
                         value={editEmpSalaire}
                         onChange={(e) => setEditEmpSalaire(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-mono"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date de Prise d'Effet *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Date de Prise d'Effet *</label>
                       <input
                         type="date"
                         required
                         value={editEmpDateEmbauche}
                         onChange={(e) => setEditEmpDateEmbauche(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Statut *</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Statut *</label>
                       <select
                         value={editEmpStatut}
                         onChange={(e) => setEditEmpStatut(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                       >
                         <option value="actif">Actif</option>
                         <option value="suspendu">Suspendu</option>
@@ -2718,11 +2761,11 @@ export default function RHPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Mode de Paiement Préféré</label>
+                      <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Mode de Paiement Préféré</label>
                       <select
                         value={editEmpModePaiement}
                         onChange={(e) => setEditEmpModePaiement(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                        className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                       >
                         <option value="Banque">Virement Bancaire</option>
                         <option value="Caisse">Espèces (Caisse)</option>
@@ -2730,10 +2773,10 @@ export default function RHPage() {
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t border-slate-100 flex justify-end">
+                  <div className="pt-4 border-t border-border flex justify-end">
                     <button
                       type="submit"
-                      className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors"
+                      className="px-6 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors"
                     >
                       Enregistrer les Modifications
                     </button>
@@ -2746,35 +2789,35 @@ export default function RHPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                   {/* List of absences */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Absences enregistrées</h4>
+                    <h4 className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px]">Absences enregistrées</h4>
                     <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
                       {absences.filter(a => a.personnelId === selectedEmployee.id).map(a => (
-                        <div key={a.id} className="flex justify-between items-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                        <div key={a.id} className="flex justify-between items-center p-3 rounded-control bg-bg border border-border">
                           <div>
-                            <span className="text-xs font-bold text-slate-800 text-black block">Motif: {a.motif}</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5 block">Du {new Date(a.dateDebut).toLocaleDateString('fr-FR')} au {new Date(a.dateFin).toLocaleDateString('fr-FR')}</span>
+                            <span className="text-xs font-bold text-ink block">Motif: {a.motif}</span>
+                            <span className="text-[10px] text-ink-faint mt-0.5 block">Du {new Date(a.dateDebut).toLocaleDateString('fr-FR')} au {new Date(a.dateFin).toLocaleDateString('fr-FR')}</span>
                           </div>
-                          <span className="text-xs font-black bg-rose-50 text-rose-600 px-2 py-1 rounded-lg font-mono">
+                          <span className="text-xs font-black bg-red-bg text-accent px-2 py-1 rounded-control font-mono">
                             {a.dureeJours} jour(s)
                           </span>
                         </div>
                       ))}
                       {absences.filter(a => a.personnelId === selectedEmployee.id).length === 0 && (
-                        <p className="text-sm text-slate-400 text-center py-8">Aucune absence enregistrée pour cet employé.</p>
+                        <p className="text-sm text-ink-faint text-center py-8">Aucune absence enregistrée pour cet employé.</p>
                       )}
                     </div>
                   </div>
 
                   {/* Form to add absence */}
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase">Déclarer une absence</h4>
+                  <div className="bg-bg p-4 rounded-control border border-border space-y-4">
+                    <h4 className="text-xs font-bold text-ink-soft uppercase">Déclarer une absence</h4>
                     <form onSubmit={handleAddAbsence} className="space-y-3">
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Motif *</label>
+                        <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Motif *</label>
                         <select
                           value={newAbsMotif}
                           onChange={(e) => setNewAbsMotif(e.target.value as any)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                          className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                         >
                           <option value="Congé">Congé</option>
                           <option value="Maladie">Maladie</option>
@@ -2786,23 +2829,23 @@ export default function RHPage() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date début *</label>
+                          <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Date début *</label>
                           <input
                             type="date"
                             required
                             value={newAbsDateDebut}
                             onChange={(e) => setNewAbsDateDebut(e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                            className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date fin *</label>
+                          <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Date fin *</label>
                           <input
                             type="date"
                             required
                             value={newAbsDateFin}
                             onChange={(e) => setNewAbsDateFin(e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                            className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                           />
                         </div>
                       </div>
@@ -2810,7 +2853,7 @@ export default function RHPage() {
                       <div className="pt-2">
                         <button
                           type="submit"
-                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors"
+                          className="w-full py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors"
                         >
                           Valider l'Absence
                         </button>
@@ -2825,8 +2868,8 @@ export default function RHPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                   {/* List of movements */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Historique de mouvements</h4>
-                    <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1 pl-2 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
+                    <h4 className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px]">Historique de mouvements</h4>
+                    <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1 pl-2 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-chip">
                       {mouvements.filter(m => m.personnelId === selectedEmployee.id).map(m => {
                         const isEmbauche = m.type === 'embauche';
                         const isDepart = m.type === 'depart_volontaire';
@@ -2835,40 +2878,40 @@ export default function RHPage() {
                         return (
                           <div key={m.id} className="relative pl-8">
                             <span className={`absolute left-2 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white flex items-center justify-center -translate-x-1/2 ${
-                              isEmbauche ? 'bg-emerald-500 shadow shadow-emerald-500/20' :
-                              isDepart ? 'bg-amber-500 shadow shadow-amber-500/20' :
-                              isLicenciement ? 'bg-rose-500 shadow shadow-rose-500/20' : 'bg-blue-500 shadow shadow-blue-500/20'
+                              isEmbauche ? 'bg-green shadow shadow-emerald-500/20' :
+                              isDepart ? 'bg-accent shadow shadow-amber-500/20' :
+                              isLicenciement ? 'bg-accent shadow shadow-rose-500/20' : 'bg-ink shadow shadow-blue-500/20'
                             }`}></span>
                             <div>
-                              <span className="text-[10px] text-slate-400 font-mono font-bold block">{new Date(m.date).toLocaleDateString('fr-FR')}</span>
+                              <span className="text-[10px] text-ink-faint font-mono font-bold block">{new Date(m.date).toLocaleDateString('fr-FR')}</span>
                               <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                                isEmbauche ? 'bg-emerald-50 text-emerald-700' :
-                                isDepart ? 'bg-amber-50 text-amber-700' :
-                                isLicenciement ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'
+                                isEmbauche ? 'bg-green-bg text-green' :
+                                isDepart ? 'bg-chip text-ink-soft' :
+                                isLicenciement ? 'bg-red-bg text-accent' : 'bg-chip text-ink-soft'
                               }`}>
                                 {m.type.toUpperCase().replace('_', ' ')}
                               </span>
-                              <p className="text-xs font-medium text-slate-600 mt-1 italic">"{m.details}"</p>
+                              <p className="text-xs font-medium text-ink-soft mt-1 italic">"{m.details}"</p>
                             </div>
                           </div>
                         );
                       })}
                       {mouvements.filter(m => m.personnelId === selectedEmployee.id).length === 0 && (
-                        <p className="text-sm text-slate-400 text-center py-8 before:hidden pl-0">Aucun mouvement enregistré pour cet employé.</p>
+                        <p className="text-sm text-ink-faint text-center py-8 before:hidden pl-0">Aucun mouvement enregistré pour cet employé.</p>
                       )}
                     </div>
                   </div>
 
                   {/* Form to add movement */}
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase">Enregistrer un mouvement de carrière</h4>
+                  <div className="bg-bg p-4 rounded-control border border-border space-y-4">
+                    <h4 className="text-xs font-bold text-ink-soft uppercase">Enregistrer un mouvement de carrière</h4>
                     <form onSubmit={handleAddMouvement} className="space-y-3">
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Type de Mouvement *</label>
+                        <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Type de Mouvement *</label>
                         <select
                           value={newMouvType}
                           onChange={(e) => setNewMouvType(e.target.value as any)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500 font-semibold"
+                          className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-semibold"
                         >
                           <option value="depart_volontaire">Départ volontaire (Statut → Quitté)</option>
                           <option value="mutation">Mutation / Changement de rôle</option>
@@ -2877,32 +2920,32 @@ export default function RHPage() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Date d'effet *</label>
+                        <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Date d'effet *</label>
                         <input
                           type="date"
                           required
                           value={newMouvDate}
                           onChange={(e) => setNewMouvDate(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                          className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Détails / Justification *</label>
+                        <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">Détails / Justification *</label>
                         <textarea
                           required
                           rows={3}
                           value={newMouvDetails}
                           onChange={(e) => setNewMouvDetails(e.target.value)}
                           placeholder="Saisissez les détails (ex: motif de rupture, nouveau département, etc.)"
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500"
+                          className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent"
                         />
                       </div>
 
                       <div className="pt-2">
                         <button
                           type="submit"
-                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors"
+                          className="w-full py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors"
                         >
                           Enregistrer le Mouvement
                         </button>
@@ -2919,24 +2962,24 @@ export default function RHPage() {
 
       {/* -------------------- EDIT USER PERMISSIONS MODAL -------------------- */}
       {editingProfile && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-lg border border-slate-100 shadow-2xl p-6 relative animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-lg border border-border shadow-login p-6 relative animate-in fade-in duration-200">
             <button
               onClick={() => setEditingProfile(null)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 font-bold"
+              className="absolute right-4 top-4 text-ink-faint hover:text-ink-soft font-bold"
             >
               ✕
             </button>
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 flex items-center gap-2 text-black">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
               Gérer les Habilitations
             </h3>
-            <p className="text-sm text-slate-600 mb-4">
-              Modifier les accès de l'utilisateur <strong className="text-indigo-600">{editingProfile.email}</strong> (Rôle actuel : <strong className="uppercase text-slate-800">{editingProfile.role}</strong>)
+            <p className="text-sm text-ink-soft mb-4">
+              Modifier les accès de l'utilisateur <strong className="text-ink">{editingProfile.email}</strong> (Rôle actuel : <strong className="uppercase text-ink">{editingProfile.role}</strong>)
             </p>
 
             <form onSubmit={handleSavePermissions} className="space-y-6">
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <div className="grid grid-cols-2 gap-3 bg-bg p-4 rounded-control border border-border">
                 {Object.entries({
                   dashboard: 'Tableau de bord',
                   sections: 'Sections',
@@ -2948,12 +2991,12 @@ export default function RHPage() {
                   finance: 'Finance',
                   rh: 'Ressources Humaines'
                 }).map(([key, label]) => (
-                  <label key={key} className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer hover:text-indigo-600">
+                  <label key={key} className="flex items-center gap-2.5 text-xs font-semibold text-ink-soft cursor-pointer hover:text-ink">
                     <input
                       type="checkbox"
                       checked={editingPermissions[key] || false}
                       onChange={(e) => setEditingPermissions(prev => ({ ...prev, [key]: e.target.checked }))}
-                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 cursor-pointer"
+                      className="rounded border-border text-ink focus:border-accent w-4 h-4 cursor-pointer"
                     />
                     <span>{label}</span>
                   </label>
@@ -2964,14 +3007,14 @@ export default function RHPage() {
                 <button
                   type="button"
                   onClick={() => setEditingProfile(null)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors"
+                  className="flex-1 py-2.5 bg-chip hover:bg-chip text-ink-soft rounded-control text-sm font-bold transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
                   disabled={isUpdatingPermissions}
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md transition-colors disabled:opacity-50"
+                  className="flex-1 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors disabled:opacity-50"
                 >
                   {isUpdatingPermissions ? "Enregistrement..." : "Enregistrer les modifications"}
                 </button>
@@ -2983,15 +3026,15 @@ export default function RHPage() {
 
       {/* Selected Payslip Detail Modal */}
       {selectedPayslip && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto print:p-0 print:bg-white print:static print:h-screen print:w-screen">
-          <div className="bg-white rounded-2xl w-full max-w-2xl border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200 print:shadow-none print:border-none print:p-0 print:w-full">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto print:p-0 print:bg-surface print:static print:h-screen print:w-screen">
+          <div className="bg-surface rounded-card w-full max-w-2xl border border-border shadow-login p-6 relative animate-in zoom-in-95 duration-200 print:shadow-none print:border-none print:p-0 print:w-full">
             
             {/* Modal Controls (Hide during print) */}
             <div className="absolute right-4 top-4 flex gap-2 print:hidden">
               <button
                 type="button"
                 onClick={() => handlePrintPayslip(selectedPayslip)}
-                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer"
+                className="px-3 py-1.5 bg-chip hover:bg-chip-hover text-ink rounded-control text-xs font-bold border border-outline transition-colors flex items-center gap-1 cursor-pointer"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimer
@@ -2999,133 +3042,133 @@ export default function RHPage() {
               <button
                 type="button"
                 onClick={() => setSelectedPayslip(null)}
-                className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full font-bold transition-all text-xs cursor-pointer"
+                className="w-8 h-8 flex items-center justify-center bg-chip hover:bg-chip text-ink-soft rounded-full font-bold transition-all text-xs cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="border-b border-slate-200 pb-4 mb-4 text-center">
+            <div className="border-b border-border pb-4 mb-4 text-center">
               <span className="text-3xl">🏫</span>
-              <h2 className="text-xl font-black text-slate-800 text-black mt-1 uppercase">Bulletin de Paie Individuel</h2>
-              <p className="text-xs text-slate-500 font-bold mt-1">Période : {selectedPayslip.periode} • Date de paiement : {new Date(selectedPayslip.datePaiement).toLocaleDateString('fr-FR')}</p>
+              <h2 className="text-xl font-black text-ink mt-1 uppercase">Bulletin de Paie Individuel</h2>
+              <p className="text-xs text-ink-soft font-bold mt-1">Période : {selectedPayslip.periode} • Date de paiement : {new Date(selectedPayslip.datePaiement).toLocaleDateString('fr-FR')}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-xs text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100 mb-4 print:bg-white print:border-none print:p-2">
+            <div className="grid grid-cols-2 gap-4 text-xs text-ink-soft bg-bg p-4 rounded-control border border-border mb-4 print:bg-surface print:border-none print:p-2">
               <div>
-                <span className="text-slate-400 block font-bold uppercase tracking-wider text-[9px]">Employeur</span>
-                <strong className="text-slate-800 text-black text-sm">{localStorage.getItem('mboaschool_current_school') || 'Mon Établissement'}</strong>
-                <span className="block mt-1 text-[10px] text-slate-500">Yaoundé, Cameroun</span>
+                <span className="text-ink-faint block font-bold uppercase tracking-wider text-[9px]">Employeur</span>
+                <strong className="text-ink text-sm">{localStorage.getItem('mboaschool_current_school') || 'Mon Établissement'}</strong>
+                <span className="block mt-1 text-[10px] text-ink-soft">Yaoundé, Cameroun</span>
               </div>
               <div>
-                <span className="text-slate-400 block font-bold uppercase tracking-wider text-[9px]">Salarié</span>
-                <strong className="text-slate-800 text-black text-sm">{selectedPayslip.nomPersonnel}</strong>
-                <span className="block mt-1 text-[10px] text-slate-500">ID Salarié: {selectedPayslip.personnelId.slice(0, 8)}</span>
+                <span className="text-ink-faint block font-bold uppercase tracking-wider text-[9px]">Salarié</span>
+                <strong className="text-ink text-sm">{selectedPayslip.nomPersonnel}</strong>
+                <span className="block mt-1 text-[10px] text-ink-soft">ID Salarié: {selectedPayslip.personnelId.slice(0, 8)}</span>
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse border border-slate-200 text-slate-700 print:text-black print:border-slate-400">
+              <table className="w-full text-left text-xs border-collapse border border-border text-ink-soft print:text-ink print:border-outline">
                 <thead>
-                  <tr className="bg-slate-50 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 print:bg-white print:border-slate-400">
-                    <th className="px-3 py-2 border-r border-slate-200">Rubrique / Désignation</th>
-                    <th className="px-3 py-2 text-right border-r border-slate-200">Base</th>
-                    <th className="px-3 py-2 text-right border-r border-slate-200">Retenues Employé</th>
+                  <tr className="bg-bg font-bold uppercase tracking-wider text-[9px] border-b border-border print:bg-surface print:border-outline">
+                    <th className="px-3 py-2 border-r border-border">Rubrique / Désignation</th>
+                    <th className="px-3 py-2 text-right border-r border-border">Base</th>
+                    <th className="px-3 py-2 text-right border-r border-border">Retenues Employé</th>
                     <th className="px-3 py-2 text-right">Charges Patronales</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 print:divide-slate-300">
+                <tbody className="divide-y divide-border-row print:divide-border-row">
                   <tr>
-                    <td className="px-3 py-2 font-semibold border-r border-slate-200">Salaire de Base</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireDeBase)}</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                    <td className="px-3 py-2 font-semibold border-r border-border">Salaire de Base</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.salaireDeBase)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
                     <td className="px-3 py-2 text-right font-mono">—</td>
                   </tr>
                   {(selectedPayslip.primeTransport > 0) && (
                     <tr>
-                      <td className="px-3 py-2 border-r border-slate-200">Prime de Transport</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.primeTransport)}</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 border-r border-border">Prime de Transport</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.primeTransport)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
                       <td className="px-3 py-2 text-right font-mono">—</td>
                     </tr>
                   )}
                   {(selectedPayslip.primeLogement > 0) && (
                     <tr>
-                      <td className="px-3 py-2 border-r border-slate-200">Prime de Logement</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.primeLogement)}</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 border-r border-border">Prime de Logement</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.primeLogement)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
                       <td className="px-3 py-2 text-right font-mono">—</td>
                     </tr>
                   )}
                   {(selectedPayslip.primeAnciennete > 0) && (
                     <tr>
-                      <td className="px-3 py-2 border-r border-slate-200">Prime d'Ancienneté</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.primeAnciennete)}</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 border-r border-border">Prime d'Ancienneté</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.primeAnciennete)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
                       <td className="px-3 py-2 text-right font-mono">—</td>
                     </tr>
                   )}
                   {(selectedPayslip.autresPrimes > 0) && (
                     <tr>
-                      <td className="px-3 py-2 border-r border-slate-200">Autres Primes</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.autresPrimes)}</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                      <td className="px-3 py-2 border-r border-border">Autres Primes</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.autresPrimes)}</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
                       <td className="px-3 py-2 text-right font-mono">—</td>
                     </tr>
                   )}
-                  <tr className="bg-slate-50 font-semibold print:bg-white">
-                    <td className="px-3 py-2 border-r border-slate-200 uppercase">Salaire Brut</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireBrut)}</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                  <tr className="bg-bg font-semibold print:bg-surface">
+                    <td className="px-3 py-2 border-r border-border uppercase">Salaire Brut</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.salaireBrut)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
                     <td className="px-3 py-2 text-right font-mono">—</td>
                   </tr>
                   
                   {/* CNPS */}
                   <tr>
-                    <td className="px-3 py-2 border-r border-slate-200">CNPS (Sociale)</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireBrut)}</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.cnpsSalariale)}</td>
+                    <td className="px-3 py-2 border-r border-border">CNPS (Sociale)</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.salaireBrut)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border text-accent">-{formatMoney(selectedPayslip.cnpsSalariale)}</td>
                     <td className="px-3 py-2 text-right font-mono">{formatMoney(selectedPayslip.cnpsPatronale)}</td>
                   </tr>
 
                   {/* CFC */}
                   <tr>
-                    <td className="px-3 py-2 border-r border-slate-200">CFC (Crédit Foncier)</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">{formatMoney(selectedPayslip.salaireBrut)}</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.cfcSalariale)}</td>
+                    <td className="px-3 py-2 border-r border-border">CFC (Crédit Foncier)</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">{formatMoney(selectedPayslip.salaireBrut)}</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border text-accent">-{formatMoney(selectedPayslip.cfcSalariale)}</td>
                     <td className="px-3 py-2 text-right font-mono">{formatMoney(selectedPayslip.cfcPatronale)}</td>
                   </tr>
 
                   {/* FNE */}
                   <tr>
-                    <td className="px-3 py-2 border-r border-slate-200">FNE (Fonds National Emploi)</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
-                    <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
+                    <td className="px-3 py-2 border-r border-border">FNE (Fonds National Emploi)</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
+                    <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
                     <td className="px-3 py-2 text-right font-mono">{formatMoney(selectedPayslip.fne)}</td>
                   </tr>
 
                   {/* Impôts (IRPP + CAC) */}
                   {(selectedPayslip.irpp > 0) && (
                     <tr>
-                      <td className="px-3 py-2 border-r border-slate-200">IRPP (Impôt sur le Revenu)</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.irpp)}</td>
+                      <td className="px-3 py-2 border-r border-border">IRPP (Impôt sur le Revenu)</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border text-accent">-{formatMoney(selectedPayslip.irpp)}</td>
                       <td className="px-3 py-2 text-right font-mono">—</td>
                     </tr>
                   )}
                   {(selectedPayslip.cac > 0) && (
                     <tr>
-                      <td className="px-3 py-2 border-r border-slate-200">CAC (Centimes Add. Communaux)</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.cac)}</td>
+                      <td className="px-3 py-2 border-r border-border">CAC (Centimes Add. Communaux)</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border text-accent">-{formatMoney(selectedPayslip.cac)}</td>
                       <td className="px-3 py-2 text-right font-mono">—</td>
                     </tr>
                   )}
                   {(selectedPayslip.rav > 0) && (
                     <tr>
-                      <td className="px-3 py-2 border-r border-slate-200">RAV (Redevance Audio-Visuelle)</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200">—</td>
-                      <td className="px-3 py-2 text-right font-mono border-r border-slate-200 text-rose-600">-{formatMoney(selectedPayslip.rav)}</td>
+                      <td className="px-3 py-2 border-r border-border">RAV (Redevance Audio-Visuelle)</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border">—</td>
+                      <td className="px-3 py-2 text-right font-mono border-r border-border text-accent">-{formatMoney(selectedPayslip.rav)}</td>
                       <td className="px-3 py-2 text-right font-mono">—</td>
                     </tr>
                   )}
@@ -3133,24 +3176,24 @@ export default function RHPage() {
               </table>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100 text-xs text-slate-700">
+            <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-border text-xs text-ink-soft">
               <div className="space-y-1.5">
                 <div className="flex justify-between">
                   <span>Total Retenues Salariales :</span>
-                  <span className="font-mono font-bold text-rose-600">-{formatMoney(selectedPayslip.totalRetenues)}</span>
+                  <span className="font-mono font-bold text-accent">-{formatMoney(selectedPayslip.totalRetenues)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Total Charges Patronales :</span>
                   <span className="font-mono font-bold">{formatMoney(selectedPayslip.totalChargesPatronales)}</span>
                 </div>
               </div>
-              <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex flex-col justify-center items-center text-center print:bg-white print:border-none">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Net à payer</span>
-                <span className="text-lg font-black text-indigo-700 font-mono mt-0.5">{formatMoney(selectedPayslip.netAPayer)}</span>
+              <div className="bg-chip border border-outline p-3 rounded-control flex flex-col justify-center items-center text-center print:bg-surface print:border-none">
+                <span className="text-[10px] font-bold text-ink uppercase tracking-wider">Net à payer</span>
+                <span className="text-lg font-black text-ink font-mono mt-0.5">{formatMoney(selectedPayslip.netAPayer)}</span>
               </div>
             </div>
 
-            <div className="flex justify-between items-center text-[10px] text-slate-400 mt-6 pt-4 border-t border-slate-100 print:text-black">
+            <div className="flex justify-between items-center text-[10px] text-ink-faint mt-6 pt-4 border-t border-border print:text-ink">
               <span>MboaSchool Cameroon - Gestion Scolaire</span>
               <span>Signature Employé & Cachet Établissement</span>
             </div>

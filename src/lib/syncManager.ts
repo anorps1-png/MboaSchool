@@ -1,6 +1,6 @@
 import { get, set, update } from 'idb-keyval';
 import { createClient } from '@/lib/supabase/client';
-import { captureError } from '@/lib/observability/logger';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 export interface SyncTask {
   id: string;
@@ -79,7 +79,7 @@ class SyncManager {
     if (failedTasks.length === 0) {
       console.log('[SyncManager] Synchronisation terminée à 100%.');
     } else {
-      console.warn(`[SyncManager] ${failedTasks.length} tâches ont échoué et restent en file d'attente.`);
+      captureMessage('[SyncManager] Tâches en échec restent en file d\'attente.', { failedCount: failedTasks.length });
     }
   }
 }

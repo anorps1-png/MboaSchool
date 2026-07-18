@@ -11,7 +11,9 @@ import Footer from '@/components/landing/Footer';
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-slate-50 selection:bg-indigo-200 selection:text-indigo-900">
+    <div className="min-h-screen bg-bg text-ink selection:bg-accent/20 selection:text-accent">
+      {/* Bande kenté signature */}
+      <div className="kente-band sticky top-0 z-50" />
       <Navbar />
       <main>
         <Hero />

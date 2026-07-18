@@ -142,3 +142,34 @@ export async function updateFichesDePaieStatut(ids: string[], statut: string) {
   return data || [];
 }
 
+export interface MasseSalarialeHistoriquePoint {
+  periode: string;
+  valeurTotal: number;
+  nombreSalaries: number;
+  salaireMoyen: number;
+  tauxCroissance: number | null;
+}
+
+/**
+ * Historique mensuel de la masse salariale, calculé à partir des fiches de
+ * paie réellement validées ou payées (statut brouillon exclu). Retourne un
+ * tableau vide si aucun mois n'a encore de paie validée.
+ */
+export async function getMasseSalarialeHistorique(
+  etablissementId: string,
+  months = 6
+): Promise<MasseSalarialeHistoriquePoint[]> {
+  const { data, error } = await supabase.rpc('get_masse_salariale_historique', {
+    p_etablissement_id: etablissementId,
+    p_months: months,
+  });
+  if (error) throw error;
+  return ((data as Record<string, unknown>[]) ?? []).map((row) => ({
+    periode: row.periode as string,
+    valeurTotal: Number(row.valeur_total),
+    nombreSalaries: Number(row.nombre_salaries),
+    salaireMoyen: Number(row.salaire_moyen),
+    tauxCroissance: row.taux_croissance === null ? null : Number(row.taux_croissance),
+  }));
+}
+

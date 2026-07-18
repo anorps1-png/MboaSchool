@@ -1,4 +1,5 @@
 'use client';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
@@ -31,11 +32,11 @@ export default function Dashboard() {
           const [{ classes, students: studentsData, teachers }, stats] = await Promise.all([
             getDashboardData(etablissementId),
             getDashboardStats(etablissementId).catch((e) => {
-              console.error('Dashboard stats RPC error:', e);
+              captureError(e, { context: 'Dashboard stats RPC error:' });
               return null;
             }),
           ]);
-          setClassesList(classes);
+          setClassesList(classes as Classe[]);
           setTeachersList(teachers);
           setServerStats(stats);
 
@@ -86,7 +87,7 @@ export default function Dashboard() {
           });
           setTransactions(allTx.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
         } catch (error) {
-          console.error("Dashboard fetch error:", error);
+          captureError(error, { context: "Dashboard fetch error:" });
         } finally {
           setIsLoaded(true);
         }
@@ -254,8 +255,15 @@ export default function Dashboard() {
     return totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 0;
   }, [totalPaid, totalExpected]);
 
-  // Format currency helper
+  // Format currency helper (shortens large numbers for cleaner dashboard readability)
   const formatFCFA = (amount: number) => {
+    if (amount >= 1000000) {
+      const millions = amount / 1000000;
+      return new Intl.NumberFormat('fr-FR', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      }).format(millions) + ' M FCFA';
+    }
     return new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
   };
 
@@ -370,37 +378,33 @@ export default function Dashboard() {
   if (!isLoaded) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-sm font-semibold text-slate-400">Chargement du tableau de bord depuis Supabase...</p>
+        <p className="text-sm font-semibold text-ink-faint">Chargement du tableau de bord depuis Supabase...</p>
       </div>
     );
   }
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 pb-6 border-b border-slate-100">
+    <div className="flex flex-col gap-7">
+      {/* En-tête */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 tracking-tight text-black">Vue d&apos;ensemble</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-[32px] lg:text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-[1.05]">L&apos;école aujourd&apos;hui</h1>
+          <p className="mt-2 text-base text-ink-soft font-medium">
             Statistiques clés et aperçu financier de l&apos;établissement en temps réel.
           </p>
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mt-2">
-            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Connecté à Supabase en direct</span>
-          </div>
         </div>
 
-        {/* Date Filter Controls */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm w-full md:w-auto">
+        {/* Filtre par période */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-surface p-3 rounded-card border border-border w-full md:w-auto">
           <div className="flex items-center gap-2">
-            <span className="text-slate-400 p-1.5 bg-slate-50 rounded-lg">
-              <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <span className="text-ink-faint p-1.5 bg-bg rounded-control">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </span>
             <select
               value={dateFilterType}
               onChange={(e) => setDateFilterType(e.target.value)}
-              className="text-sm font-semibold text-slate-700 bg-transparent border-0 focus:ring-0 focus:outline-none cursor-pointer pr-8"
+              className="text-sm font-bold text-ink-soft bg-transparent border-0 focus:outline-none cursor-pointer pr-8"
             >
               <option value="all">Toutes les périodes</option>
               <option value="today">Aujourd&apos;hui</option>
@@ -413,152 +417,115 @@ export default function Dashboard() {
           </div>
 
           {dateFilterType === 'custom' && (
-            <div className="flex items-center gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+            <div className="flex items-center gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-border-row">
               <input
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+                className="text-xs font-semibold text-ink-soft bg-bg border border-border rounded-control px-2.5 py-1.5 outline-none focus:border-accent focus:bg-surface"
               />
-              <span className="text-xs text-slate-400 font-bold">au</span>
+              <span className="text-xs text-ink-faint font-bold">au</span>
               <input
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none"
+                className="text-xs font-semibold text-ink-soft bg-bg border border-border rounded-control px-2.5 py-1.5 outline-none focus:border-accent focus:bg-surface"
               />
             </div>
           )}
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Card 1: Total Students */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Élèves</span>
-            <span className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            </span>
+      {/* Cartes KPI */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Élèves */}
+        <div className="bg-surface rounded-card p-6 border border-border animate-fade-up">
+          <div className="text-[13px] font-bold text-ink-soft">Élèves inscrits</div>
+          <div className="text-[44px] font-extrabold text-ink tracking-[-2px] leading-none mt-3">{totalStudents}</div>
+          <div className="mt-3.5 flex flex-wrap gap-2">
+            <span className="text-[13px] font-bold text-green bg-green-bg rounded-pill px-3 py-1">{activeStudents} actifs</span>
+            {globalSuccessRate !== '--' && (
+              <span className="text-[13px] font-bold text-ink-soft bg-chip rounded-pill px-3 py-1">Réussite {globalSuccessRate}%</span>
+            )}
           </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-extrabold text-slate-800 text-black">{totalStudents}</h3>
-            <div className="text-xs text-slate-500 mt-1 flex flex-col gap-1.5">
-              <span className="flex items-center gap-1">
-                <span className="text-emerald-500 font-semibold">{activeStudents} actifs</span>
-                <span>• {totalStudents - activeStudents} suspendus</span>
-              </span>
-              {dateFilterType !== 'all' && (
-                <span className="text-xs font-semibold text-indigo-600 bg-indigo-50/70 border border-indigo-100/50 px-2.5 py-1 rounded-xl inline-flex items-center gap-1.5 w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                  dont {newInscriptionsCount} nouveau{newInscriptionsCount !== 1 ? 'x' : ''} inscrit{newInscriptionsCount !== 1 ? 's' : ''}
-                </span>
-              )}
-              <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded inline-flex w-fit mt-1">
-                Taux de réussite : {globalSuccessRate !== '--' ? `${globalSuccessRate}%` : '--'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Total Teachers */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Enseignants</span>
-            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 4a2 2 0 00-2-2v3m2-1V9a2 2 0 00-2-2v3m3 4h-3M9 8h.01M9 12h.01M9 16h.01" />
-              </svg>
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-extrabold text-slate-800 text-black">{totalTeachers}</h3>
-            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              <span className="text-emerald-500 font-semibold">{activeTeachers} actifs</span>
-              <span>• {totalTeachers - activeTeachers} inactifs</span>
-            </p>
-          </div>
-        </div>
-
-        {/* Card 3: Total Paid Fees */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Frais Payés</span>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-2xl font-extrabold text-slate-800 truncate text-black">{formatFCFA(totalPaid)}</h3>
+          {dateFilterType !== 'all' && (
             <div className="mt-2">
-              <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
-                <span>Taux de recouvrement {dateFilterType !== 'all' ? 'sur la période' : ''}</span>
-                <span className="font-semibold text-indigo-600">{recoveryRate.toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, recoveryRate)}%` }}
-                ></div>
-              </div>
+              <span className="text-[13px] font-bold text-accent bg-red-bg rounded-pill px-3 py-1 inline-block">
+                dont {newInscriptionsCount} nouveau{newInscriptionsCount !== 1 ? 'x' : ''} inscrit{newInscriptionsCount !== 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Enseignants */}
+        <div className="bg-surface rounded-card p-6 border border-border animate-fade-up [animation-delay:0.08s]">
+          <div className="text-[13px] font-bold text-ink-soft">Enseignants</div>
+          <div className="text-[44px] font-extrabold text-ink tracking-[-2px] leading-none mt-3">{totalTeachers}</div>
+          <div className="mt-3.5">
+            <span className="text-[13px] font-bold text-green bg-green-bg rounded-pill px-3 py-1 inline-block">
+              {activeTeachers} actifs · {totalTeachers - activeTeachers} inactifs
+            </span>
+          </div>
+        </div>
+
+        {/* Frais perçus */}
+        <div className="bg-surface rounded-card p-6 border border-border animate-fade-up [animation-delay:0.16s]">
+          <div className="text-[13px] font-bold text-ink-soft">Frais perçus</div>
+          <div className="text-[30px] font-extrabold text-ink tracking-[-1.5px] leading-tight mt-3 truncate">{formatFCFA(totalPaid)}</div>
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-[11px] text-ink-faint font-semibold mb-1.5">
+              <span>Recouvrement {dateFilterType !== 'all' ? 'sur la période' : ''}</span>
+              <span className="font-extrabold text-ink-soft">{recoveryRate.toFixed(1)}%</span>
+            </div>
+            <div className="h-2 bg-chip rounded-pill overflow-hidden mt-4">
+              <div 
+                className="h-full rounded-pill transition-all duration-1000" 
+                style={{ width: `${Math.min(100, recoveryRate)}%`, background: recoveryRate >= 75 ? 'var(--color-ink)' : 'var(--color-accent)' }}
+              ></div>
             </div>
           </div>
         </div>
 
-        {/* Card 4: Total Expected / Pending */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Montant en Attente</span>
-            <span className="p-2 bg-red-50 text-red-600 rounded-xl">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </span>
-          </div>
+        {/* Reste à percevoir — carte accent sombre */}
+        <div className="bg-ink rounded-card p-6 text-cream animate-fade-up [animation-delay:0.24s]">
+          <div className="text-[13px] font-bold opacity-80">Reste à percevoir</div>
+          <div className="text-[30px] font-extrabold tracking-[-1.5px] leading-tight mt-3 truncate">{formatFCFA(totalPending)}</div>
           <div className="mt-4">
-            <h3 className="text-2xl font-extrabold text-slate-800 truncate text-black">{formatFCFA(totalPending)}</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Sur un total attendu de <span className="font-medium">{formatFCFA(totalExpected)}</span>
-            </p>
+            <span className="text-[13px] font-semibold bg-cream/15 rounded-pill px-3 py-1 inline-block">
+              Sur {formatFCFA(totalExpected)} attendus
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart 1: Donut Chart of Recovery Status (Expected vs Paid) */}
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm lg:col-span-2 flex flex-col justify-between">
+      {/* Section graphiques */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Recouvrement global & par classe */}
+        <div className="bg-surface rounded-card border border-border p-7 lg:col-span-2 flex flex-col justify-between">
           <div>
-            <h3 className="text-base font-bold text-slate-800 text-black">Recouvrement Global & Par Classe</h3>
-            <p className="text-xs text-slate-400">Comparaison entre les montants attendus (facturations) et réellement perçus (encaissements)</p>
+            <h3 className="text-xl font-extrabold text-ink tracking-[-0.5px]">Recouvrement global &amp; par classe</h3>
+            <p className="text-xs text-ink-faint font-medium mt-1">Montants attendus (facturations) vs réellement perçus (encaissements)</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center py-4">
-            {/* Left Column: Global Donut */}
-            <div className="md:col-span-5 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-slate-100 pb-6 md:pb-0 md:pr-6">
+            {/* Donut global */}
+            <div className="md:col-span-5 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-border-row pb-6 md:pb-0 md:pr-6">
               <div className="relative w-40 h-40 flex items-center justify-center">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 160 160">
-                  {/* Background circle (En attente) */}
                   <circle
                     cx="80"
                     cy="80"
                     r="70"
-                    className="stroke-rose-100"
+                    className="stroke-chip"
                     strokeWidth="14"
                     fill="transparent"
                   />
-                  {/* Foreground circle (Perçu) */}
                   {recoveryRate > 0 && (
                     <circle
                       cx="80"
                       cy="80"
                       r="70"
-                      className="stroke-indigo-600 transition-all duration-1000 ease-out"
+                      className={`transition-all duration-1000 ease-out ${recoveryRate >= 75 ? 'stroke-ink' : 'stroke-accent'}`}
                       strokeWidth="14"
                       fill="transparent"
                       strokeDasharray={2 * Math.PI * 70}
@@ -568,45 +535,43 @@ export default function Dashboard() {
                   )}
                 </svg>
                 <div className="absolute flex flex-col items-center justify-center text-center">
-                  <span className="text-2xl font-extrabold text-slate-800 text-black">{recoveryRate.toFixed(1)}%</span>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Recouvré</span>
+                  <span className="text-[28px] font-extrabold text-ink tracking-[-1px]">{recoveryRate.toFixed(1)}%</span>
+                  <span className="text-[9px] font-bold text-ink-faint uppercase tracking-wider mt-0.5">Recouvré</span>
                 </div>
               </div>
 
-              {/* Global Legend under Donut */}
               <div className="w-full mt-4 space-y-2 text-xs">
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-indigo-600"></span>Payé</span>
-                  <span className="font-bold text-black">{formatFCFA(totalPaid)}</span>
+                <div className="flex items-center justify-between text-ink-soft">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-ink"></span>Payé</span>
+                  <span className="font-extrabold text-ink">{formatFCFA(totalPaid)}</span>
                 </div>
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-rose-500"></span>En Attente</span>
-                  <span className="font-bold text-rose-600">{formatFCFA(totalPending)}</span>
+                <div className="flex items-center justify-between text-ink-soft">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-accent"></span>En attente</span>
+                  <span className="font-extrabold text-accent">{formatFCFA(totalPending)}</span>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Class Breakdown */}
+            {/* Détail par classe */}
             <div className="md:col-span-7 flex flex-col h-full justify-center">
-              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Taux de recouvrement par classe</h4>
-              <div className="max-h-64 overflow-y-auto pr-2 space-y-2.5 scrollbar-thin scrollbar-thumb-slate-200">
+              <h4 className="text-[11px] font-bold text-ink-faint uppercase tracking-wider mb-3">Taux de recouvrement par classe</h4>
+              <div className="max-h-64 overflow-y-auto pr-2 space-y-2">
                 {displayStats.map((stat) => (
-                  <div key={stat.classeName} className="flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-xl border border-slate-100/50 transition-colors">
+                  <div key={stat.classeName} className="flex items-center justify-between p-2.5 hover:bg-row-hover rounded-chip transition-colors">
                     <div className="flex-1 min-w-0 pr-3">
-                      <span className="font-bold text-sm text-slate-800 block truncate text-black">{stat.classeName}</span>
-                      <span className="text-[10px] text-slate-400 font-medium block mt-0.5">
-                        Payé : <span className="font-semibold text-slate-600">{formatFCFA(stat.paid)}</span> / {formatFCFA(stat.expected)}
+                      <span className="font-bold text-sm text-ink block truncate">{stat.classeName}</span>
+                      <span className="text-[10px] text-ink-faint font-medium block mt-0.5">
+                        Payé : <span className="font-semibold text-ink-soft">{formatFCFA(stat.paid)}</span> / {formatFCFA(stat.expected)}
                       </span>
                     </div>
 
-                    {/* Mini Circle Progress */}
                     <div className="relative flex items-center justify-center w-10 h-10 flex-shrink-0">
                       <svg className="w-full h-full transform -rotate-90" viewBox="0 0 32 32">
                         <circle
                           cx="16"
                           cy="16"
                           r="13"
-                          className="stroke-slate-100"
+                          className="stroke-chip"
                           strokeWidth="3.5"
                           fill="transparent"
                         />
@@ -615,7 +580,7 @@ export default function Dashboard() {
                             cx="16"
                             cy="16"
                             r="13"
-                            className="stroke-indigo-600"
+                            className={stat.rate >= 75 ? 'stroke-ink' : 'stroke-accent'}
                             strokeWidth="3.5"
                             fill="transparent"
                             strokeDasharray={2 * Math.PI * 13}
@@ -624,7 +589,7 @@ export default function Dashboard() {
                           />
                         )}
                       </svg>
-                      <div className="absolute text-[8px] font-black text-slate-800 text-black">
+                      <div className="absolute text-[8px] font-extrabold text-ink">
                         {stat.rate.toFixed(0)}%
                       </div>
                     </div>
@@ -636,70 +601,66 @@ export default function Dashboard() {
         </div>
 
 
-        {/* Chart 2: Distribution by Class */}
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between">
+        {/* Répartition par niveau */}
+        <div className="bg-surface rounded-card border border-border p-7 flex flex-col justify-between">
           <div>
-            <h3 className="text-base font-bold text-slate-800 text-black">Élèves par niveau</h3>
-            <p className="text-xs text-slate-400 mb-6">Répartition des effectifs d&apos;élèves</p>
+            <h3 className="text-xl font-extrabold text-ink tracking-[-0.5px]">Élèves par niveau</h3>
+            <p className="text-xs text-ink-faint font-medium mb-6">Répartition des effectifs</p>
           </div>
 
           <div className="space-y-4">
             {classStats.length > 0 ? classStats.map((stat) => {
-              const maxStudents = Math.max(...classStats.map(s => s.studentCount));
               const pct = totalStudentsInPeriod > 0 ? (stat.studentCount / totalStudentsInPeriod) * 100 : 0;
               return (
-                <div key={stat.classeName} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs font-medium text-slate-700">
+                <div key={stat.classeName} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-semibold text-ink-soft">
                     <span>{stat.classeName}</span>
-                    <span className="font-bold text-black">{stat.studentCount} élèves ({pct.toFixed(0)}%)</span>
+                    <span className="font-extrabold text-ink">{stat.studentCount} élèves ({pct.toFixed(0)}%)</span>
                   </div>
-                  <div className="w-full bg-slate-50 border border-slate-100 h-2.5 rounded-full overflow-hidden">
+                  <div className="w-full bg-chip h-2.5 rounded-pill overflow-hidden">
                     <div
-                      className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                      className="bg-ink h-full rounded-pill transition-all duration-500"
                       style={{ width: `${pct}%` }}
                     ></div>
                   </div>
                 </div>
               );
             }) : (
-                <div className="text-sm text-slate-400 text-center py-8">Aucun élève inscrit</div>
+                <div className="text-sm text-ink-faint text-center py-8">Aucun élève inscrit</div>
             )}
           </div>
 
-          <div className="border-t border-slate-100 pt-4 mt-6 flex justify-between text-[11px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Filles ({genderStats.girlsPct}%)
+          <div className="border-t border-border-row pt-4 mt-6 flex justify-between text-[11px] font-semibold text-ink-faint">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-accent"></span> Filles ({genderStats.girlsPct}%)
             </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Garçons ({genderStats.boysPct}%)
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-ink"></span> Garçons ({genderStats.boysPct}%)
             </span>
           </div>
         </div>
       </div>
 
-      {/* Bottom Section: Recent transactions */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+      {/* Transactions récentes */}
+      <div className="bg-surface rounded-card border border-border overflow-hidden">
+        <div className="px-6 py-5 border-b border-border-row flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h3 className="text-base font-bold text-slate-800 text-black">Transactions Récentes</h3>
-            <p className="text-xs text-slate-400">Derniers versements enregistrés dans l&apos;établissement</p>
+            <h3 className="text-xl font-extrabold text-ink tracking-[-0.5px]">Paiements récents</h3>
+            <p className="text-xs text-ink-faint font-medium mt-0.5">Derniers versements enregistrés dans l&apos;établissement</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <button
               onClick={handleExportTransactions}
-              className="text-xs font-semibold text-slate-600 hover:text-indigo-600 flex items-center gap-1.5 transition-colors bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg"
+              className="text-[13px] font-bold text-ink-soft hover:text-ink hover:border-ink flex items-center gap-1.5 transition-colors bg-transparent border border-outline px-3.5 py-2 rounded-control"
             >
               <DownloadIcon size={14} />
               Exporter
             </button>
             <Link
               href="/eleves"
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 transition-all"
+              className="text-[13px] font-bold text-accent hover:text-accent-hover flex items-center gap-1 transition-colors"
             >
-              Voir tous les élèves
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-              </svg>
+              Tout voir →
             </Link>
           </div>
         </div>
@@ -707,48 +668,52 @@ export default function Dashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
-                <th className="px-6 py-3">Élève</th>
-                <th className="px-6 py-3">Classe</th>
-                <th className="px-6 py-3">Type</th>
-                <th className="px-6 py-3">Montant</th>
-                <th className="px-6 py-3">Mode</th>
-                <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Statut</th>
+              <tr className="text-xs font-bold text-ink-faint uppercase tracking-[1px] bg-bg">
+                <th className="px-6 py-3.5 font-bold">Élève</th>
+                <th className="px-4 py-3.5 font-bold">Classe</th>
+                <th className="px-4 py-3.5 font-bold">Type</th>
+                <th className="px-4 py-3.5 font-bold">Montant</th>
+                <th className="px-4 py-3.5 font-bold">Mode</th>
+                <th className="px-4 py-3.5 font-bold">Date</th>
+                <th className="px-6 py-3.5 font-bold">Statut</th>
               </tr>
             </thead>
-            <tbody className="text-sm divide-y divide-slate-100">
+            <tbody className="text-sm">
               {recentTransactions.length > 0 ? recentTransactions.map((tx) => (
-                <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4">
-                    <span className="font-semibold text-slate-800 text-black">{tx.nomEleve}</span>
-                    <span className="block text-[10px] text-slate-400 font-medium">{tx.matriculeEleve}</span>
+                <tr key={tx.id} className="border-t border-border-row hover:bg-row-hover transition-colors">
+                  <td className="px-6 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-[38px] h-[38px] rounded-[12px] bg-chip text-ink-soft text-xs font-extrabold flex items-center justify-center shrink-0">
+                        {String(tx.nomEleve || '').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="block font-bold text-ink truncate">{tx.nomEleve}</span>
+                        <span className="block text-[11px] text-ink-faint font-medium">{tx.matriculeEleve}</span>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-6 py-4 text-slate-600 font-medium">{tx.classeNom}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                      tx.typeFrais === 'Inscription' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-blue-50 text-blue-700 border border-blue-100'
+                  <td className="px-4 py-3.5 text-ink-soft font-semibold">{tx.classeNom}</td>
+                  <td className="px-4 py-3.5">
+                    <span className={`px-2.5 py-1 rounded-pill text-[11px] font-bold ${
+                      tx.typeFrais === 'Inscription' ? 'bg-red-bg text-accent' : 'bg-chip text-ink-soft'
                     }`}>
                       {tx.typeFrais}
                     </span>
                   </td>
-                  <td className="px-6 py-4 font-bold text-slate-800 text-black">{formatFCFA(tx.montant)}</td>
-                  <td className="px-6 py-4 text-slate-500 text-xs">{tx.modePaiement}</td>
-                  <td className="px-6 py-4 text-slate-500 text-xs">{tx.date}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
-                      tx.statut === 'paid' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-amber-600 bg-amber-50 border-amber-100'
-                    } px-2 py-0.5 rounded-full border`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        tx.statut === 'paid' ? 'bg-emerald-500' : 'bg-amber-500'
-                      }`}></span>
+                  <td className="px-4 py-3.5 font-extrabold text-ink">{formatFCFA(tx.montant)}</td>
+                  <td className="px-4 py-3.5 text-ink-soft text-[13px] font-semibold">{tx.modePaiement}</td>
+                  <td className="px-4 py-3.5 text-ink-faint text-[13px] font-medium">{tx.date}</td>
+                  <td className="px-6 py-3.5">
+                    <span className={`inline-flex items-center gap-1.5 text-[12px] font-extrabold px-3 py-1 rounded-pill ${
+                      tx.statut === 'paid' ? 'text-green bg-green-bg' : 'text-ink-soft bg-chip'
+                    }`}>
                       {tx.statut === 'paid' ? 'Payé' : 'En attente'}
                     </span>
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 text-sm">
+                  <td colSpan={7} className="px-6 py-12 text-center text-ink-faint text-sm">
                     Aucune transaction récente enregistrée.
                   </td>
                 </tr>

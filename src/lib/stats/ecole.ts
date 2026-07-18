@@ -1,3 +1,4 @@
+import { captureError, captureMessage } from '@/lib/observability/logger';
 import { createClient } from '../supabase/client';
 import { computeClassStats } from './classes';
 
@@ -104,7 +105,7 @@ export async function computeEcoleStats(
       .range(from, from + step - 1);
 
     if (error) {
-      console.error('[Stats Ecole] Error fetching students:', error);
+      captureError(error, { context: '[Stats Ecole] Error fetching students:' });
       return null;
     }
 
@@ -141,7 +142,7 @@ export async function computeEcoleStats(
         .order('id', { ascending: true })
         .range(pFrom, pFrom + pStep - 1);
       if (pErr) {
-        console.error('[Stats Ecole] Error fetching payments:', pErr);
+        captureError(pErr, { context: '[Stats Ecole] Error fetching payments:' });
         return null;
       }
       if (paiements && paiements.length > 0) {

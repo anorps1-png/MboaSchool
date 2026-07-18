@@ -452,3 +452,34 @@ CREATE POLICY "Lignes ecritures access for authenticated" ON public.lignes_ecrit
       SELECT id FROM public.ecritures_comptables WHERE etablissement_id = public.current_user_etablissement_id()
     )
   );
+
+-- ==========================================
+-- 12. EMPLOI DU TEMPS
+-- ==========================================
+CREATE TABLE public.emploi_du_temps (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  etablissement_id UUID REFERENCES public.etablissements(id) ON DELETE CASCADE,
+  classe_id UUID REFERENCES public.classes(id) ON DELETE CASCADE,
+  jour_semaine INTEGER NOT NULL CHECK (jour_semaine BETWEEN 1 AND 6),
+  heure_debut TEXT NOT NULL,
+  heure_fin TEXT NOT NULL,
+  matiere_id UUID REFERENCES public.matieres(id) ON DELETE CASCADE,
+  enseignant_id UUID REFERENCES public.enseignants(id) ON DELETE CASCADE,
+  salle TEXT,
+  couleur TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.emploi_du_temps ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Emploi du temps scope access" ON public.emploi_du_temps TO authenticated
+  USING (
+    classe_id IN (
+      SELECT id FROM public.classes WHERE niveau_id IN (
+        SELECT id FROM public.niveaux_classes WHERE section_id IN (
+          SELECT id FROM public.sections WHERE etablissement_id = public.current_user_etablissement_id()
+        )
+      )
+    )
+  );
+

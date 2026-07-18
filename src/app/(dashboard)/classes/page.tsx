@@ -188,21 +188,21 @@ export default function ClassesPage() {
     <div className="space-y-6">
       {/* Toast */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-surface p-6 rounded-card border border-border shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Configuration des Classes</h1>
-          <p className="text-sm text-slate-500 mt-1">Gérez les niveaux, les sections et les frais de scolarité</p>
+          <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Configuration des Classes</h1>
+          <p className="text-sm text-ink-soft mt-1">Gérez les niveaux, les sections et les frais de scolarité</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center justify-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-md shadow-indigo-200 transition-all active:scale-95"
+          className="inline-flex items-center justify-center px-5 py-2.5 bg-accent hover:bg-accent-hover text-cream text-sm font-bold rounded-control shadow-md shadow-cta transition-all active:scale-95"
         >
           + Nouvelle Classe
         </button>
@@ -211,21 +211,21 @@ export default function ClassesPage() {
       {/* Contenu */}
       {isLoading ? (
         <div className="flex justify-center items-center py-20">
-          <svg className="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg className="animate-spin h-8 w-8 text-ink" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
         </div>
       ) : classesList.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 flex flex-col items-center justify-center text-center">
-          <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
+        <div className="bg-surface rounded-card border border-dashed border-border p-12 flex flex-col items-center justify-center text-center">
+          <div className="w-16 h-16 bg-chip rounded-full flex items-center justify-center mb-4">
             <span className="text-2xl">🏫</span>
           </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-2">Aucune classe configurée</h3>
-          <p className="text-slate-500 text-sm max-w-md mb-6">Créez votre première classe pour commencer à y inscrire des élèves et définir les frais de scolarité associés.</p>
+          <h3 className="text-lg font-bold text-ink mb-2">Aucune classe configurée</h3>
+          <p className="text-ink-soft text-sm max-w-md mb-6">Créez votre première classe pour commencer à y inscrire des élèves et définir les frais de scolarité associés.</p>
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-bold transition-colors"
+            className="px-5 py-2 bg-ink hover:bg-ink text-cream rounded-control text-sm font-bold transition-colors"
           >
             Créer ma première classe
           </button>
@@ -233,11 +233,11 @@ export default function ClassesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {classesList.map(cls => (
-            <Link key={cls.id} href={`/classes/${encodeURIComponent(cls.id)}`} className="group block relative bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+            <Link key={cls.id} href={`/classes/${encodeURIComponent(cls.id)}`} className="group block relative bg-surface p-6 rounded-card shadow-sm border border-border hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
               {/* Bouton de modification (visible au hover) */}
               <button
                 onClick={(e) => handleStartEdit(cls, e)}
-                className="absolute top-4 right-14 w-8 h-8 flex items-center justify-center bg-indigo-50 text-indigo-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-indigo-100"
+                className="absolute top-4 right-14 w-8 h-8 flex items-center justify-center bg-chip text-ink rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-chip-hover"
                 title="Modifier la classe"
               >
                 ✏️
@@ -245,7 +245,7 @@ export default function ClassesPage() {
               {/* Bouton de suppression (visible au hover) */}
               <button
                 onClick={(e) => handleDeleteClass(cls.id, e)}
-                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-rose-50 text-rose-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-100"
+                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-red-bg text-accent rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-bg"
                 title="Supprimer la classe"
               >
                 ✕
@@ -253,28 +253,28 @@ export default function ClassesPage() {
               
               <div className="flex justify-between items-start mb-4">
                 <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md ${
-                  cls.section === 'Anglophone' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'
+                  cls.section === 'Anglophone' ? 'bg-chip text-ink-soft' : 'bg-chip text-ink'
                 }`}>
                   {cls.section || 'Francophone'}
                 </span>
               </div>
               
-              <h2 className="text-2xl font-extrabold text-slate-800 mb-1">{cls.nom}</h2>
-              <p className="text-sm font-medium text-slate-500 mb-4">{cls.niveau}</p>
+              <h2 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight mb-1">{cls.nom}</h2>
+              <p className="text-sm font-medium text-ink-soft mb-4">{cls.niveau}</p>
               
-              <div className="bg-slate-50 rounded-xl p-3 mb-4">
-                <p className="text-xs text-slate-500 uppercase font-bold mb-1">Scolarité Annuelle</p>
-                <p className="text-lg font-extrabold text-indigo-600">
+              <div className="bg-bg rounded-control p-3 mb-4">
+                <p className="text-xs text-ink-soft uppercase font-bold mb-1">Scolarité Annuelle</p>
+                <p className="text-lg font-extrabold text-ink">
                   {cls.prix ? `${new Intl.NumberFormat('fr-FR').format(cls.prix)} FCFA` : '0 FCFA'}
                 </p>
               </div>
               
-              <div className="flex justify-between items-center text-sm border-t border-slate-100 pt-4">
+              <div className="flex justify-between items-center text-sm border-t border-border pt-4">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span className="text-slate-600 font-semibold">{elevesCount[cls.id] || 0} Élèves</span>
+                  <span className="w-2 h-2 rounded-full bg-green"></span>
+                  <span className="text-ink-soft font-semibold">{elevesCount[cls.id] || 0} Élèves</span>
                 </div>
-                <span className="text-slate-400 font-bold group-hover:text-indigo-600 transition-colors">→</span>
+                <span className="text-ink-faint font-bold group-hover:text-ink transition-colors">→</span>
               </div>
             </Link>
           ))}
@@ -283,14 +283,14 @@ export default function ClassesPage() {
 
       {/* Modal de modification */}
       {editingClass && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl w-full max-w-md border border-slate-100 shadow-2xl overflow-hidden">
-            <div className="bg-slate-50 p-6 border-b border-slate-100 flex justify-between items-center">
+        <div className="fixed inset-0 bg-ink/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login overflow-hidden">
+            <div className="bg-bg p-6 border-b border-border flex justify-between items-center">
               <div>
-                <h3 className="text-xl font-extrabold text-slate-800">Modifier la Classe</h3>
-                <p className="text-xs text-slate-500 mt-1">Modifiez les détails de la classe</p>
+                <h3 className="text-xl font-extrabold text-ink">Modifier la Classe</h3>
+                <p className="text-xs text-ink-soft mt-1">Modifiez les détails de la classe</p>
               </div>
-              <button onClick={() => setEditingClass(null)} className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors">
+              <button onClick={() => setEditingClass(null)} className="w-8 h-8 flex items-center justify-center bg-surface border border-border rounded-full text-ink-faint hover:text-ink hover:bg-chip transition-colors">
                 ✕
               </button>
             </div>
@@ -298,18 +298,18 @@ export default function ClassesPage() {
             <form onSubmit={handleEditClass} className="p-6 space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Nom exact de la classe *</label>
-                  <input type="text" value={editNom} onChange={(e) => setEditNom(e.target.value)} required placeholder="Ex: 6ème A" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Nom exact de la classe *</label>
+                  <input type="text" value={editNom} onChange={(e) => setEditNom(e.target.value)} required placeholder="Ex: 6ème A" className="w-full px-4 py-3 bg-bg border border-border rounded-control text-sm text-ink font-semibold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
                 </div>
                 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Niveau *</label>
-                  <input type="text" value={editNiveau} onChange={(e) => setEditNiveau(e.target.value)} required placeholder="Ex: 6ème" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Niveau *</label>
+                  <input type="text" value={editNiveau} onChange={(e) => setEditNiveau(e.target.value)} required placeholder="Ex: 6ème" className="w-full px-4 py-3 bg-bg border border-border rounded-control text-sm text-ink font-semibold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
                 </div>
                 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Sous-système</label>
-                  <select value={editSection} onChange={(e) => setEditSection(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Sous-système</label>
+                  <select value={editSection} onChange={(e) => setEditSection(e.target.value)} className="w-full px-4 py-3 bg-bg border border-border rounded-control text-sm text-ink font-semibold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all">
                     <option value="Francophone">Francophone</option>
                     <option value="Anglophone">Anglophone</option>
                     <option value="Bilingue">Bilingue</option>
@@ -318,18 +318,18 @@ export default function ClassesPage() {
               </div>
 
               <div className="pt-2">
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Scolarité Globale (FCFA) *</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Scolarité Globale (FCFA) *</label>
                 <div className="relative">
-                  <input type="number" value={editPrix} onChange={(e) => setEditPrix(e.target.value)} required placeholder="Ex: 250000" min="0" className="w-full px-4 py-3 pl-12 bg-slate-50 border border-slate-200 rounded-xl text-lg text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">💰</span>
+                  <input type="number" value={editPrix} onChange={(e) => setEditPrix(e.target.value)} required placeholder="Ex: 250000" min="0" className="w-full px-4 py-3 pl-12 bg-bg border border-border rounded-control text-lg text-ink font-bold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint font-bold">💰</span>
                 </div>
               </div>
 
               <div className="pt-6 flex gap-3">
-                <button type="button" onClick={() => setEditingClass(null)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">
+                <button type="button" onClick={() => setEditingClass(null)} className="flex-1 px-4 py-3 bg-chip text-ink-soft rounded-control text-sm font-bold hover:bg-chip transition-colors">
                   Annuler
                 </button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-200 transition-all disabled:opacity-50">
+                <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-3 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md shadow-cta transition-all disabled:opacity-50">
                   {isSubmitting ? 'Modification...' : 'Enregistrer'}
                 </button>
               </div>
@@ -340,14 +340,14 @@ export default function ClassesPage() {
 
       {/* Modal d'ajout */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl w-full max-w-md border border-slate-100 shadow-2xl overflow-hidden">
-            <div className="bg-slate-50 p-6 border-b border-slate-100 flex justify-between items-center">
+        <div className="fixed inset-0 bg-ink/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login overflow-hidden">
+            <div className="bg-bg p-6 border-b border-border flex justify-between items-center">
               <div>
-                <h3 className="text-xl font-extrabold text-slate-800">Nouvelle Classe</h3>
-                <p className="text-xs text-slate-500 mt-1">Configurez une classe et son tarif</p>
+                <h3 className="text-xl font-extrabold text-ink">Nouvelle Classe</h3>
+                <p className="text-xs text-ink-soft mt-1">Configurez une classe et son tarif</p>
               </div>
-              <button onClick={() => setShowAddModal(false)} className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors">
+              <button onClick={() => setShowAddModal(false)} className="w-8 h-8 flex items-center justify-center bg-surface border border-border rounded-full text-ink-faint hover:text-ink hover:bg-chip transition-colors">
                 ✕
               </button>
             </div>
@@ -355,18 +355,18 @@ export default function ClassesPage() {
             <form onSubmit={handleAddClass} className="p-6 space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Nom exact de la classe *</label>
-                  <input type="text" value={nom} onChange={(e) => setNom(e.target.value)} required placeholder="Ex: 6ème A" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Nom exact de la classe *</label>
+                  <input type="text" value={nom} onChange={(e) => setNom(e.target.value)} required placeholder="Ex: 6ème A" className="w-full px-4 py-3 bg-bg border border-border rounded-control text-sm text-ink font-semibold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
                 </div>
                 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Niveau *</label>
-                  <input type="text" value={niveau} onChange={(e) => setNiveau(e.target.value)} required placeholder="Ex: 6ème" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Niveau *</label>
+                  <input type="text" value={niveau} onChange={(e) => setNiveau(e.target.value)} required placeholder="Ex: 6ème" className="w-full px-4 py-3 bg-bg border border-border rounded-control text-sm text-ink font-semibold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
                 </div>
                 
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Sous-système</label>
-                  <select value={section} onChange={(e) => setSection(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Sous-système</label>
+                  <select value={section} onChange={(e) => setSection(e.target.value)} className="w-full px-4 py-3 bg-bg border border-border rounded-control text-sm text-ink font-semibold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all">
                     <option value="Francophone">Francophone</option>
                     <option value="Anglophone">Anglophone</option>
                     <option value="Bilingue">Bilingue</option>
@@ -375,18 +375,18 @@ export default function ClassesPage() {
               </div>
 
               <div className="pt-2">
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Scolarité Globale (FCFA) *</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Scolarité Globale (FCFA) *</label>
                 <div className="relative">
-                  <input type="number" value={prix} onChange={(e) => setPrix(e.target.value)} required placeholder="Ex: 250000" min="0" className="w-full px-4 py-3 pl-12 bg-slate-50 border border-slate-200 rounded-xl text-lg text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all" />
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">💰</span>
+                  <input type="number" value={prix} onChange={(e) => setPrix(e.target.value)} required placeholder="Ex: 250000" min="0" className="w-full px-4 py-3 pl-12 bg-bg border border-border rounded-control text-lg text-ink font-bold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint font-bold">💰</span>
                 </div>
               </div>
 
               <div className="pt-6 flex gap-3">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">
+                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-3 bg-chip text-ink-soft rounded-control text-sm font-bold hover:bg-chip transition-colors">
                   Annuler
                 </button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-200 transition-all disabled:opacity-50">
+                <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-3 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md shadow-cta transition-all disabled:opacity-50">
                   {isSubmitting ? 'Création...' : 'Créer la classe'}
                 </button>
               </div>

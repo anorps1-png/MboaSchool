@@ -1,3 +1,4 @@
+import { captureError, captureMessage } from '@/lib/observability/logger';
 import { createClient } from '../supabase/client';
 import { computeWeightedAverage, getMention, computeRanks } from './calculations';
 
@@ -39,7 +40,7 @@ export async function computeStudentReport(
     .eq('classe_id', classeId);
 
   if (studentsError || !students || students.length === 0) {
-    console.error('[Stats Eleves] Error fetching students:', studentsError);
+    captureError(studentsError, { context: '[Stats Eleves] Error fetching students:' });
     return null;
   }
 

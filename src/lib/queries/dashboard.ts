@@ -40,7 +40,7 @@ export async function getDashboardStats(etablissementId: string): Promise<Dashbo
 export async function getDashboardData(etablissementId: string) {
   const { data: classes, error: classesError } = await supabase
     .from('classes')
-    .select('*')
+    .select('id, nom, prix')
     .eq('etablissement_id', etablissementId)
     .order('nom', { ascending: true });
 
@@ -54,7 +54,7 @@ export async function getDashboardData(etablissementId: string) {
   while (hasMore) {
     const { data: students, error: studentsError } = await supabase
       .from('eleves')
-      .select('*, paiements(*)')
+      .select('id, matricule, nom, prenom, sexe, classe_id, statut, date_inscription, paiements(id, eleve_id, montant, date, type_frais, statut, reference, mode_paiement)')
       .eq('etablissement_id', etablissementId)
       .order('nom', { ascending: true })
       .order('id', { ascending: true })
@@ -75,7 +75,7 @@ export async function getDashboardData(etablissementId: string) {
 
   const { data: teachers, error: teachersError } = await supabase
     .from('enseignants')
-    .select('*')
+    .select('id, statut')
     .eq('etablissement_id', etablissementId);
 
   if (teachersError) throw teachersError;

@@ -1,4 +1,5 @@
 'use client';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
@@ -8,7 +9,7 @@ import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, DownloadIcon }
 import { Eleve, Classe } from '@/types/domain';
 import { downloadExcel } from '@/lib/excel';
 import SyncManager from '@/lib/syncManager';
-import { getStudents, createStudent, addPayment } from '@/lib/queries/eleves';
+import { getStudents, createStudent, addPayment, getStudentsWidgetStats, getStudentsPaginated, type StudentsWidgetStats, type StudentPage } from '@/lib/queries/eleves';
 import { getClasses } from '@/lib/queries/classes';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { createClient, isRunningInElectron } from '@/lib/supabase/client';
@@ -19,6 +20,19 @@ export default function ElevesPage() {
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  // Cartes KPI : calculées en base via RPC (get_students_widget_stats) quand
+  // disponible, sinon repli sur le calcul client (widgetStats plus bas) qui
+  // reste toujours actif en parallèle. Ne remplace jamais students/setStudents,
+  // utilisé nulle part ailleurs que dans les 4 cartes d'affichage.
+  const [serverWidgetStats, setServerWidgetStats] = useState<StudentsWidgetStats | null>(null);
+
+  // Tableau : recherche + filtres + pagination calculés en base (RPC
+  // get_students_paginated) quand disponible. N'affecte QUE l'affichage du
+  // tableau — students/setStudents (CRUD, export, bootstrap année scolaire)
+  // reste la source de vérité inchangée pour tout le reste de la page.
+  const [serverTableStudents, setServerTableStudents] = useState<StudentPage[] | null>(null);
+  const [serverTableTotal, setServerTableTotal] = useState(0);
+  const [serverModeAvailable, setServerModeAvailable] = useState<boolean | null>(null);
 
   // Filter students and classes by active academic year
   const studentsOfActiveYear = useMemo(() => {
@@ -79,7 +93,7 @@ export default function ElevesPage() {
             setClassName(data[0].id);
           }
         } catch (error) {
-          console.error("Error fetching classes:", error);
+          captureError(error, { context: "Error fetching classes:" });
           setClassesList([]);
         }
       };
@@ -118,7 +132,7 @@ export default function ElevesPage() {
           }));
           setStudents(mapped as any);
         } catch (error) {
-          console.error("Error fetching students:", error);
+          captureError(error, { context: "Error fetching students:" });
           setStudents([]);
         } finally {
           setIsLoaded(true);
@@ -128,6 +142,63 @@ export default function ElevesPage() {
       fetchEleves();
     }
   }, [etablissementId]);
+
+  // Cartes KPI via RPC serveur (léger, pas de transfert des lignes). Échoue
+  // silencieusement (migration non appliquée, hors-ligne...) : les cartes
+  // retombent alors sur widgetStats calculé côté client, déjà présent.
+  const fetchWidgetStats = useCallback(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getStudentsWidgetStats(etablissementId, academicYearId || null)
+        .then(setServerWidgetStats)
+        .catch(() => setServerWidgetStats(null));
+    }
+  }, [etablissementId, academicYearId]);
+
+  useEffect(() => {
+    fetchWidgetStats();
+  }, [fetchWidgetStats]);
+
+  // Recherche débouncée (300ms) pour ne pas déclencher un appel RPC à chaque frappe.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  const fetchTablePage = useCallback(async () => {
+    if (typeof window === 'undefined' || !etablissementId) return;
+    try {
+      const { students: rows, totalCount } = await getStudentsPaginated({
+        etablissementId,
+        anneeScolaireId: academicYearId || null,
+        search: debouncedSearch,
+        classeId: selectedClass === 'All' ? null : selectedClass,
+        statutPaiement: selectedPaymentStatus === 'All' ? null : (selectedPaymentStatus as 'paid' | 'partial' | 'unpaid'),
+        sexe: selectedGender === 'All' ? null : (selectedGender as 'M' | 'F'),
+        page: currentPage,
+        pageSize,
+      });
+      setServerTableStudents(rows);
+      setServerTableTotal(totalCount);
+      setServerModeAvailable(true);
+    } catch {
+      // Migration RPC non appliquée, ou hors-ligne : repli sur le calcul
+      // client existant (filteredStudents/paginatedStudents plus bas).
+      setServerModeAvailable(false);
+      setServerTableStudents(null);
+    }
+  }, [etablissementId, academicYearId, debouncedSearch, selectedClass, selectedPaymentStatus, selectedGender, currentPage, pageSize]);
+
+  useEffect(() => {
+    fetchTablePage();
+  }, [fetchTablePage]);
+
+  /** À appeler après toute mutation réussie (ajout/suppression/import) pour
+   * garder le tableau serveur et les cartes KPI synchro avec students. */
+  const refreshServerViews = useCallback(() => {
+    fetchTablePage();
+    fetchWidgetStats();
+  }, [fetchTablePage, fetchWidgetStats]);
 
   // Helper: Get student payment stats
   const getStudentPaymentStats = useCallback((student: Eleve) => {
@@ -192,15 +263,61 @@ export default function ElevesPage() {
   }, [studentsOfActiveYear, isLoaded, getStudentPaymentStats]);
 
 
-  // Pagination Logic
-  const totalItems = filteredStudents.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  // Pagination Logic (repli client — utilisé si la RPC serveur est indisponible)
+  const legacyTotalItems = filteredStudents.length;
+  const legacyTotalPages = Math.ceil(legacyTotalItems / pageSize) || 1;
+  const legacyActivePage = Math.min(currentPage, legacyTotalPages);
+
+  const legacyPaginatedStudents = useMemo(() => {
+    const startIndex = (legacyActivePage - 1) * pageSize;
+    return filteredStudents.slice(startIndex, startIndex + pageSize);
+  }, [filteredStudents, legacyActivePage, pageSize]);
+
+  // Source effective pour le tableau : serveur si disponible, sinon calcul
+  // client ci-dessus. Ne change rien aux flux CRUD/export (students, inchangés).
+  const useServerTable = serverModeAvailable === true && serverTableStudents !== null;
+  const totalItems = useServerTable ? serverTableTotal : legacyTotalItems;
+  const totalPages = useServerTable ? (Math.ceil(serverTableTotal / pageSize) || 1) : legacyTotalPages;
   const activePage = Math.min(currentPage, totalPages);
 
-  const paginatedStudents = useMemo(() => {
-    const startIndex = (activePage - 1) * pageSize;
-    return filteredStudents.slice(startIndex, startIndex + pageSize);
-  }, [filteredStudents, activePage, pageSize]);
+  interface DisplayRow {
+    id: string;
+    matricule: string;
+    nom: string;
+    prenom: string;
+    sexe: string;
+    classeId: string;
+    nomParent: string | null | undefined;
+    classeNomOverride: string | null;
+    precomputedStats: { totalDue: number; totalPaid: number; status: 'paid' | 'partial' | 'unpaid' } | null;
+  }
+
+  const displayRows: DisplayRow[] = useMemo(() => {
+    if (useServerTable) {
+      return serverTableStudents!.map((s) => ({
+        id: s.id,
+        matricule: s.matricule,
+        nom: s.nom,
+        prenom: s.prenom,
+        sexe: s.sexe,
+        classeId: s.classe_id,
+        nomParent: s.nom_parent,
+        classeNomOverride: s.classe_nom,
+        precomputedStats: { totalDue: Number(s.total_due), totalPaid: Number(s.total_paid), status: s.statut_paiement },
+      }));
+    }
+    return legacyPaginatedStudents.map((s) => ({
+      id: s.id,
+      matricule: s.matricule,
+      nom: s.nom,
+      prenom: s.prenom,
+      sexe: s.sexe,
+      classeId: s.classeId,
+      nomParent: s.nomParent,
+      classeNomOverride: null,
+      precomputedStats: getStudentPaymentStats(s),
+    }));
+  }, [useServerTable, serverTableStudents, legacyPaginatedStudents, getStudentPaymentStats]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -256,7 +373,7 @@ export default function ElevesPage() {
           }
         }
       } catch (err) {
-        console.error("Failed to dynamically fetch active year ID:", err);
+        captureError(err, { context: "Failed to dynamically fetch active year ID:" });
       }
     }
 
@@ -406,6 +523,7 @@ export default function ElevesPage() {
         };
 
         setStudents([newStudent, ...students]);
+        refreshServerViews();
       }
     } catch (error: any) {
       alert("Erreur lors de la création de l'élève : " + error.message);
@@ -450,6 +568,7 @@ export default function ElevesPage() {
           alert("Erreur lors de la suppression: " + error.message);
         } else {
           setStudents(prev => prev.filter(s => s.id !== id));
+          refreshServerViews();
           triggerToast("Élève supprimé avec succès !");
         }
       }
@@ -542,10 +661,10 @@ export default function ElevesPage() {
           setClassesList(prev => [...prev, newClassObj]);
           return created.id;
         } else if (error) {
-          console.error("Supabase error creating class:", error);
+          captureError(error, { context: "Supabase error creating class:" });
         }
       } catch (err) {
-        console.error("Error creating class:", err);
+        captureError(err, { context: "Error creating class:" });
       }
     }
     return classNameStr;
@@ -602,7 +721,7 @@ export default function ElevesPage() {
           resolvedAnneeScolaireId = etab.annee_scolaire_active_id;
         }
       } catch (err) {
-        console.error("Failed to fetch active year from DB:", err);
+        captureError(err, { context: "Failed to fetch active year from DB:" });
       }
 
       if (!resolvedAnneeScolaireId) {
@@ -616,7 +735,7 @@ export default function ElevesPage() {
             resolvedAnneeScolaireId = years[0].id;
           }
         } catch (err) {
-          console.error("Failed to fetch fallback year from DB:", err);
+          captureError(err, { context: "Failed to fetch fallback year from DB:" });
         }
       }
     }
@@ -751,13 +870,13 @@ export default function ElevesPage() {
                   notes: []
                 };
               } else {
-                console.error("Error creating student in Excel import loop:", createErr || "Empty selection returned from database. Check RLS or insert payload.");
+                captureError(createErr || new Error("Empty selection returned from database. Check RLS or insert payload."), { context: "Error creating student in Excel import loop" });
                 errorsCount++;
                 continue;
               }
             }
           } catch (err) {
-            console.error("Failed to create student in loop:", err);
+            captureError(err, { context: "Failed to create student in loop:" });
             errorsCount++;
             continue;
           }
@@ -817,11 +936,11 @@ export default function ElevesPage() {
                     finalStudentObj.paiements.push(payObj);
                   }
                 } else {
-                  console.error("Error creating payment in Excel import loop:", payErr || "Empty selection returned from database.");
+                  captureError(payErr || new Error("Empty selection returned from database."), { context: "Error creating payment in Excel import loop" });
                 }
               }
             } catch (pErr) {
-              console.error("Failed to insert payment inside loop:", pErr);
+              captureError(pErr, { context: "Failed to insert payment inside loop:" });
             }
           }
 
@@ -858,9 +977,10 @@ export default function ElevesPage() {
           }
         }
 
+        if (importedCount > 0) refreshServerViews();
         triggerToast(`Importation réussie : ${importedCount} élèves importés. (${errorsCount} lignes ignorées)`);
       } catch (err) {
-        console.error("Error parsing excel:", err);
+        captureError(err, { context: "Error parsing excel:" });
         alert("Erreur lors de l'analyse du fichier Excel.");
       }
     };
@@ -899,55 +1019,57 @@ export default function ElevesPage() {
     return new Intl.NumberFormat('fr-FR').format(amount) + ' F';
   };
 
+  const effectiveWidgetStats = serverWidgetStats ?? widgetStats;
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      {/* Toast Alert */}
+    <div className="flex flex-col gap-6">
+      {/* Toast */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 border border-slate-800 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3 animate-in slide-in-from-bottom-6 duration-300">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3 animate-fade-up">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* En-tête */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 tracking-tight text-black">Liste des Élèves</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Gérez les fiches des élèves, filtrez par statut de scolarité ou niveau académique.
+          <h1 className="text-[32px] lg:text-[40px] font-extrabold text-ink tracking-[-1.5px]">Liste des élèves</h1>
+          <p className="text-[15px] text-ink-soft font-medium mt-2">
+            Gérez les fiches, filtrez par statut de scolarité ou niveau académique.
           </p>
         </div>
-        <div className="flex items-center gap-3 self-start sm:self-auto">
-          {/* Hidden file input for Excel import */}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleImportExcel} 
-            accept=".xlsx, .xls" 
-            className="hidden" 
+        <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
+          {/* Champ fichier caché pour l'import Excel */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportExcel}
+            accept=".xlsx, .xls"
+            className="hidden"
           />
           <button
             onClick={downloadTemplate}
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-transparent border border-outline text-ink-soft hover:border-ink hover:text-ink text-[13px] font-bold rounded-control transition-colors cursor-pointer"
           >
-            📋 Gabarit
+            Gabarit
           </button>
           <button
             onClick={handleTriggerFileInput}
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-transparent border border-outline text-ink-soft hover:border-ink hover:text-ink text-[13px] font-bold rounded-control transition-colors cursor-pointer"
           >
-            📥 Importer
+            Importer
           </button>
           <button
             onClick={handleExportExcel}
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-transparent border border-outline text-ink-soft hover:border-ink hover:text-ink text-[13px] font-bold rounded-control transition-colors cursor-pointer"
           >
             <DownloadIcon size={14} />
             Exporter
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-md shadow-indigo-600/10 transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-accent hover:bg-accent-hover text-cream text-sm font-extrabold rounded-control shadow-cta transition-colors cursor-pointer"
           >
             <PlusIcon size={14} />
             Inscrire un élève
@@ -955,211 +1077,188 @@ export default function ElevesPage() {
         </div>
       </div>
 
-      {/* Stats Quick Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Effectif Total</span>
-          <span className="text-2xl font-extrabold text-slate-800 mt-1 block text-black">{widgetStats.total}</span>
+      {/* Cartes statistiques */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="bg-surface border border-border p-6 rounded-card">
+          <span className="text-[13px] font-bold text-ink-soft block">Effectif total</span>
+          <span className="text-[38px] font-extrabold text-ink tracking-[-1.5px] mt-2 block">{effectiveWidgetStats.total}</span>
         </div>
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Scolarité Réglée</span>
-          <span className="text-2xl font-extrabold text-emerald-600 mt-1 block">{widgetStats.paidCount}</span>
+        <div className="bg-surface border border-border p-6 rounded-card">
+          <span className="text-[13px] font-bold text-ink-soft block">Scolarité réglée</span>
+          <span className="text-[38px] font-extrabold text-green tracking-[-1.5px] mt-2 block">{effectiveWidgetStats.paidCount}</span>
         </div>
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Tranche Partielle</span>
-          <span className="text-2xl font-extrabold text-amber-500 mt-1 block">{widgetStats.partialCount}</span>
+        <div className="bg-surface border border-border p-6 rounded-card">
+          <span className="text-[13px] font-bold text-ink-soft block">Tranche partielle</span>
+          <span className="text-[38px] font-extrabold text-ink tracking-[-1.5px] mt-2 block">{effectiveWidgetStats.partialCount}</span>
         </div>
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Non Payé / Attente</span>
-          <span className="text-2xl font-extrabold text-red-500 mt-1 block">{widgetStats.unpaidCount}</span>
+        <div className="bg-surface border border-border p-6 rounded-card">
+          <span className="text-[13px] font-bold text-ink-soft block">Non payé / attente</span>
+          <span className="text-[38px] font-extrabold text-accent tracking-[-1.5px] mt-2 block">{effectiveWidgetStats.unpaidCount}</span>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm space-y-4">
+      {/* Barre de recherche et filtres */}
+      <div className="bg-surface rounded-card border border-border px-6 py-4">
         <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
-          {/* Search Box */}
+          {/* Recherche */}
           <div className="relative w-full lg:w-96">
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
+            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-ink-faint pointer-events-none">
               <SearchIcon size={16} />
             </span>
             <input
               type="text"
-              placeholder="Rechercher par nom ou matricule..."
+              placeholder="Rechercher par nom ou matricule…"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-black"
+              className="w-full pl-10 pr-4 py-2.5 border border-border rounded-control text-sm bg-bg text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
             />
           </div>
 
-          {/* Quick Filters */}
-          <div className="flex flex-wrap gap-3 w-full lg:w-auto items-center justify-end">
-            {/* Class Filter */}
-            <div className="flex items-center gap-1.5 w-full sm:w-auto">
-              <span className="text-xs font-semibold text-slate-400 hidden sm:inline">Classe:</span>
-              <select
-                value={selectedClass}
-                onChange={(e) => {
-                  setSelectedClass(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full sm:w-auto appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-2 rounded-lg text-xs font-semibold text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
-              >
-                <option value="All">Toutes les classes</option>
-                {classesOfActiveYear.map(c => (
-                  <option key={c.id} value={c.id}>{c.nom}</option>
-                ))}
-              </select>
-            </div>
+          {/* Filtres rapides */}
+          <div className="flex flex-wrap gap-2.5 w-full lg:w-auto items-center justify-end">
+            <select
+              value={selectedClass}
+              onChange={(e) => {
+                setSelectedClass(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full sm:w-auto bg-bg border border-border px-3.5 py-2.5 rounded-control text-[13px] font-bold text-ink-soft outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="All">Toutes les classes</option>
+              {classesOfActiveYear.map(c => (
+                <option key={c.id} value={c.id}>{c.nom}</option>
+              ))}
+            </select>
 
-            {/* Payment Status Filter */}
-            <div className="flex items-center gap-1.5 w-full sm:w-auto">
-              <span className="text-xs font-semibold text-slate-400 hidden sm:inline">Frais:</span>
-              <select
-                value={selectedPaymentStatus}
-                onChange={(e) => {
-                  setSelectedPaymentStatus(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full sm:w-auto appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-2 rounded-lg text-xs font-semibold text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
-              >
-                <option value="All">Tous les statuts</option>
-                <option value="paid">Payé</option>
-                <option value="partial">Partiel</option>
-                <option value="unpaid">Non Payé</option>
-              </select>
-            </div>
+            <select
+              value={selectedPaymentStatus}
+              onChange={(e) => {
+                setSelectedPaymentStatus(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full sm:w-auto bg-bg border border-border px-3.5 py-2.5 rounded-control text-[13px] font-bold text-ink-soft outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="All">Tous les statuts</option>
+              <option value="paid">Payé</option>
+              <option value="partial">Partiel</option>
+              <option value="unpaid">Non payé</option>
+            </select>
 
-            {/* Gender Filter */}
-            <div className="flex items-center gap-1.5 w-full sm:w-auto">
-              <span className="text-xs font-semibold text-slate-400 hidden sm:inline">Genre:</span>
-              <select
-                value={selectedGender}
-                onChange={(e) => {
-                  setSelectedGender(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full sm:w-auto appearance-none bg-slate-50 border border-slate-200 pl-3 pr-8 py-2 rounded-lg text-xs font-semibold text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-black"
-              >
-                <option value="All">Tous</option>
-                <option value="M">Masculin</option>
-                <option value="F">Féminin</option>
-              </select>
-            </div>
+            <select
+              value={selectedGender}
+              onChange={(e) => {
+                setSelectedGender(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full sm:w-auto bg-bg border border-border px-3.5 py-2.5 rounded-control text-[13px] font-bold text-ink-soft outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="All">Tous</option>
+              <option value="M">Masculin</option>
+              <option value="F">Féminin</option>
+            </select>
           </div>
         </div>
       </div>
 
-      {/* Students Table */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+      {/* Tableau des élèves */}
+      <div className="bg-surface rounded-card border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
-                <th className="px-6 py-4">Élève</th>
-                <th className="px-6 py-4">Matricule</th>
-                <th className="px-6 py-4">Classe</th>
-                <th className="px-6 py-4 text-center">Genre</th>
-                <th className="px-6 py-4">Scolarité (FCFA)</th>
-                <th className="px-6 py-4">Statut</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+              <tr className="text-xs font-bold text-ink-faint uppercase tracking-[1px] bg-bg">
+                <th className="px-6 py-3.5">Élève</th>
+                <th className="px-4 py-3.5">Matricule</th>
+                <th className="px-4 py-3.5">Classe</th>
+                <th className="px-4 py-3.5 text-center">Genre</th>
+                <th className="px-4 py-3.5">Scolarité (FCFA)</th>
+                <th className="px-4 py-3.5">Statut</th>
+                <th className="px-6 py-3.5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="text-sm divide-y divide-slate-100">
-              {isLoaded && paginatedStudents.length > 0 ? (
-                paginatedStudents.map((student) => {
-                  const { totalDue, totalPaid, status } = getStudentPaymentStats(student);
+            <tbody className="text-sm">
+              {(useServerTable || isLoaded) && displayRows.length > 0 ? (
+                displayRows.map((student) => {
+                  const { totalDue, totalPaid, status } = student.precomputedStats!;
                   const progressPct = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
                   return (
-                    <tr key={student.id} className="hover:bg-slate-50/40 transition-colors">
-                      {/* Name */}
-                      <td className="px-6 py-4">
+                    <tr key={student.id} className="border-t border-border-row hover:bg-row-hover transition-colors">
+                      {/* Nom */}
+                      <td className="px-6 py-3.5">
                         <div className="flex items-center gap-3">
-                           <div className={`w-9 h-9 rounded-full font-bold text-xs flex items-center justify-center border shadow-inner ${
-                            student.sexe === 'F' 
-                              ? 'bg-rose-50 text-rose-600 border-rose-100'
-                              : 'bg-blue-50 text-blue-600 border-blue-100'
-                          }`}>
+                          <div className="w-[38px] h-[38px] rounded-[12px] bg-chip text-ink-soft font-extrabold text-xs flex items-center justify-center shrink-0">
                             {(student.prenom || '')[0] || ''}{(student.nom || '')[0] || ''}
                           </div>
-                          <div>
-                            <span className="font-semibold text-slate-800 block hover:text-indigo-600 cursor-pointer text-black">
+                          <div className="min-w-0">
+                            <span className="font-bold text-ink block truncate">
                               {student.nom} {student.prenom}
                             </span>
-                            <span className="text-[10px] text-slate-400 block">Parent: {student.nomParent}</span>
+                            <span className="text-[11px] text-ink-faint block truncate">Parent : {student.nomParent}</span>
                           </div>
                         </div>
                       </td>
 
                       {/* Matricule */}
-                      <td className="px-6 py-4 font-mono text-xs font-semibold text-slate-500">
+                      <td className="px-4 py-3.5 text-[13px] font-semibold text-ink-faint">
                         {student.matricule}
                       </td>
 
-                      {/* Class */}
-                      <td className="px-6 py-4 text-slate-600 font-medium">
-                        {classesList.find(c => c.id === student.classeId)?.nom || student.classeId}
+                      {/* Classe */}
+                      <td className="px-4 py-3.5 text-ink-soft font-semibold">
+                        {student.classeNomOverride || classesList.find(c => c.id === student.classeId)?.nom || student.classeId}
                       </td>
 
-                      {/* Gender Badge */}
-                      <td className="px-6 py-4 text-center">
-                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                          student.sexe === 'F' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
-                        }`}>
-                          {student.sexe}
-                        </span>
+                      {/* Genre */}
+                      <td className="px-4 py-3.5 text-center text-[13px] font-bold text-ink-soft">
+                        {student.sexe}
                       </td>
 
-                      {/* Progress bar */}
-                      <td className="px-6 py-4">
+                      {/* Barre de scolarité */}
+                      <td className="px-4 py-3.5">
                         <div className="w-48">
-                          <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-1">
-                            <span>{formatFCFA(totalPaid)}</span>
-                            <span>/ {formatFCFA(totalDue)}</span>
+                          <div className="text-[12px] font-semibold text-ink-soft mb-1.5">
+                            {formatFCFA(totalPaid)} / {formatFCFA(totalDue)}
                           </div>
-                          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full rounded-full transition-all duration-300 ${
-                                status === 'paid' ? 'bg-emerald-500' : status === 'partial' ? 'bg-amber-400' : 'bg-slate-300'
-                              }`}
-                              style={{ width: `${progressPct}%` }}
+                          <div className="w-full bg-chip h-2 rounded-pill overflow-hidden">
+                            <div
+                              className="h-full rounded-pill transition-all duration-300"
+                              style={{
+                                width: `${progressPct}%`,
+                                background: status === 'paid' ? 'var(--color-green)' : status === 'partial' ? 'var(--color-ink)' : 'var(--color-accent)',
+                              }}
                             ></div>
                           </div>
                         </div>
                       </td>
 
-                      {/* Status Badge */}
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                      {/* Statut */}
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex items-center px-3 py-1 rounded-pill text-[12px] font-extrabold ${
                           status === 'paid'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            ? 'bg-green-bg text-green'
                             : status === 'partial'
-                            ? 'bg-amber-50 text-amber-700 border-amber-100'
-                            : 'bg-red-50 text-red-700 border-red-100'
+                            ? 'bg-chip text-ink-soft'
+                            : 'bg-red-bg text-accent'
                         }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            status === 'paid' ? 'bg-emerald-500' : status === 'partial' ? 'bg-amber-500' : 'bg-red-500'
-                          }`}></span>
-                          {status === 'paid' ? 'Payé' : status === 'partial' ? 'Partiel' : 'Non Payé'}
+                          {status === 'paid' ? 'Payé' : status === 'partial' ? 'Partiel' : 'Non payé'}
                         </span>
                       </td>
 
                       {/* Actions */}
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                      <td className="px-6 py-3.5 text-right">
+                        <div className="flex items-center justify-end gap-2.5">
                           <Link
                             href={`/eleves/${student.id}`}
-                            className="inline-flex items-center justify-center px-3 py-1.5 border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/20 hover:text-indigo-600 rounded-lg text-xs font-semibold text-slate-600 transition-all"
+                            className="text-[13px] font-bold text-accent hover:text-accent-hover transition-colors"
                           >
-                            Fiche Élève
+                            Voir fiche →
                           </Link>
                           <button
                             onClick={(e) => handleDeleteStudent(student.id, `${student.nom} ${student.prenom}`, e)}
-                            className="inline-flex items-center justify-center p-1.5 border border-slate-200 hover:border-rose-500 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer"
+                            className="inline-flex items-center justify-center p-1.5 border border-outline hover:border-accent text-ink-faint hover:text-accent rounded-control transition-colors cursor-pointer"
                             title="Supprimer l'élève"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1173,8 +1272,8 @@ export default function ElevesPage() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 text-sm">
-                    {isLoaded ? "Aucun élève ne correspond aux critères de recherche." : "Chargement des élèves..."}
+                  <td colSpan={7} className="px-6 py-12 text-center text-ink-faint text-sm">
+                    {(useServerTable || isLoaded) ? "Aucun élève ne correspond aux critères de recherche." : "Chargement des élèves…"}
                   </td>
                 </tr>
               )}
@@ -1182,9 +1281,9 @@ export default function ElevesPage() {
           </table>
         </div>
 
-        {/* Pagination Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/30">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+        {/* Pagination */}
+        <div className="px-6 py-4 border-t border-border-row flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-[13px] text-ink-faint font-medium">
             <span>Afficher</span>
             <select
               value={pageSize}
@@ -1192,14 +1291,14 @@ export default function ElevesPage() {
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none text-black"
+              className="bg-bg border border-border px-2 py-1 rounded-control outline-none focus:border-accent text-ink font-semibold"
             >
               <option value={5}>5</option>
               <option value={10}>10</option>
               <option value={20}>20</option>
             </select>
             <span>lignes</span>
-            <span className="ml-2 font-medium">
+            <span className="ml-2 font-semibold text-ink-soft">
               {totalItems > 0 ? (activePage - 1) * pageSize + 1 : 0} - {Math.min(activePage * pageSize, totalItems)} sur {totalItems} élèves
             </span>
           </div>
@@ -1208,8 +1307,8 @@ export default function ElevesPage() {
             <button
               onClick={() => handlePageChange(activePage - 1)}
               disabled={activePage === 1}
-              className={`p-1.5 rounded-lg border text-slate-500 transition-all ${
-                activePage === 1 ? 'opacity-40 cursor-not-allowed bg-slate-50' : 'bg-white hover:bg-slate-50 hover:text-indigo-600 border-slate-200'
+              className={`p-2 rounded-control border transition-colors ${
+                activePage === 1 ? 'opacity-40 cursor-not-allowed border-outline text-ink-faint' : 'border-outline text-ink-soft hover:border-ink hover:text-ink'
               }`}
             >
               <ChevronLeftIcon size={16} />
@@ -1219,10 +1318,10 @@ export default function ElevesPage() {
               <button
                 key={page}
                 onClick={() => handlePageChange(page)}
-                className={`w-8 h-8 rounded-lg text-xs font-semibold border transition-all ${
+                className={`w-9 h-9 rounded-control text-[13px] font-bold border transition-colors ${
                   activePage === page
-                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm shadow-indigo-600/20'
-                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600'
+                    ? 'bg-ink border-ink text-cream'
+                    : 'border-outline text-ink-soft hover:border-ink hover:text-ink'
                 }`}
               >
                 {page}
@@ -1232,8 +1331,8 @@ export default function ElevesPage() {
             <button
               onClick={() => handlePageChange(activePage + 1)}
               disabled={activePage === totalPages}
-              className={`p-1.5 rounded-lg border text-slate-500 transition-all ${
-                activePage === totalPages ? 'opacity-40 cursor-not-allowed bg-slate-50' : 'bg-white hover:bg-slate-50 hover:text-indigo-600 border-slate-200'
+              className={`p-2 rounded-control border transition-colors ${
+                activePage === totalPages ? 'opacity-40 cursor-not-allowed border-outline text-ink-faint' : 'border-outline text-ink-soft hover:border-ink hover:text-ink'
               }`}
             >
               <ChevronRightIcon size={16} />
@@ -1242,47 +1341,43 @@ export default function ElevesPage() {
         </div>
       </div>
 
-      {/* Add Student Modal Form */}
+      {/* Modal : inscription d'un élève */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-lg border border-slate-100 shadow-2xl p-6 relative animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-up">
+          <div className="bg-surface rounded-card-lg w-full max-w-lg border border-border shadow-login p-7 relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setShowAddModal(false)}
-              className="absolute right-4 top-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              className="absolute right-4 top-4 p-1.5 rounded-control text-ink-faint hover:text-ink hover:bg-chip transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
 
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 text-black">
-              Inscrire un Nouvel Élève
+            <h3 className="text-xl font-extrabold text-ink tracking-[-0.5px] border-b border-border-row pb-3 mb-5">
+              Inscrire un nouvel élève
             </h3>
 
             <form onSubmit={handleAddStudent} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Nom *
-                  </label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Nom *</label>
                   <input
                     type="text"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                     placeholder="ex: Fouda"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Prénom *
-                  </label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Prénom *</label>
                   <input
                     type="text"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                     placeholder="ex: Jean-Pierre"
                     required
                   />
@@ -1291,26 +1386,22 @@ export default function ElevesPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Genre
-                  </label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Genre</label>
                   <select
                     value={gender}
                     onChange={(e) => setGender(e.target.value as 'M' | 'F')}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm font-semibold text-ink outline-none focus:border-accent focus:bg-surface transition-colors cursor-pointer"
                   >
                     <option value="M">Masculin</option>
                     <option value="F">Féminin</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Classe *
-                  </label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Classe *</label>
                   <select
                     value={className}
                     onChange={(e) => setClassName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm font-semibold text-ink outline-none focus:border-accent focus:bg-surface transition-colors cursor-pointer"
                   >
                     {classesOfActiveYear.length === 0 && <option value="">Aucune classe disponible</option>}
                     {classesOfActiveYear.map(c => (
@@ -1322,70 +1413,60 @@ export default function ElevesPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Matricule (laisser vide pour auto-générer)
-                  </label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Matricule (vide = auto-généré)</label>
                   <input
                     type="text"
                     value={matricule}
                     onChange={(e) => setMatricule(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono text-black"
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                     placeholder="ex: 26YAE011"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Date de naissance
-                  </label>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Date de naissance</label>
                   <input
                     type="date"
                     value={dateOfBirth}
                     onChange={(e) => setDateOfBirth(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink outline-none focus:border-accent focus:bg-surface transition-colors"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Lieu de naissance
-                </label>
+                <label className="block text-xs font-bold text-ink-soft mb-1.5">Lieu de naissance</label>
                 <input
                   type="text"
                   value={birthPlace}
                   onChange={(e) => setBirthPlace(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                  className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                   placeholder="ex: Yaoundé"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Montant payé à l'inscription (FCFA)
-                </label>
+                <label className="block text-xs font-bold text-ink-soft mb-1.5">Montant payé à l&apos;inscription (FCFA)</label>
                 <input
                   type="number"
                   value={initialPayment}
                   onChange={(e) => setInitialPayment(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono text-black"
+                  className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                   placeholder="ex: 150000"
                   min="0"
                 />
               </div>
 
-              <div className="border-t border-slate-100 pt-4">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Responsable Légal (Parent)</span>
-                
+              <div className="border-t border-border-row pt-4">
+                <span className="text-xs font-extrabold text-ink-faint uppercase tracking-[1px] block mb-3">Responsable légal (parent)</span>
+
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                      Nom complet du Parent *
-                    </label>
+                    <label className="block text-xs font-bold text-ink-soft mb-1.5">Nom complet du parent *</label>
                     <input
                       type="text"
                       value={parentName}
                       onChange={(e) => setParentName(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                      className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                       placeholder="ex: Emmanuel Fouda"
                       required
                     />
@@ -1393,27 +1474,23 @@ export default function ElevesPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                        Téléphone *
-                      </label>
+                      <label className="block text-xs font-bold text-ink-soft mb-1.5">Téléphone *</label>
                       <input
                         type="text"
                         value={parentPhone}
                         onChange={(e) => setParentPhone(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                        className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                         placeholder="ex: +237 677 88 99 00"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                        Email du parent
-                      </label>
+                      <label className="block text-xs font-bold text-ink-soft mb-1.5">Email du parent</label>
                       <input
                         type="email"
                         value={parentEmail}
                         onChange={(e) => setParentEmail(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-black"
+                        className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:bg-surface transition-colors"
                         placeholder="ex: parent.fouda@gmail.com"
                       />
                     </div>
@@ -1421,17 +1498,17 @@ export default function ElevesPage() {
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100">
+              <div className="flex gap-3 pt-4 border-t border-border-row">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="flex-1 px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-700 transition-colors"
+                  className="flex-1 px-4 py-2.5 border border-outline text-ink-soft hover:border-ink hover:text-ink rounded-control text-[13px] font-bold transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-600/10 transition-colors"
+                  className="flex-1 px-4 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-[13px] font-extrabold shadow-cta transition-colors"
                 >
                   Inscrire
                 </button>

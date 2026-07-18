@@ -3,90 +3,68 @@ import Link from 'next/link';
 
 export default function Pricing() {
   return (
-    <section id="tarifs" className="py-24 bg-slate-50 border-y border-slate-200">
+    <section id="tarifs" className="py-20 lg:py-24 bg-surface border-t border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+        <div className="text-center max-w-2xl mx-auto mb-14">
+          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-[-1.5px] text-ink">
             Des tarifs simples et transparents
           </h2>
-          <p className="mt-4 text-lg text-slate-600">
+          <p className="mt-3 text-base text-ink-soft font-medium">
             Choisissez le plan adapté à la taille de votre établissement.
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto items-start">
           {/* Gratuit */}
-          <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <h3 className="text-2xl font-bold text-slate-900 mb-2">Gratuit</h3>
-            <p className="text-slate-500 mb-6">Pour tester ou pour les petites structures.</p>
-            <div className="text-4xl font-extrabold text-slate-900 mb-6">
-              0 <span className="text-xl text-slate-500 font-medium">FCFA</span>
+          <div className="bg-bg rounded-card-lg p-8 border border-border">
+            <h3 className="text-2xl font-extrabold text-ink mb-1.5">Gratuit</h3>
+            <p className="text-sm text-ink-faint font-medium mb-5">Pour tester ou pour les petites structures.</p>
+            <div className="text-4xl font-extrabold text-ink tracking-[-1.5px] mb-6">
+              0 <span className="text-lg text-ink-faint font-semibold">FCFA</span>
             </div>
-            <ul className="space-y-4 mb-8">
-              <li className="flex gap-3 text-slate-600">
-                <span className="text-indigo-500 font-bold">✓</span> Jusqu'à 100 élèves
-              </li>
-              <li className="flex gap-3 text-slate-600">
-                <span className="text-indigo-500 font-bold">✓</span> 1 Administrateur
-              </li>
-              <li className="flex gap-3 text-slate-600">
-                <span className="text-indigo-500 font-bold">✓</span> Modules de base
-              </li>
+            <ul className="space-y-3 mb-7 text-sm font-semibold text-ink-soft">
+              <li>✓ Jusqu&apos;à 100 élèves</li>
+              <li>✓ 1 administrateur</li>
+              <li>✓ Modules de base</li>
             </ul>
-            <Link href="/login?signup=true" className="block w-full text-center bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors">
+            <Link href="/login?signup=true" className="block w-full text-center bg-chip text-ink font-extrabold py-3.5 rounded-control hover:bg-chip-hover transition-colors">
               Commencer gratuitement
             </Link>
           </div>
 
           {/* Standard */}
-          <div className="bg-indigo-900 rounded-3xl p-8 border border-indigo-700 shadow-xl relative transform md:-translate-y-4">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-emerald-400 to-emerald-500 text-white font-bold px-4 py-1 rounded-full text-sm shadow-md">
+          <div className="bg-ink rounded-card-lg p-8 text-cream relative">
+            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-accent text-cream font-extrabold px-4 py-1.5 rounded-pill text-xs shadow-cta">
               Le plus populaire
             </div>
-            <h3 className="text-2xl font-bold text-white mb-2">Standard</h3>
-            <p className="text-indigo-200 mb-6">Idéal pour les collèges et lycées classiques.</p>
-            <div className="text-4xl font-extrabold text-white mb-6">
-              50 000 <span className="text-xl text-indigo-300 font-medium">FCFA / mois</span>
+            <h3 className="text-2xl font-extrabold text-cream mb-1.5">Standard</h3>
+            <p className="text-sm text-[#a89a7e] font-medium mb-5">Idéal pour les collèges et lycées classiques.</p>
+            <div className="text-4xl font-extrabold text-cream tracking-[-1.5px] mb-6">
+              50 000 <span className="text-sm text-[#a89a7e] font-semibold">FCFA / mois</span>
             </div>
-            <ul className="space-y-4 mb-8">
-              <li className="flex gap-3 text-indigo-100">
-                <span className="text-emerald-400 font-bold">✓</span> Jusqu'à 300 élèves
-              </li>
-              <li className="flex gap-3 text-indigo-100">
-                <span className="text-emerald-400 font-bold">✓</span> Multi-utilisateurs
-              </li>
-              <li className="flex gap-3 text-indigo-100">
-                <span className="text-emerald-400 font-bold">✓</span> Comptabilité complète
-              </li>
-              <li className="flex gap-3 text-indigo-100">
-                <span className="text-emerald-400 font-bold">✓</span> Support prioritaire
-              </li>
+            <ul className="space-y-3 mb-7 text-sm font-semibold text-[#d8ceb8]">
+              <li>✓ Jusqu&apos;à 300 élèves</li>
+              <li>✓ Multi-utilisateurs</li>
+              <li>✓ Comptabilité complète</li>
+              <li>✓ Bulletins PDF illimités</li>
             </ul>
-            <Link href="/login?signup=true" className="block w-full text-center bg-white text-indigo-900 font-bold py-3 rounded-xl hover:bg-slate-50 transition-colors shadow-md">
-              Essayer ce plan
+            <Link href="/login?signup=true" className="block w-full text-center bg-accent text-cream font-extrabold py-3.5 rounded-control hover:bg-accent-hover transition-colors shadow-cta">
+              Choisir Standard
             </Link>
           </div>
 
           {/* Premium */}
-          <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <h3 className="text-2xl font-bold text-slate-900 mb-2">Premium</h3>
-            <p className="text-slate-500 mb-6">Pour les grands établissements ou groupes scolaires.</p>
-            <div className="text-4xl font-extrabold text-slate-900 mb-6">
-              Sur devis
-            </div>
-            <ul className="space-y-4 mb-8">
-              <li className="flex gap-3 text-slate-600">
-                <span className="text-indigo-500 font-bold">✓</span> Élèves illimités
-              </li>
-              <li className="flex gap-3 text-slate-600">
-                <span className="text-indigo-500 font-bold">✓</span> Multi-campus
-              </li>
-              <li className="flex gap-3 text-slate-600">
-                <span className="text-indigo-500 font-bold">✓</span> Développements sur-mesure
-              </li>
+          <div className="bg-bg rounded-card-lg p-8 border border-border">
+            <h3 className="text-2xl font-extrabold text-ink mb-1.5">Premium</h3>
+            <p className="text-sm text-ink-faint font-medium mb-5">Pour les grands groupes et complexes scolaires.</p>
+            <div className="text-4xl font-extrabold text-ink tracking-[-1.5px] mb-6">Sur devis</div>
+            <ul className="space-y-3 mb-7 text-sm font-semibold text-ink-soft">
+              <li>✓ Élèves illimités</li>
+              <li>✓ Multi-établissements</li>
+              <li>✓ Accompagnement dédié</li>
             </ul>
-            <Link href="/login?signup=true" className="block w-full text-center bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors">
-              Nous contacter
+            <Link href="/login?signup=true" className="block w-full text-center bg-chip text-ink font-extrabold py-3.5 rounded-control hover:bg-chip-hover transition-colors">
+              Contacter l&apos;équipe
             </Link>
           </div>
         </div>

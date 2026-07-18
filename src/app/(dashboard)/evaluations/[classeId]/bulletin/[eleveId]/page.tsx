@@ -3,10 +3,10 @@
 import React, { useState, useEffect, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Eleve, Classe } from '@/types/domain';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { getClassRankings, type ClassRanking } from '@/lib/queries/evaluations';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 interface PageProps {
   params: Promise<{ classeId: string; eleveId: string }>;
@@ -17,13 +17,17 @@ export default function BulletinImpressionPage({ params }: PageProps) {
   const searchParams = useSearchParams();
   const term = searchParams.get('term') || 'Trimestre 1';
   const { etablissementId } = useEtablissement();
-  
+
   const [student, setStudent] = useState<any | null>(null);
   const [classInfo, setClassInfo] = useState<any | null>(null);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [notesList, setNotesList] = useState<any[]>([]);
   const [rankings, setRankings] = useState<ClassRanking[]>([]);
   const [etabInfo, setEtabInfo] = useState<any | null>(null);
+  const [teachersMap, setTeachersMap] = useState<Record<string, string>>({});
+  const [absencesCount, setAbsencesCount] = useState(0);
+  const [retardsCount, setRetardsCount] = useState(0);
+  const [sanctionsCount, setSanctionsCount] = useState(0);
   const [yearName, setYearName] = useState('2025/2026');
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -43,7 +47,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
           .eq('id', classeId)
           .eq('etablissement_id', etablissementId)
           .single();
-        
+
         if (clsData) {
           setClassInfo(clsData);
           // Fetch year details
@@ -61,7 +65,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
           .select('*')
           .eq('classe_id', classeId)
           .eq('etablissement_id', etablissementId);
-        
+
         if (studsData) {
           setAllStudents(studsData);
           const foundStudent = studsData.find(s => s.id === eleveId);
@@ -80,16 +84,42 @@ export default function BulletinImpressionPage({ params }: PageProps) {
           if (notesData) setNotesList(notesData);
         }
 
-        // 3b. Classement de la classe calculé en base (moyenne/rang/mention).
+        // 3b. Fetch class rankings
         try {
           const rk = await getClassRankings(classeId, term);
           setRankings(rk);
         } catch (rkErr) {
-          console.warn('Classement serveur indisponible, repli client:', rkErr);
+          captureMessage('Classement serveur indisponible, repli client:', { detail: rkErr });
           setRankings([]);
         }
 
-        // 4. Fetch establishment details
+        // 4. Fetch teachers map
+        const { data: teachersData } = await supabase
+          .from('enseignants')
+          .select('id, nom, prenom');
+        if (teachersData) {
+          const map: Record<string, string> = {};
+          teachersData.forEach(t => {
+            map[t.id] = `M. ${t.prenom} ${t.nom}`;
+          });
+          setTeachersMap(map);
+        }
+
+        // 5. Fetch discipline incidents
+        const { data: discData } = await supabase
+          .from('discipline_incidents')
+          .select('*')
+          .eq('eleve_id', eleveId);
+        if (discData) {
+          const abs = discData.filter(d => d.type_incident?.toLowerCase().includes('absence')).length;
+          const ret = discData.filter(d => d.type_incident?.toLowerCase().includes('retard')).length;
+          const sanc = discData.filter(d => d.sanction && d.sanction !== '').length;
+          setAbsencesCount(abs);
+          setRetardsCount(ret);
+          setSanctionsCount(sanc);
+        }
+
+        // 6. Fetch establishment details
         const { data: etabData } = await supabase
           .from('etablissements')
           .select('*')
@@ -98,10 +128,10 @@ export default function BulletinImpressionPage({ params }: PageProps) {
         if (etabData) setEtabInfo(etabData);
 
       } catch (err) {
-        console.error("Error fetching bulletin data:", err);
+        captureError(err, { context: "Error fetching bulletin data:" });
       } finally {
         setIsLoaded(true);
-        // Trigger print after a short delay to allow rendering
+        // Trigger print after rendering
         setTimeout(() => {
           window.print();
         }, 800);
@@ -111,27 +141,22 @@ export default function BulletinImpressionPage({ params }: PageProps) {
   }, [resolvedParams.classeId, resolvedParams.eleveId, term, etablissementId]);
 
   if (!isLoaded || !student || !classInfo || !etabInfo) {
-    return <div className="fixed inset-0 z-[100] bg-white flex items-center justify-center">Préparation du bulletin...</div>;
+    return <div className="fixed inset-0 z-[100] bg-surface flex items-center justify-center text-ink font-semibold">Préparation du bulletin officiel MINESEC...</div>;
   }
 
   const logoUrl = etabInfo.logo_url || '';
-  const bulletinTemplate = etabInfo.bulletin_template || 'classic';
-  const bulletinSlogan = etabInfo.bulletin_slogan || 'Excellence & Mérite';
-  const bulletinHeaderLeft = etabInfo.bulletin_header_left || 'Ministère des Enseignements Secondaires';
-  const bulletinHeaderRight = etabInfo.bulletin_header_right || 'Ministry of Secondary Education';
-  const schoolNameLabel = etabInfo.nom || 'MBOASCHOOL';
-  const passingScore = etabInfo.seuil_reussite || 10;
+  const schoolNameLabel = etabInfo.nom || 'École Privée Bilingue Mboa';
+  const SloganLabel = etabInfo.bulletin_slogan || 'Discipline — Travail — Succès';
+  const delegateLeft = etabInfo.bulletin_header_left || 'Délégation Régionale du Centre';
+  const delegateRight = etabInfo.bulletin_header_right || 'Centre Regional Delegation';
 
-  const isMaternelle = classInfo.niveau?.toLowerCase().includes('maternelle') || classInfo.niveau_id?.toLowerCase().includes('maternelle');
-
-  // Calculations
   const termNotes = notesList.filter(n => n.eleve_id === student.id);
-  
-  // Calculate Avg for rank
-  const calculateAvg = (stud: any) => {
+
+  // Client calculations
+  const calculateStudentAvg = (stud: any) => {
     const tNotes = notesList.filter(n => n.eleve_id === stud.id && n.note !== null && n.note !== undefined);
     if (tNotes.length === 0) return 0;
-    
+
     let totalPoints = 0;
     let totalCoefs = 0;
     tNotes.forEach(n => {
@@ -142,210 +167,270 @@ export default function BulletinImpressionPage({ params }: PageProps) {
     return totalCoefs > 0 ? totalPoints / totalCoefs : 0;
   };
 
-  // Classement serveur (RPC) prioritaire ; repli sur le calcul client hors-ligne.
+  const calculateStudentTotalPoints = (stud: any) => {
+    const tNotes = notesList.filter(n => n.eleve_id === stud.id && n.note !== null && n.note !== undefined);
+    return tNotes.reduce((sum, n) => sum + ((n.note || 0) * (n.coefficient || 1)), 0);
+  };
+
+  const getSubjectAverage = (subjectName: string) => {
+    const subjectNotes = notesList.filter(n => n.matiere === subjectName && n.note !== null && n.note !== undefined);
+    if (subjectNotes.length === 0) return 0;
+    const sum = subjectNotes.reduce((acc, n) => acc + Number(n.note), 0);
+    return sum / subjectNotes.length;
+  };
+
+  // Rank / Class Avg Calculations
   const serverRow = rankings.find(r => r.eleve_id === student.id);
-  const clientAvg = calculateAvg(student);
-  const clientAllAvgs = allStudents.map(calculateAvg).sort((a, b) => b - a);
+  const clientAvg = calculateStudentAvg(student);
+  const clientAllAvgs = allStudents.map(calculateStudentAvg).sort((a, b) => b - a);
   const clientRank = clientAvg > 0 ? clientAllAvgs.indexOf(clientAvg) + 1 : '-';
 
   const myAvg = serverRow ? Number(serverRow.moyenne) : clientAvg;
   const myRank = serverRow ? (serverRow.rang ?? '-') : clientRank;
   const classeEffectif = serverRow ? serverRow.effectif : allStudents.length;
-  const totalPoints = serverRow
-    ? Number(serverRow.total_points)
-    : termNotes.reduce((sum, n) => sum + ((n.note || 0) * (n.coefficient || 1)), 0);
+  const totalPoints = serverRow ? Number(serverRow.total_points) : calculateStudentTotalPoints(student);
+
+  // Total Coefficients
+  const totalCoef = termNotes.reduce((sum, n) => sum + (n.coefficient || 1), 0);
+
+  // Overall Class Average
+  const classAvg = allStudents.length > 0
+    ? allStudents.reduce((sum, s) => sum + calculateStudentAvg(s), 0) / allStudents.length
+    : 0;
 
   const getMention = (avg: number) => {
     if (avg >= 16) return 'Très Bien';
     if (avg >= 14) return 'Bien';
     if (avg >= 12) return 'Assez Bien';
-    if (avg >= passingScore) return 'Passable';
+    if (avg >= 10) return 'Passable';
     return 'Insuffisant';
   };
 
+  const getCouncilAppreciation = (avg: number) => {
+    if (avg >= 16) return "Excellent trimestre. Félicitations du conseil de classe.";
+    if (avg >= 14) return "Très bon trimestre. Élève sérieux et appliqué.";
+    if (avg >= 12) return "Trimestre satisfaisant. Poursuivez vos efforts.";
+    if (avg >= 10) return "Ensemble convenable mais peut mieux faire.";
+    return "Trimestre insuffisant. Travail personnel à intensifier.";
+  };
+
+  const formatTermBilingual = (termStr: string) => {
+    if (termStr.includes('1')) return { fr: '1er TRIMESTRE', en: 'First Term' };
+    if (termStr.includes('2')) return { fr: '2ème TRIMESTRE', en: 'Second Term' };
+    return { fr: '3ème TRIMESTRE', en: 'Third Term' };
+  };
+
+  const termBilingual = formatTermBilingual(term);
+
   return (
-    <div className="fixed inset-0 z-[100] bg-white overflow-y-auto text-black print:overflow-visible">
+    <div className="fixed inset-0 z-[100] bg-[#f8f4eb] overflow-y-auto print:overflow-visible print:bg-white text-[#2b2318]">
       {/* Back button (hidden on print) */}
-      <div className="absolute top-4 left-4 print:hidden">
-        <Link href={`/evaluations/${resolvedParams.classeId}?term=${encodeURIComponent(term)}`} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200">
+      <div className="absolute top-4 left-4 print:hidden z-[110]">
+        <Link href={`/evaluations/${resolvedParams.classeId}?term=${encodeURIComponent(term)}`} className="px-4 py-2 bg-[#f3ecdb] text-[#6b5f4a] font-bold rounded-control hover:bg-[#ece3cc] transition-colors border border-[#dfd6c0]">
           ← Retour à la classe
         </Link>
       </div>
 
-      {/* Printable Area */}
-      <div className={`max-w-[210mm] min-h-[297mm] mx-auto bg-white font-sans ${bulletinTemplate === 'minimal' ? 'p-6 text-xs' : 'p-8 sm:p-12 text-sm'}`}>
-        
-        {/* Header - Classic */}
-        {bulletinTemplate === 'classic' && (
-          <div className="flex justify-between items-start border-b-2 border-slate-800 pb-6 mb-8">
-            <div className="text-center w-1/3">
-              <h2 className="font-bold text-xs uppercase leading-tight">République du Cameroun</h2>
-              <p className="text-[10px]">Paix - Travail - Patrie</p>
-              <p className="text-[10px] mt-1.5 italic leading-tight">{bulletinHeaderLeft}</p>
-            </div>
-            <div className="flex flex-col items-center justify-center w-1/3">
-              {logoUrl ? (
-                <img src={logoUrl} alt="Logo" className="h-12 w-12 object-contain mb-1" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
-              ) : (
-                <div className="flex h-5 w-7 border border-slate-300">
-                  <div className="bg-emerald-600 w-1/3 h-full"></div>
-                  <div className="bg-red-600 w-1/3 h-full flex items-center justify-center relative"><span className="text-[5px] text-yellow-400">★</span></div>
-                  <div className="bg-yellow-400 w-1/3 h-full"></div>
-                </div>
-              )}
-              <h1 className="font-black text-lg mt-1 tracking-widest text-indigo-900 uppercase leading-none">{schoolNameLabel}</h1>
-              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">{bulletinSlogan}</p>
-            </div>
-            <div className="text-center w-1/3">
-              <h2 className="font-bold text-xs uppercase leading-tight">Republic of Cameroon</h2>
-              <p className="text-[10px]">Peace - Work - Fatherland</p>
-              <p className="text-[10px] mt-1.5 italic leading-tight">{bulletinHeaderRight}</p>
+      {/* Printable Area A4 */}
+      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-[#fffdf8] print:bg-white font-sans p-8 sm:p-11 text-sm shadow-login print:shadow-none box-sizing: border-box relative">
+        {/* Bande kenté signature on top of page, hidden on print for standard paper */}
+        <div className="absolute top-0 left-0 right-0 h-[6px] kente-band print:hidden" />
+
+        {/* Header - Cameroonian Official Bilingual Structure */}
+        <div className="grid grid-cols-3 gap-4 items-start text-center text-[8.5px] font-bold uppercase tracking-wide leading-relaxed border-b border-[#2b2318] pb-4 mb-4">
+          <div>
+            République du Cameroun<br />
+            <span className="font-medium italic text-[7.5px] capitalize font-serif text-[#6b5f4a]">Paix — Travail — Patrie</span><br />
+            Ministère des Enseignements Secondaires<br />
+            <span className="font-semibold text-[7.5px] capitalize text-[#6b5f4a]">{delegateLeft}</span>
+          </div>
+
+          <div className="flex flex-col items-center gap-1.5 pt-1">
+            <div className="w-11 h-11 rounded-[14px] bg-[#2b2318] text-[#fdf3e3] flex items-center justify-center font-extrabold text-xl">M</div>
+            <div className="font-extrabold text-[12px] tracking-tight text-[#2b2318] capitalize leading-none mt-1">{schoolNameLabel}</div>
+            <div className="text-[6.5px] font-medium text-[#6b5f4a] capitalize leading-normal">
+              BP 1234 Yaoundé · Devise: {SloganLabel}
             </div>
           </div>
-        )}
 
-        {/* Header - Modern */}
-        {bulletinTemplate === 'modern' && (
-          <div className="flex flex-col items-center text-center border-b-2 border-indigo-600 pb-5 mb-8">
-            {logoUrl ? (
-              <img src={logoUrl} alt="Logo" className="h-16 w-16 object-contain rounded-xl shadow-md border border-slate-100 p-1 bg-white mb-2" />
-            ) : (
-              <span className="text-3xl mb-1">🏫</span>
-            )}
-            <h1 className="font-extrabold text-2xl tracking-tight text-indigo-950 uppercase leading-tight">{schoolNameLabel}</h1>
-            <p className="text-xs font-bold text-indigo-600 tracking-wider uppercase mt-1">{bulletinSlogan}</p>
-            <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-3 font-semibold">
-              <span>{bulletinHeaderLeft}</span>
-              <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-              <span>{bulletinHeaderRight}</span>
-            </div>
+          <div>
+            Republic of Cameroon<br />
+            <span className="font-medium italic text-[7.5px] capitalize font-serif text-[#6b5f4a]">Peace — Work — Fatherland</span><br />
+            Ministry of Secondary Education<br />
+            <span className="font-semibold text-[7.5px] capitalize text-[#6b5f4a]">{delegateRight}</span>
           </div>
-        )}
-
-        {/* Header - Minimal */}
-        {bulletinTemplate === 'minimal' && (
-          <div className="flex justify-between items-center border-b border-slate-400 pb-2 mb-6 text-xs">
-            <div className="flex items-center gap-2.5">
-              {logoUrl ? (
-                <img src={logoUrl} alt="Logo" className="h-9 w-9 object-contain" />
-              ) : (
-                <span className="text-xl">🏫</span>
-              )}
-              <div>
-                <h1 className="font-black text-sm uppercase leading-none">{schoolNameLabel}</h1>
-                <p className="text-[9px] font-semibold text-slate-500 italic mt-0.5">{bulletinSlogan}</p>
-              </div>
-            </div>
-            <div className="text-right text-[9px] text-slate-500 leading-tight">
-              <div>{bulletinHeaderLeft}</div>
-              <div>{bulletinHeaderRight}</div>
-            </div>
-          </div>
-        )}
-
-        {/* Title */}
-        <div className={`text-center ${bulletinTemplate === 'minimal' ? 'mb-4' : 'mb-8'}`}>
-          <h2 className={`font-black uppercase tracking-widest border-2 border-slate-800 inline-block bg-slate-50 ${bulletinTemplate === 'minimal' ? 'text-lg px-6 py-1.5' : 'text-2xl px-8 py-2'}`}>
-            BULLETIN DE NOTES - {term.toUpperCase()}
-          </h2>
-          <p className="text-xs font-bold mt-1.5">Année Scolaire : {yearName}</p>
         </div>
 
-        {/* Identity Box */}
-        <div className={`flex border-2 border-slate-800 ${bulletinTemplate === 'minimal' ? 'mb-4 p-3 gap-3' : 'mb-8 p-4'}`}>
-          <div className="flex-1 border-r-2 border-slate-800 pr-4">
-            <div className="grid grid-cols-3 gap-1.5 text-xs">
-              <span className="font-bold uppercase text-slate-500 text-[10px]">Nom de l'élève :</span>
-              <span className="col-span-2 font-black uppercase text-sm">{student.nom} {student.prenom}</span>
-              
-              <span className="font-bold uppercase text-slate-500 text-[10px]">Né(e) le :</span>
-              <span className="col-span-2 font-bold">{student.dateNaissance || 'N/A'} à {student.lieuNaissance || 'N/A'}</span>
-              
-              <span className="font-bold uppercase text-slate-500 text-[10px]">Matricule :</span>
-              <span className="col-span-2 font-mono font-bold text-slate-700">{student.matricule}</span>
-            </div>
+        {/* Title Block */}
+        <div className="text-center mb-5">
+          <div className="font-extrabold text-[15px] text-[#2b2318] tracking-tight">
+            BULLETIN DE NOTES — {termBilingual.fr}
           </div>
-          <div className="flex-1 pl-4">
-            <div className="grid grid-cols-2 gap-1.5 text-xs">
-              <span className="font-bold uppercase text-slate-500 text-[10px]">Classe :</span>
-              <span className="font-black uppercase">{classInfo.nom}</span>
-              
-              <span className="font-bold uppercase text-slate-500 text-[10px]">Effectif :</span>
-              <span className="font-bold">{allStudents.length} élèves</span>
-              
-              <span className="font-bold uppercase text-slate-500 text-[10px]">Professeur Principal :</span>
-              <span className="font-bold">M. L'Enseignant</span>
-            </div>
+          <div className="text-[10px] font-semibold text-[#6b5f4a] mt-0.5">
+            Année scolaire {yearName} · Report Card — {termBilingual.en}
+          </div>
+        </div>
+
+        {/* Identity Grid (4 Columns) */}
+        <div className="grid grid-cols-4 gap-y-3.5 gap-x-5 mb-5 text-[11.5px] bg-[#fdfaf2] border border-[#e9e1cf] p-4 rounded-card">
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Nom et prénom</span>
+            <span className="font-extrabold text-[#2b2318] uppercase">{student.nom} {student.prenom}</span>
+          </div>
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Matricule</span>
+            <span className="font-bold text-[#2b2318] font-mono">{student.matricule}</span>
+          </div>
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Classe</span>
+            <span className="font-bold text-[#2b2318]">{classInfo.nom} · {classeEffectif} élèves</span>
+          </div>
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Professeur Titulaire</span>
+            <span className="font-bold text-[#2b2318]">M. Eric Tchoupo</span>
+          </div>
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Né le</span>
+            <span className="font-bold text-[#2b2318]">
+              {student.dateNaissance ? new Date(student.dateNaissance).toLocaleDateString('fr-FR') : 'N/A'} à {student.lieuNaissance || 'N/A'}
+            </span>
+          </div>
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Genre / Sex</span>
+            <span className="font-bold text-[#2b2318]">{student.sexe === 'M' ? 'Masculin / Male' : 'Féminin / Female'}</span>
+          </div>
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Redoublant / Repeater</span>
+            <span className="font-bold text-[#2b2318]">Non</span>
+          </div>
+          <div>
+            <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Parent Responsable</span>
+            <span className="font-bold text-[#2b2318]">{student.nomParent || 'N/A'}</span>
           </div>
         </div>
 
         {/* Grades Table */}
-        <table className={`w-full text-left border-collapse border-2 border-slate-800 ${bulletinTemplate === 'minimal' ? 'mb-4' : 'mb-8'}`}>
+        <table className="w-full text-left border-collapse border border-[#2b2318] mb-5 text-[11px]">
           <thead>
-            <tr className="bg-slate-200">
-              <th className="border border-slate-800 px-3 py-1.5 text-xs font-bold uppercase w-1/3">Matière</th>
-              <th className="border border-slate-800 px-2 py-1.5 text-xs font-bold uppercase text-center w-12">Coef</th>
-              <th className="border border-slate-800 px-3 py-1.5 text-xs font-bold uppercase text-center w-24">{isMaternelle ? 'Acquisition' : 'Note/20'}</th>
-              <th className="border border-slate-800 px-3 py-1.5 text-xs font-bold uppercase w-1/4">Appréciation</th>
-              <th className="border border-slate-800 px-3 py-1.5 text-xs font-bold uppercase text-center">Visa Prof</th>
+            <tr className="bg-[#2b2318] text-[#fdf3e3] text-[9.5px] uppercase tracking-wide">
+              <th className="border border-[#2b2318] px-4 py-2.5 font-bold">Matière / Subject</th>
+              <th className="border border-[#2b2318] px-3 py-2.5 font-bold">Enseignant</th>
+              <th className="border border-[#2b2318] px-3 py-2.5 font-bold text-center">Note /20</th>
+              <th className="border border-[#2b2318] px-3 py-2.5 font-bold text-center">Coef</th>
+              <th className="border border-[#2b2318] px-3 py-2.5 font-bold text-center">Note × Coef</th>
+              <th className="border border-[#2b2318] px-3 py-2.5 font-bold text-center">Moy. classe</th>
+              <th className="border border-[#2b2318] px-4 py-2.5 font-bold">Appréciation</th>
             </tr>
           </thead>
-          <tbody className="text-xs">
-            {termNotes.map(note => {
+          <tbody>
+            {termNotes.map((note, index) => {
               const coef = note.coefficient || 1;
+              const grade = note.note !== null && note.note !== undefined ? Number(note.note) : 0;
+              const product = grade * coef;
+              const subjAvg = getSubjectAverage(note.matiere);
+              const rowBg = index % 2 === 1 ? 'bg-[#faf7ef]' : 'bg-white';
+
               return (
-                <tr key={note.id}>
-                  <td className="border border-slate-800 px-3 py-2 font-bold uppercase text-[11px]">{note.matiere}</td>
-                  <td className="border border-slate-800 px-2 py-2 text-center">{isMaternelle ? '-' : coef}</td>
-                  <td className="border border-slate-800 px-3 py-2 text-center font-black">
-                    {isMaternelle ? note.evaluation_maternelle : (note.note !== null && note.note !== undefined ? note.note.toFixed(2) : '-')}
+                <tr key={note.id} className={`${rowBg} border-b border-[#e5ddc9]`}>
+                  <td className="border border-[#e9e1cf] px-4 py-2 font-extrabold uppercase">{note.matiere}</td>
+                  <td className="border border-[#e9e1cf] px-3 py-2 text-[#6b5f4a] font-medium">{teachersMap[note.enseignant_id] || 'Non spécifié'}</td>
+                  <td className={`border border-[#e9e1cf] px-3 py-2 text-center font-extrabold ${grade >= 10 ? 'text-[#1a5c3f]' : 'text-[#b5502f]'}`}>
+                    {grade.toFixed(2).replace('.', ',')}
                   </td>
-                  <td className="border border-slate-800 px-3 py-2 text-[10px] italic">
-                    {isMaternelle ? (
-                      note.evaluation_maternelle === 'Acquis' ? 'Excellent' : note.evaluation_maternelle === 'En cours' ? 'Doit poursuivre' : 'Attention requise'
-                    ) : (
-                      getMention(note.note || 0)
-                    )}
-                  </td>
-                  <td className="border border-slate-800 px-3 py-2 text-center"></td>
+                  <td className="border border-[#e9e1cf] px-3 py-2 text-center font-semibold">{coef}</td>
+                  <td className="border border-[#e9e1cf] px-3 py-2 text-center font-bold">{product.toFixed(2).replace('.', ',')}</td>
+                  <td className="border border-[#e9e1cf] px-3 py-2 text-center text-[#6b5f4a] font-medium">{subjAvg.toFixed(2).replace('.', ',')}</td>
+                  <td className="border border-[#e9e1cf] px-4 py-2 text-[#4a4232] font-semibold">{getMention(grade)}</td>
                 </tr>
-              )
+              );
             })}
             {termNotes.length === 0 && (
-              <tr><td colSpan={5} className="border border-slate-800 px-4 py-8 text-center text-slate-500 italic">Aucune note enregistrée pour ce trimestre.</td></tr>
+              <tr>
+                <td colSpan={7} className="border border-[#e9e1cf] px-4 py-10 text-center text-[#6b5f4a] italic">
+                  Aucune note enregistrée pour ce trimestre.
+                </td>
+              </tr>
             )}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-[#2b2318] bg-[#f3ecdb] font-extrabold text-[11.5px]">
+              <td className="border border-[#2b2318] px-4 py-2" colSpan={3}>TOTAUX</td>
+              <td className="border border-[#2b2318] px-3 py-2 text-center">{totalCoef}</td>
+              <td className="border border-[#2b2318] px-3 py-2 text-center">{totalPoints.toFixed(2).replace('.', ',')}</td>
+              <td className="border border-[#2b2318] px-3 py-2" colSpan={2}></td>
+            </tr>
+          </tfoot>
         </table>
 
-        {/* Summary Footer */}
-        <div className={`grid grid-cols-2 gap-6 ${bulletinTemplate === 'minimal' ? 'mb-4' : 'mb-8'}`}>
-          <div className="border-2 border-slate-800">
-            <div className="bg-slate-800 text-white font-bold uppercase text-[10px] py-1.5 text-center">Travail de l'élève</div>
-            <div className="p-3.5 grid grid-cols-2 gap-2 text-xs">
-              <div className="font-bold text-slate-500 uppercase text-[10px]">Total Points :</div>
-              <div className="font-black text-right">{isMaternelle ? 'N/A' : totalPoints.toFixed(2)}</div>
-              
-              <div className="font-bold text-slate-500 uppercase text-[10px]">Moyenne Générale :</div>
-              <div className="font-black text-right text-sm">{isMaternelle ? 'N/A' : (myAvg > 0 ? myAvg.toFixed(2) + ' / 20' : '-')}</div>
-              
-              <div className="font-bold text-slate-500 uppercase text-[10px]">Rang :</div>
-              <div className="font-black text-right">{isMaternelle ? '-' : myRank + ' / ' + classeEffectif}</div>
-              
-              <div className="font-bold text-slate-500 uppercase text-[10px]">Appréciation Globale :</div>
-              <div className="font-black text-right text-[11px]">{isMaternelle ? 'EN PROGRESSION' : getMention(myAvg).toUpperCase()}</div>
+        {/* 4 Summary Boxes Grid */}
+        <div className="grid grid-cols-4 gap-3 mb-5">
+          <div className="border border-[#2b2318] rounded-control p-2.5 text-center bg-white shadow-sm">
+            <div className="text-[7.5px] font-bold text-[#a3947a] uppercase tracking-wide">Moyenne trimestrielle</div>
+            <div className="text-[17px] font-extrabold text-[#2b2318] mt-0.5 tracking-tight">
+              {myAvg.toFixed(2).replace('.', ',')} <span className="text-[10px] text-[#a3947a] font-bold">/20</span>
             </div>
           </div>
-          <div className="border-2 border-slate-800 relative">
-            <div className="bg-slate-800 text-white font-bold uppercase text-[10px] py-1.5 text-center">Décision du Conseil & Signatures</div>
-            <div className={`p-3 flex justify-between ${bulletinTemplate === 'minimal' ? 'h-24' : 'h-32'}`}>
-              <div className="text-[10px] font-bold uppercase text-slate-400">Le Professeur Principal</div>
-              <div className="text-[10px] font-bold uppercase text-slate-400 text-right">Le Chef d'Établissement</div>
+          <div className="border border-[#2b2318] rounded-control p-2.5 text-center bg-white shadow-sm">
+            <div className="text-[7.5px] font-bold text-[#a3947a] uppercase tracking-wide">Rang</div>
+            <div className="text-[17px] font-extrabold text-[#2b2318] mt-0.5 tracking-tight">
+              {myRank === 1 ? (
+                <>1<sup>er</sup></>
+              ) : (
+                <>{myRank}</>
+              )} <span className="text-[10px] text-[#a3947a] font-bold">/ {classeEffectif}</span>
+            </div>
+          </div>
+          <div className="border border-[#2b2318] rounded-control p-2.5 text-center bg-white shadow-sm">
+            <div className="text-[7.5px] font-bold text-[#a3947a] uppercase tracking-wide">Mention</div>
+            <div className={`text-[17px] font-extrabold mt-0.5 tracking-tight ${myAvg >= 10 ? 'text-[#1a5c3f]' : 'text-[#b5502f]'}`}>
+              {getMention(myAvg)}
+            </div>
+          </div>
+          <div className="border border-[#2b2318] rounded-control p-2.5 text-center bg-white shadow-sm">
+            <div className="text-[7.5px] font-bold text-[#a3947a] uppercase tracking-wide">Moyenne de la classe</div>
+            <div className="text-[17px] font-extrabold text-[#2b2318] mt-0.5 tracking-tight">
+              {classAvg.toFixed(2).replace('.', ',')} <span className="text-[10px] text-[#a3947a] font-bold">/20</span>
             </div>
           </div>
         </div>
 
-        <div className="text-center text-[9px] text-slate-400 italic mt-8 border-t border-slate-200 pt-3">
-          Bulletin généré par MboaSchool - Le {new Date().toLocaleDateString('fr-FR')} à {new Date().toLocaleTimeString('fr-FR')}
+        {/* Discipline & Council Remarks */}
+        <div className="grid grid-cols-2 gap-4 mb-5 text-[11.5px]">
+          <div className="border border-[#d9cfb5] rounded-control p-3 bg-[#fdfaf2]">
+            <div className="text-[8px] font-bold text-[#a3947a] uppercase tracking-wide mb-1.5">Discipline / Assiduité</div>
+            Absences non justifiées : <strong>{absencesCount * 2} h</strong> · Retards : <strong>{retardsCount}</strong> · Sanctions : <strong>{sanctionsCount > 0 ? `${sanctionsCount} sanction(s)` : 'Aucune'}</strong>
+          </div>
+          <div className="border border-[#d9cfb5] rounded-control p-3 bg-[#fdfaf2]">
+            <div className="text-[8px] font-bold text-[#a3947a] uppercase tracking-wide mb-1.5">Appréciation du conseil de classe</div>
+            <p className="font-semibold italic text-[#4a4232] leading-relaxed">
+              {student.bulletins?.[0]?.appreciationEnseignant || getCouncilAppreciation(myAvg)}
+            </p>
+          </div>
+        </div>
+
+        {/* Signatures Block (3 columns) */}
+        <div className="grid grid-cols-3 gap-6 text-center text-[10px] font-bold uppercase tracking-wide pt-2 mb-12">
+          <div>
+            Le Titulaire <br />
+            <span className="text-[8px] font-medium text-[#6b5f4a] capitalize">The Class Master</span>
+            <div className="h-14 border-b border-dotted border-[#a3947a] mt-1"></div>
+          </div>
+          <div>
+            Le Parent / Tuteur <br />
+            <span className="text-[8px] font-medium text-[#6b5f4a] capitalize">The Parent / Guardian</span>
+            <div className="h-14 border-b border-dotted border-[#a3947a] mt-1"></div>
+          </div>
+          <div>
+            La Directrice <br />
+            <span className="text-[8px] font-medium text-[#6b5f4a] capitalize">The Principal</span>
+            <div className="h-14 border-b border-dotted border-[#a3947a] mt-1"></div>
+          </div>
+        </div>
+
+        {/* Print Page Footer */}
+        <div className="absolute bottom-5 left-8 right-8 border-t border-[#e9e1cf] pt-3 flex justify-between text-[8px] font-semibold text-[#a3947a]">
+          <span>Fait à Yaoundé, le {new Date().toLocaleDateString('fr-FR')}</span>
+          <span>Généré par MboaSchool · document officiel de l'établissement</span>
         </div>
 
       </div>

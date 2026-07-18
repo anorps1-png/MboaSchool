@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -52,7 +53,7 @@ export async function middleware(request: NextRequest) {
         user = supabaseUser;
       }
     } catch (err) {
-      console.error("Middleware Supabase auth error:", err);
+      captureError(err, { context: "Proxy Supabase auth error:" });
     }
   }
 
@@ -65,10 +66,10 @@ export async function middleware(request: NextRequest) {
 
   // Protected routes check
   // Allow landing page (/), login (/login), SW/manifests, and static assets
-  const isPublicRoute = 
-    path === '/' || 
-    path === '/login' || 
-    path.startsWith('/_next') || 
+  const isPublicRoute =
+    path === '/' ||
+    path === '/login' ||
+    path.startsWith('/_next') ||
     path.startsWith('/favicon.ico') ||
     path.includes('.') || // static files with extensions like .png, .json, etc.
     path.startsWith('/sw') ||

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Classe, Eleve } from '@/types/domain';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 export default function ClasseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -32,7 +33,7 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
           setStudents(data.eleves || []);
         }
       } catch (err) {
-        console.error("Error fetching class details:", err);
+        captureError(err, { context: "Error fetching class details:" });
       } finally {
         setIsLoaded(true);
       }
@@ -40,8 +41,8 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
     fetchData();
   }, [classeId, etablissementId]);
 
-  if (!isLoaded) return <div className="p-8 text-center text-slate-500">Chargement...</div>;
-  if (!classe) return <div className="p-8 text-center text-red-500 font-bold">Classe introuvable</div>;
+  if (!isLoaded) return <div className="p-8 text-center text-ink-soft">Chargement...</div>;
+  if (!classe) return <div className="p-8 text-center text-accent font-bold">Classe introuvable</div>;
 
   const filles = students.filter(s => s.sexe === 'F').length;
   const garcons = students.filter(s => s.sexe === 'M').length;
@@ -69,27 +70,27 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <Link href="/classes" className="text-indigo-600 text-sm font-semibold hover:underline">← Retour aux classes</Link>
+      <Link href="/classes" className="text-ink text-sm font-semibold hover:underline">← Retour aux classes</Link>
       
       <div className="flex items-end justify-between">
-        <h1 className="text-2xl font-bold text-slate-800 text-black">Classe : {classe.nom}</h1>
-        <div className="text-sm font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-md">
+        <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Classe : {classe.nom}</h1>
+        <div className="text-sm font-semibold text-ink-soft bg-chip px-3 py-1 rounded-md">
           {classe.section === 'Anglophone' ? 'Section Anglophone' : 'Section Francophone'}
         </div>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Équipe Pédagogique</h2>
-          <p className="text-sm text-slate-600"><span className="font-bold text-slate-800">Enseignant Principal:</span> {classe.enseignant_principal_id || 'Non assigné'}</p>
-          <p className="text-sm text-slate-600 mt-2"><span className="font-bold text-slate-800">Assistant:</span> {classe.enseignant_assistant_id || 'Aucun'}</p>
+        <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+          <h2 className="text-lg font-bold border-b pb-2 mb-4">Équipe Pédagogique</h2>
+          <p className="text-sm text-ink-soft"><span className="font-bold text-ink">Enseignant Principal:</span> {classe.enseignant_principal_id || 'Non assigné'}</p>
+          <p className="text-sm text-ink-soft mt-2"><span className="font-bold text-ink">Assistant:</span> {classe.enseignant_assistant_id || 'Aucun'}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Effectif</h2>
+        <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+          <h2 className="text-lg font-bold border-b pb-2 mb-4">Effectif</h2>
           <div className="flex justify-between items-center">
-            <span className="text-3xl font-extrabold text-indigo-600">{students.length}</span>
-            <div className="text-sm text-slate-500 font-semibold text-right">
+            <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{students.length}</span>
+            <div className="text-sm text-ink-soft font-semibold text-right">
               <p>{filles} Filles ({students.length ? Math.round(filles/students.length*100) : 0}%)</p>
               <p>{garcons} Garçons ({students.length ? Math.round(garcons/students.length*100) : 0}%)</p>
             </div>
@@ -97,36 +98,36 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Performances</h2>
+      <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
+        <h2 className="text-lg font-bold border-b pb-2 mb-4">Performances</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">Moyenne de la classe</p>
-            <p className="text-2xl font-extrabold text-black mt-1">{classAvg} / 20</p>
+            <p className="text-xs font-bold text-ink-faint uppercase">Moyenne de la classe</p>
+            <p className="text-2xl font-extrabold mt-1">{classAvg} / 20</p>
           </div>
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">Taux de réussite</p>
-            <p className="text-2xl font-extrabold text-emerald-600 mt-1">{successRate}%</p>
+            <p className="text-xs font-bold text-ink-faint uppercase">Taux de réussite</p>
+            <p className="text-2xl font-extrabold text-green mt-1">{successRate}%</p>
           </div>
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">Comparaison N-1</p>
-            <p className="text-2xl font-extrabold text-emerald-600 mt-1">+2.4%</p>
-            <p className="text-xs text-slate-400">Simulation par rapport à l'an dernier</p>
+            <p className="text-xs font-bold text-ink-faint uppercase">Comparaison N-1</p>
+            <p className="text-2xl font-extrabold text-ink-faint mt-1">N/A</p>
+            <p className="text-xs text-ink-faint">Historique multi-années non disponible</p>
           </div>
         </div>
       </div>
 
       {/* Liste des Élèves */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+      <div className="bg-surface p-6 rounded-card shadow-sm border border-border">
         <div className="flex items-center justify-between border-b pb-2 mb-4">
-          <h2 className="text-lg font-bold text-black">Liste des Élèves</h2>
-          <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded">{students.length} Inscrits</span>
+          <h2 className="text-lg font-bold">Liste des Élèves</h2>
+          <span className="text-xs font-bold bg-chip text-ink px-2 py-1 rounded">{students.length} Inscrits</span>
         </div>
         
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+              <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                 <th className="px-4 py-3">Matricule</th>
                 <th className="px-4 py-3">Nom complet</th>
                 <th className="px-4 py-3">Sexe</th>
@@ -134,15 +135,15 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
+            <tbody className="divide-y divide-border-row text-sm">
               {students.map(student => (
-                <tr key={student.id} className="hover:bg-slate-50/30">
-                  <td className="px-4 py-3 text-slate-500 font-mono text-xs">{student.matricule}</td>
-                  <td className="px-4 py-3 font-semibold text-slate-800 text-black">{student.nom} {student.prenom}</td>
+                <tr key={student.id} className="hover:bg-bg/30">
+                  <td className="px-4 py-3 text-ink-soft font-mono text-xs">{student.matricule}</td>
+                  <td className="px-4 py-3 font-semibold text-ink">{student.nom} {student.prenom}</td>
                   <td className="px-4 py-3">{student.sexe === 'M' ? 'Garçon' : 'Fille'}</td>
-                  <td className="px-4 py-3 text-slate-500">{student.dateNaissance}</td>
+                  <td className="px-4 py-3 text-ink-soft">{student.dateNaissance}</td>
                   <td className="px-4 py-3 text-right">
-                    <Link href={`/eleves/${encodeURIComponent(student.id)}`} className="inline-block px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs transition-colors">
+                    <Link href={`/eleves/${encodeURIComponent(student.id)}`} className="inline-block px-3 py-1.5 bg-chip hover:bg-chip text-ink-soft font-semibold rounded-control text-xs transition-colors">
                       Voir profil
                     </Link>
                   </td>
@@ -150,7 +151,7 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
               ))}
               {students.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400 italic">
+                  <td colSpan={5} className="px-4 py-8 text-center text-ink-faint italic">
                     Aucun élève n'est encore inscrit dans cette classe.
                   </td>
                 </tr>

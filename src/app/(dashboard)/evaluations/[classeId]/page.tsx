@@ -7,6 +7,7 @@ import { Eleve, Classe, NoteMatiere } from '@/types/domain';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { getClassRankings, type ClassRanking } from '@/lib/queries/evaluations';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 interface PageProps {
   params: Promise<{ classeId: string }>;
@@ -86,7 +87,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
           const rk = await getClassRankings(decodeURIComponent(classeId), term);
           setRankings(rk);
         } catch (rkErr) {
-          console.warn('Classement serveur indisponible, repli client:', rkErr);
+          captureMessage('Classement serveur indisponible, repli client:', { detail: rkErr });
           setRankings([]);
         }
 
@@ -104,7 +105,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         if (!selectedSubject) setSelectedSubject(subjToUse);
 
       } catch (err) {
-        console.error("Error loading evaluations page:", err);
+        captureError(err, { context: "Error loading evaluations page:" });
       }
     };
 
@@ -251,7 +252,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   }, [rankings, studentsList, notesList]);
 
   if (!classInfo) {
-    return <div className="p-8 text-center text-slate-500">Chargement...</div>;
+    return <div className="p-8 text-center text-ink-soft">Chargement...</div>;
   }
 
   const isMaternelle = classInfo.niveau?.toLowerCase().includes('maternelle') || classInfo.niveau_id?.toLowerCase().includes('maternelle');
@@ -259,30 +260,30 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-6 rounded-card border border-border shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 text-black">
-            {classInfo.nom} <span className="text-slate-400 font-normal text-lg ml-2">| {term}</span>
+          <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">
+            {classInfo.nom} <span className="text-ink-faint font-normal text-lg ml-2">| {term}</span>
           </h1>
-          <p className="text-sm text-slate-500 mt-1">Gestion des évaluations et édition des bulletins</p>
+          <p className="text-sm text-ink-soft mt-1">Gestion des évaluations et édition des bulletins</p>
         </div>
-        <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
+        <div className="flex gap-2 bg-chip p-1 rounded-control">
           <button
             onClick={() => setActiveTab('saisie')}
-            className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'saisie' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'saisie' ? 'bg-surface shadow text-ink' : 'text-ink-soft hover:text-ink-soft'}`}
           >
             Saisie des Notes
           </button>
           <button
             onClick={() => setActiveTab('synthese')}
-            className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'synthese' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'synthese' ? 'bg-surface shadow text-ink' : 'text-ink-soft hover:text-ink-soft'}`}
           >
             Synthèse & Bulletins
           </button>
@@ -291,15 +292,15 @@ export default function EvaluationsClassePage({ params }: PageProps) {
 
       {/* Main Content Area */}
       {activeTab === 'saisie' ? (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-end justify-between border-b border-slate-100 pb-6">
+        <div className="bg-surface rounded-card border border-border shadow-sm p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-end justify-between border-b border-border pb-6">
             <div className="w-full sm:w-auto flex flex-wrap sm:flex-nowrap gap-4 items-end">
               <div className="w-full sm:w-64">
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Matière à évaluer</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Matière à évaluer</label>
                 <select
                   value={selectedSubject}
                   onChange={(e) => setSelectedSubject(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white text-black font-semibold"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg focus:bg-surface font-semibold"
                 >
                   {subjectsList.map(subj => (
                     <option key={subj} value={subj}>{subj}</option>
@@ -307,14 +308,14 @@ export default function EvaluationsClassePage({ params }: PageProps) {
                 </select>
               </div>
               <div className="w-full sm:w-24">
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Coef.</label>
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Coef.</label>
                 <input
                   type="number"
                   min="1"
                   max="10"
                   value={selectedCoef}
                   onChange={(e) => setSelectedCoef(Number(e.target.value) || 1)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white text-black font-semibold text-center"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg focus:bg-surface font-semibold text-center"
                 />
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
@@ -323,11 +324,11 @@ export default function EvaluationsClassePage({ params }: PageProps) {
                   placeholder="Nouvelle matière..."
                   value={newSubjectName}
                   onChange={(e) => setNewSubjectName(e.target.value)}
-                  className="w-full sm:w-40 px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                  className="w-full sm:w-40 px-3 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent focus:border-accent outline-none"
                 />
                 <button
                   onClick={handleAddSubject}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors whitespace-nowrap"
+                  className="px-3 py-2 bg-chip hover:bg-chip text-ink-soft rounded-control text-sm font-bold transition-colors whitespace-nowrap"
                 >
                   + Ajouter
                 </button>
@@ -335,7 +336,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
             </div>
             <button
               onClick={saveAllNotes}
-              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md shadow-indigo-600/10 transition-colors w-full sm:w-auto whitespace-nowrap"
+              className="px-6 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md shadow-cta transition-colors w-full sm:w-auto whitespace-nowrap"
             >
               Sauvegarder les notes
             </button>
@@ -344,24 +345,24 @@ export default function EvaluationsClassePage({ params }: PageProps) {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+                <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                   <th className="px-6 py-3">Élève</th>
                   <th className="px-6 py-3">Matricule</th>
                   <th className="px-6 py-3 w-48 text-center">{isMaternelle ? 'Compétence' : 'Note / 20'}</th>
                   {!isMaternelle && <th className="px-6 py-3 w-32 text-center">Coef.</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
+              <tbody className="divide-y divide-border-row text-sm">
                 {studentsList.map(student => (
-                  <tr key={student.id} className="hover:bg-slate-50/30">
-                    <td className="px-6 py-4 font-semibold text-slate-800 text-black">{student.nom} {student.prenom}</td>
-                    <td className="px-6 py-4 text-slate-500 font-mono text-xs">{student.matricule}</td>
+                  <tr key={student.id} className="hover:bg-bg/30">
+                    <td className="px-6 py-4 font-semibold text-ink">{student.nom} {student.prenom}</td>
+                    <td className="px-6 py-4 text-ink-soft font-mono text-xs">{student.matricule}</td>
                     <td className="px-6 py-4">
                       {isMaternelle ? (
                         <select
                           value={gradesBuffer[student.id] || ''}
                           onChange={(e) => handleBufferChange(student.id, e.target.value)}
-                          className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-black"
+                          className="w-full px-3 py-1.5 border border-border rounded text-sm"
                         >
                           <option value="">-- Choisir --</option>
                           <option value="Acquis">Acquis</option>
@@ -375,54 +376,54 @@ export default function EvaluationsClassePage({ params }: PageProps) {
                           placeholder="-"
                           value={gradesBuffer[student.id] || ''}
                           onChange={(e) => handleBufferChange(student.id, e.target.value)}
-                          className="w-full px-3 py-1.5 border border-slate-200 rounded text-sm text-center font-bold text-indigo-600 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
+                          className="w-full px-3 py-1.5 border border-border rounded text-sm text-center font-bold text-ink focus:ring-2 focus:border-accent focus:outline-none"
                         />
                       )}
                     </td>
                     {!isMaternelle && (
-                      <td className="px-6 py-4 text-center text-slate-500 font-bold">
+                      <td className="px-6 py-4 text-center text-ink-soft font-bold">
                         x {selectedCoef}
                       </td>
                     )}
                   </tr>
                 ))}
                 {studentsList.length === 0 && (
-                  <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-400">Aucun élève dans cette classe.</td></tr>
+                  <tr><td colSpan={3} className="px-6 py-12 text-center text-ink-faint">Aucun élève dans cette classe.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-6">
+        <div className="bg-surface rounded-card border border-border shadow-sm p-6 space-y-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-slate-800">Synthèse du {term}</h2>
+            <h2 className="text-lg font-bold text-ink">Synthèse du {term}</h2>
             {/* Could add a bulk print button here */}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+                <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                   <th className="px-6 py-3">Rang</th>
                   <th className="px-6 py-3">Élève</th>
                   <th className="px-6 py-3 text-center">{isMaternelle ? 'Évaluation Globale' : 'Moyenne'}</th>
                   <th className="px-6 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
+              <tbody className="divide-y divide-border-row text-sm">
                 {syntheseRows.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50/30">
-                    <td className="px-6 py-4 font-bold text-slate-400 text-center w-16">
+                  <tr key={student.id} className="hover:bg-bg/30">
+                    <td className="px-6 py-4 font-bold text-ink-faint text-center w-16">
                       {isMaternelle ? '-' : (student.rang ?? '-')}
                     </td>
-                    <td className="px-6 py-4 font-semibold text-slate-800 text-black">{student.nom} {student.prenom}</td>
-                    <td className="px-6 py-4 text-center font-bold text-indigo-600">
+                    <td className="px-6 py-4 font-semibold text-ink">{student.nom} {student.prenom}</td>
+                    <td className="px-6 py-4 text-center font-bold text-ink">
                       {isMaternelle ? 'Format Compétences' : (student.avg > 0 ? student.avg.toFixed(2) + ' / 20' : 'N/A')}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Link
                         href={`/evaluations/${classeId}/bulletin/${student.id}?term=${encodeURIComponent(term)}`}
-                        className="inline-flex items-center justify-center px-4 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-bold transition-colors"
+                        className="inline-flex items-center justify-center px-4 py-1.5 bg-chip hover:bg-chip-hover text-ink rounded-control text-xs font-bold transition-colors"
                         target="_blank"
                       >
                         Tirer le bulletin

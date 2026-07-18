@@ -1,9 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { Eleve } from '@/types/domain';
-import { mockStudents } from '@/mock/students';
-import { mockSurveys, Survey } from '@/mock/surveys';
-import { mockIncidentsQHSE, mockReunionsQHSE, mockDepensesQHSE, mockEvaluationsQHSE } from '@/mock/qhse';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 
@@ -182,25 +179,25 @@ export default function CommunauteQHSEPage() {
         <button
           onClick={openGroupMessage}
           disabled={selectedParents.length === 0}
-          className={`px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-control text-sm font-bold shadow-sm transition-colors flex items-center gap-2 ${
             selectedParents.length > 0 
-              ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
-              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              ? 'bg-accent hover:bg-accent-hover text-cream' 
+              : 'bg-chip text-ink-faint cursor-not-allowed'
           }`}
         >
           Nouveau message groupé ({selectedParents.length})
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+              <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                 <th className="px-6 py-4 w-12 text-center">
                   <input 
                     type="checkbox" 
-                    className="rounded border-slate-300 text-indigo-600"
+                    className="rounded border-border text-ink"
                     checked={selectedParents.length === parentsList.length && parentsList.length > 0}
                     onChange={handleSelectAll}
                   />
@@ -211,28 +208,28 @@ export default function CommunauteQHSEPage() {
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
+            <tbody className="divide-y divide-border-row text-sm">
               {parentsList.map(parent => (
-                <tr key={parent.id} className="hover:bg-slate-50/30 transition-colors">
+                <tr key={parent.id} className="hover:bg-bg/30 transition-colors">
                   <td className="px-6 py-4 text-center">
                     <input 
                       type="checkbox" 
-                      className="rounded border-slate-300 text-indigo-600"
+                      className="rounded border-border text-ink"
                       checked={selectedParents.includes(parent.id)}
                       onChange={() => handleSelectOne(parent.id)}
                     />
                   </td>
-                  <td className="px-6 py-4 font-bold text-slate-800">{parent.nom}</td>
-                  <td className="px-6 py-4 text-slate-600 font-mono">
+                  <td className="px-6 py-4 font-bold text-ink">{parent.nom}</td>
+                  <td className="px-6 py-4 text-ink-soft font-mono">
                     <div className="flex flex-col">
                       <span>{parent.telephone}</span>
-                      {parent.email !== '-' && <span className="text-xs text-slate-400">{parent.email}</span>}
+                      {parent.email !== '-' && <span className="text-xs text-ink-faint">{parent.email}</span>}
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-2">
                       {parent.enfants.map(e => (
-                        <span key={e.id} className="px-2 py-1 bg-slate-100 text-slate-700 text-xs font-semibold rounded-md">
+                        <span key={e.id} className="px-2 py-1 bg-chip text-ink-soft text-xs font-semibold rounded-md">
                           {e.nom} {e.prenom}
                         </span>
                       ))}
@@ -241,7 +238,7 @@ export default function CommunauteQHSEPage() {
                   <td className="px-6 py-4 text-right">
                     <button
                       onClick={() => openIndividualMessage(parent)}
-                      className="inline-flex items-center justify-center px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-bold transition-colors"
+                      className="inline-flex items-center justify-center px-3 py-1.5 bg-chip hover:bg-chip-hover text-ink rounded-control text-xs font-bold transition-colors"
                     >
                       Message
                     </button>
@@ -250,7 +247,7 @@ export default function CommunauteQHSEPage() {
               ))}
               {parentsList.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                  <td colSpan={5} className="px-6 py-12 text-center text-ink-faint italic">
                     Aucun parent trouvé.
                   </td>
                 </tr>
@@ -273,47 +270,58 @@ export default function CommunauteQHSEPage() {
       <div className="space-y-6 animate-in fade-in duration-300">
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-            <span className="text-sm font-bold text-slate-400 mb-2">Score Moyen (2026)</span>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col">
+            <span className="text-sm font-bold text-ink-faint mb-2">Score Moyen (2026)</span>
             <div className="flex items-end gap-2">
-              <span className="text-3xl font-extrabold text-slate-800">{moyenneGlobale.toFixed(1)}/10</span>
-              <span className="text-sm font-bold text-emerald-500 mb-1">+0.4 vs 2025</span>
+              <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{moyenneGlobale.toFixed(1)}/10</span>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-            <span className="text-sm font-bold text-slate-400 mb-2">Participants Totaux</span>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col">
+            <span className="text-sm font-bold text-ink-faint mb-2">Participants Totaux</span>
             <div className="flex items-end gap-2">
-              <span className="text-3xl font-extrabold text-slate-800">{totalParticipants}</span>
+              <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{totalParticipants}</span>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-            <span className="text-sm font-bold text-slate-400 mb-2">Enquêtes Actives</span>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col">
+            <span className="text-sm font-bold text-ink-faint mb-2">Enquêtes Actives</span>
             <div className="flex items-end gap-2">
-              <span className="text-3xl font-extrabold text-slate-800">{surveysData.filter(s => s.statut === 'En cours').length}</span>
+              <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{surveysData.filter(s => s.statut === 'En cours').length}</span>
             </div>
           </div>
         </div>
 
         {/* Historique Comparatif */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-6 text-lg">Évolution de la Satisfaction Globale (2024 - 2026)</h3>
-          <div className="flex items-end gap-8 h-48 px-4 pb-6 border-b border-slate-100">
+        <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+          <h3 className="font-bold text-ink mb-6 text-lg">Évolution de la Satisfaction Globale (2024 - 2026)</h3>
+          <div className="flex items-end gap-8 h-48 px-4 pb-6 border-b border-border">
             {[2024, 2025, 2026].map(year => {
-              // Historique non encore géré nativement via Supabase pour simplifier, on affiche 0
-              const avgYear = year === 2026 ? moyenneGlobale : 0;
-              
-              const heightPercentage = (avgYear / 10) * 100;
-              
+              // Historique multi-années non géré nativement via Supabase : seule
+              // 2026 dispose de vraies données. Les autres années affichent un
+              // état "N/A" plutôt qu'une barre à hauteur zéro (qui se lisait
+              // comme un score réel de 0/10).
+              const hasData = year === 2026 && surveysData.length > 0;
+              const avgYear = hasData ? moyenneGlobale : null;
+              const heightPercentage = avgYear !== null ? (avgYear / 10) * 100 : 100;
+
               return (
                 <div key={year} className="flex-1 flex flex-col items-center justify-end gap-2 group h-full">
-                  <div className="text-sm font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {avgYear.toFixed(1)}/10
+                  <div className="text-sm font-bold text-ink-soft opacity-0 group-hover:opacity-100 transition-opacity">
+                    {avgYear !== null ? `${avgYear.toFixed(1)}/10` : 'N/A'}
                   </div>
-                  <div 
-                    className="w-full max-w-[80px] bg-indigo-500 rounded-t-lg transition-all duration-500 group-hover:bg-indigo-400"
-                    style={{ height: `${heightPercentage}%` }}
-                  ></div>
-                  <div className="font-bold text-slate-500 mt-2">{year}</div>
+                  {avgYear !== null ? (
+                    <div
+                      className="w-full max-w-[80px] bg-accent rounded-t-lg transition-all duration-500 group-hover:bg-accent-hover"
+                      style={{ height: `${heightPercentage}%` }}
+                    ></div>
+                  ) : (
+                    <div
+                      className="w-full max-w-[80px] border-2 border-dashed border-border rounded-t-lg flex items-end justify-center pb-2"
+                      style={{ height: `${heightPercentage}%` }}
+                    >
+                      <span className="text-[10px] font-bold text-ink-faint">N/A</span>
+                    </div>
+                  )}
+                  <div className="font-bold text-ink-soft mt-2">{year}</div>
                 </div>
               );
             })}
@@ -321,14 +329,14 @@ export default function CommunauteQHSEPage() {
         </div>
 
         {/* Liste des enquêtes par catégorie */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800">Toutes les Enquêtes</h3>
+        <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-border bg-bg/50">
+            <h3 className="font-bold text-ink">Toutes les Enquêtes</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
+                <tr className="border-b border-border text-[12px] font-bold text-ink-faint uppercase tracking-[1px] bg-bg/20">
                   <th className="px-6 py-4">Enquête</th>
                   <th className="px-6 py-4">Catégorie</th>
                   <th className="px-6 py-4">Statut</th>
@@ -336,33 +344,33 @@ export default function CommunauteQHSEPage() {
                   <th className="px-6 py-4 text-right">Participants</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
+              <tbody className="divide-y divide-border-row text-sm">
                 {surveysData.map(survey => (
-                  <tr key={survey.id} className="hover:bg-slate-50/30 transition-colors">
-                    <td className="px-6 py-4 font-bold text-slate-800">{survey.titre}</td>
+                  <tr key={survey.id} className="hover:bg-bg/30 transition-colors">
+                    <td className="px-6 py-4 font-bold text-ink">{survey.titre}</td>
                     <td className="px-6 py-4">
-                      <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-xs font-semibold">
+                      <span className="px-2 py-1 bg-chip text-ink-soft rounded-md text-xs font-semibold">
                         {survey.categorie} / {survey.sous_categorie}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded-md text-xs font-bold ${
-                        survey.statut === 'En cours' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                        survey.statut === 'En cours' ? 'bg-chip text-ink-soft' : 'bg-chip text-ink-soft'
                       }`}>
                         {survey.statut}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-center font-bold text-indigo-600">
+                    <td className="px-6 py-4 text-center font-bold text-ink">
                       {Number(survey.score_moyen || 0).toFixed(1)}
                     </td>
-                    <td className="px-6 py-4 text-right text-slate-500 font-medium">
+                    <td className="px-6 py-4 text-right text-ink-soft font-medium">
                       {survey.participants}
                     </td>
                   </tr>
                 ))}
                 {surveysData.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-400 italic">Aucune enquête en base de données.</td>
+                    <td colSpan={5} className="px-6 py-8 text-center text-ink-faint italic">Aucune enquête en base de données.</td>
                   </tr>
                 )}
               </tbody>
@@ -383,101 +391,101 @@ export default function CommunauteQHSEPage() {
       <div className="space-y-6 animate-in fade-in duration-300">
         {/* KPIs QHSE */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-            <span className="text-sm font-bold text-slate-400 mb-2">Jours sans accident grave</span>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col">
+            <span className="text-sm font-bold text-ink-faint mb-2">Jours sans accident grave</span>
             <div className="flex items-end gap-2">
-              <span className="text-3xl font-extrabold text-emerald-600">142</span>
-              <span className="text-sm font-bold text-slate-500 mb-1">jours</span>
+              <span className="text-[40px] font-extrabold text-green tracking-[-2px] leading-none">142</span>
+              <span className="text-sm font-bold text-ink-soft mb-1">jours</span>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-            <span className="text-sm font-bold text-slate-400 mb-2">Budget QHSE Consommé</span>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col">
+            <span className="text-sm font-bold text-ink-faint mb-2">Budget QHSE Consommé</span>
             <div className="flex items-end gap-2">
-              <span className="text-3xl font-extrabold text-slate-800">{totalDepenses.toLocaleString('fr-FR')}</span>
-              <span className="text-sm font-bold text-slate-500 mb-1">FCFA</span>
+              <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{totalDepenses.toLocaleString('fr-FR')}</span>
+              <span className="text-sm font-bold text-ink-soft mb-1">FCFA</span>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-            <span className="text-sm font-bold text-slate-400 mb-2">Note Équipe QHSE</span>
+          <div className="bg-surface p-6 rounded-card border border-border shadow-sm flex flex-col">
+            <span className="text-sm font-bold text-ink-faint mb-2">Note Équipe QHSE</span>
             <div className="flex items-end gap-2">
-              <span className="text-3xl font-extrabold text-indigo-600">{avgScore.toFixed(1)}/10</span>
+              <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{avgScore.toFixed(1)}/10</span>
             </div>
           </div>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Incidents */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col h-full">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-red-50/50">
-              <h3 className="font-bold text-red-900">Registre des Incidents & Accidents</h3>
-              <button className="text-xs font-bold bg-white text-red-700 px-3 py-1.5 rounded-md border border-red-200 hover:bg-red-50">
+          <div className="bg-surface rounded-card border border-border shadow-sm flex flex-col h-full">
+            <div className="p-4 border-b border-border flex justify-between items-center bg-red-bg">
+              <h3 className="font-bold text-accent">Registre des Incidents & Accidents</h3>
+              <button className="text-xs font-bold bg-surface text-accent px-3 py-1.5 rounded-md border border-transparent hover:bg-red-bg">
                 + Déclarer
               </button>
             </div>
             <div className="p-4 flex-1 space-y-4">
               {incidentsData.map(inc => (
-                <div key={inc.id} className="p-4 border border-slate-100 rounded-xl hover:shadow-sm transition-shadow">
+                <div key={inc.id} className="p-4 border border-border rounded-control hover:shadow-sm transition-shadow">
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        inc.gravite === 'Faible' ? 'bg-amber-100 text-amber-700' :
-                        inc.gravite === 'Moyenne' ? 'bg-orange-100 text-orange-700' :
-                        'bg-red-100 text-red-700'
+                        inc.gravite === 'Faible' ? 'bg-chip text-ink-soft' :
+                        inc.gravite === 'Moyenne' ? 'bg-chip text-ink-soft' :
+                        'bg-red-bg text-accent'
                       }`}>
                         {inc.gravite}
                       </span>
-                      <span className="text-sm font-bold text-slate-700">{inc.lieu}</span>
+                      <span className="text-sm font-bold text-ink-soft">{inc.lieu}</span>
                     </div>
-                    <span className="text-xs text-slate-400">{new Date(inc.date).toLocaleDateString()}</span>
+                    <span className="text-xs text-ink-faint">{new Date(inc.date).toLocaleDateString()}</span>
                   </div>
-                  <p className="text-sm text-slate-600 mb-3">{inc.description}</p>
+                  <p className="text-sm text-ink-soft mb-3">{inc.description}</p>
                   <div className="flex justify-between items-center">
-                    <span className={`text-xs font-bold flex items-center gap-1 ${inc.statut === 'Résolu' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                    <span className={`text-xs font-bold flex items-center gap-1 ${inc.statut === 'Résolu' ? 'text-green' : 'text-ink-soft'}`}>
                       {inc.statut === 'Résolu' && '✓ '} {inc.statut}
                     </span>
                   </div>
                 </div>
               ))}
-              {incidentsData.length === 0 && <p className="text-sm text-slate-400 italic text-center py-4">Aucun incident enregistré.</p>}
+              {incidentsData.length === 0 && <p className="text-sm text-ink-faint italic text-center py-4">Aucun incident enregistré.</p>}
             </div>
           </div>
 
           <div className="space-y-6">
             {/* Réunions */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                <h3 className="font-bold text-slate-800">Réunions Sécurité</h3>
+            <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-border bg-bg/50 flex justify-between items-center">
+                <h3 className="font-bold text-ink">Réunions Sécurité</h3>
               </div>
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-border-row">
                 {reunionsData.map(r => (
-                  <li key={r.id} className="p-4 flex justify-between items-center hover:bg-slate-50/30">
+                  <li key={r.id} className="p-4 flex justify-between items-center hover:bg-bg/30">
                     <div>
-                      <h4 className="font-bold text-sm text-slate-800">{r.titre}</h4>
-                      <p className="text-xs text-slate-500">{new Date(r.date).toLocaleDateString()} • {r.participants} participants</p>
+                      <h4 className="font-bold text-sm text-ink">{r.titre}</h4>
+                      <p className="text-xs text-ink-soft">{new Date(r.date).toLocaleDateString()} • {r.participants} participants</p>
                     </div>
-                    <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">{r.duree}</span>
+                    <span className="text-xs font-medium text-ink-faint bg-chip px-2 py-1 rounded">{r.duree}</span>
                   </li>
                 ))}
-                {reunionsData.length === 0 && <li className="p-4 text-center text-sm text-slate-400 italic">Aucune réunion.</li>}
+                {reunionsData.length === 0 && <li className="p-4 text-center text-sm text-ink-faint italic">Aucune réunion.</li>}
               </ul>
             </div>
 
             {/* Dépenses */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                <h3 className="font-bold text-slate-800">Dépenses QHSE</h3>
+            <div className="bg-surface rounded-card border border-border shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-border bg-bg/50 flex justify-between items-center">
+                <h3 className="font-bold text-ink">Dépenses QHSE</h3>
               </div>
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-border-row">
                 {depensesData.map(d => (
-                  <li key={d.id} className="p-4 flex justify-between items-center hover:bg-slate-50/30">
+                  <li key={d.id} className="p-4 flex justify-between items-center hover:bg-bg/30">
                     <div>
-                      <h4 className="font-bold text-sm text-slate-800">{d.libelle}</h4>
-                      <p className="text-xs text-slate-500">{new Date(d.date).toLocaleDateString()}</p>
+                      <h4 className="font-bold text-sm text-ink">{d.libelle}</h4>
+                      <p className="text-xs text-ink-soft">{new Date(d.date).toLocaleDateString()}</p>
                     </div>
-                    <span className="text-sm font-bold text-slate-700">{Number(d.montant).toLocaleString('fr-FR')} FCFA</span>
+                    <span className="text-sm font-bold text-ink-soft">{Number(d.montant).toLocaleString('fr-FR')} FCFA</span>
                   </li>
                 ))}
-                {depensesData.length === 0 && <li className="p-4 text-center text-sm text-slate-400 italic">Aucune dépense.</li>}
+                {depensesData.length === 0 && <li className="p-4 text-center text-sm text-ink-faint italic">Aucune dépense.</li>}
               </ul>
             </div>
           </div>
@@ -489,17 +497,17 @@ export default function CommunauteQHSEPage() {
   return (
     <div className="space-y-6">
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
 
       {/* Header & Tabs */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-        <h1 className="text-2xl font-bold text-slate-800 mb-6">Communauté & QHSE</h1>
+      <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+        <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight mb-6">Communauté & QHSE</h1>
         
-        <div className="flex gap-4 border-b border-slate-200">
+        <div className="flex gap-4 border-b border-border">
           {[
             { id: 'satisfaction', label: 'Satisfaction & Enquêtes' },
             { id: 'qhse', label: 'Module QHSE' },
@@ -510,8 +518,8 @@ export default function CommunauteQHSEPage() {
               onClick={() => setActiveTab(tab.id as any)}
               className={`pb-3 text-sm font-bold border-b-2 transition-colors px-2 ${
                 activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
+                  ? 'border-accent text-ink'
+                  : 'border-transparent text-ink-faint hover:text-ink-soft'
               }`}
             >
               {tab.label}
@@ -529,15 +537,15 @@ export default function CommunauteQHSEPage() {
 
       {/* Message Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-lg border border-slate-100 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="text-lg font-bold text-slate-800">
+        <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-surface rounded-card w-full max-w-lg border border-border shadow-login overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-border flex justify-between items-center bg-bg">
+              <h3 className="text-lg font-bold text-ink">
                 {targetParents.length === 1 ? 'Message Individuel' : 'Message Groupé'}
               </h3>
               <button 
                 onClick={() => setShowModal(false)} 
-                className="text-slate-400 hover:text-slate-600 text-xl font-bold px-2"
+                className="text-ink-faint hover:text-ink-soft text-xl font-bold px-2"
                 disabled={isSending}
               >
                 ✕
@@ -546,10 +554,10 @@ export default function CommunauteQHSEPage() {
             
             <form onSubmit={handleSendMessage} className="p-6 space-y-5">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Destinataires ({targetParents.length})</label>
-                <div className="max-h-24 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-100 text-sm text-slate-600 flex flex-wrap gap-1">
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-2">Destinataires ({targetParents.length})</label>
+                <div className="max-h-24 overflow-y-auto p-2 bg-bg rounded-control border border-border text-sm text-ink-soft flex flex-wrap gap-1">
                   {targetParents.map(p => (
-                    <span key={p.id} className="px-2 py-1 bg-white border border-slate-200 rounded text-xs font-semibold">
+                    <span key={p.id} className="px-2 py-1 bg-surface border border-border rounded text-xs font-semibold">
                       {p.nom}
                     </span>
                   ))}
@@ -557,10 +565,10 @@ export default function CommunauteQHSEPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Canal d'envoi</label>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-2">Canal d'envoi</label>
                 <div className="flex gap-3">
                   {['SMS', 'WhatsApp', 'Email'].map(channel => (
-                    <label key={channel} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border cursor-pointer font-bold text-sm transition-colors ${messageChannel === channel ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                    <label key={channel} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-control border cursor-pointer font-bold text-sm transition-colors ${messageChannel === channel ? 'bg-chip border-outline text-ink' : 'bg-surface border-border text-ink-soft hover:bg-bg'}`}>
                       <input 
                         type="radio" 
                         name="channel" 
@@ -576,16 +584,16 @@ export default function CommunauteQHSEPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Message</label>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-2">Message</label>
                 <textarea
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
                   placeholder="Tapez votre message ici..."
                   required
                   rows={5}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm focus:ring-2 focus:border-accent focus:border-accent outline-none resize-none"
                 />
-                <p className="text-xs text-slate-400 mt-1 text-right">{messageText.length} caractères</p>
+                <p className="text-xs text-ink-faint mt-1 text-right">{messageText.length} caractères</p>
               </div>
 
               <div className="pt-2 flex justify-end gap-3">
@@ -593,17 +601,17 @@ export default function CommunauteQHSEPage() {
                   type="button" 
                   onClick={() => setShowModal(false)}
                   disabled={isSending}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors"
+                  className="px-4 py-2 bg-chip text-ink-soft rounded-control text-sm font-bold hover:bg-chip transition-colors"
                 >
                   Annuler
                 </button>
                 <button 
                   type="submit" 
                   disabled={isSending || !messageText.trim()}
-                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition-colors shadow-md disabled:opacity-50 flex items-center justify-center min-w-[120px]"
+                  className="px-6 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold transition-colors shadow-md disabled:opacity-50 flex items-center justify-center min-w-[120px]"
                 >
                   {isSending ? (
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin h-5 w-5 text-cream" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>

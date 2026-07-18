@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { downloadExcel } from '@/lib/excel';
 import SyncManager from '@/lib/syncManager';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { captureError, captureMessage } from '@/lib/observability/logger';
 
 interface EnseignantDB {
   id: string;
@@ -126,7 +127,7 @@ export default function EnseignantsPage() {
         await supabase.from('mouvements_personnel').insert([newMouvData]);
       }
     } catch (err) {
-      console.warn("Failed to link teacher creation to headcount/contracts in Supabase:", err);
+      captureMessage("Failed to link teacher creation to headcount/contracts in Supabase:", { detail: err });
     }
 
     if (data && data.length > 0) {
@@ -170,7 +171,7 @@ export default function EnseignantsPage() {
   if (!isLoaded) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-sm font-semibold text-slate-400">Chargement de la liste des enseignants...</p>
+        <p className="text-sm font-semibold text-ink-faint">Chargement de la liste des enseignants...</p>
       </div>
     );
   }
@@ -179,8 +180,8 @@ export default function EnseignantsPage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Toast */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">✓</div>
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-5 py-3.5 rounded-control shadow-login z-50 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full bg-green flex items-center justify-center text-xs font-bold text-cream">✓</div>
           <span className="text-sm font-semibold">{toastMessage}</span>
         </div>
       )}
@@ -188,22 +189,22 @@ export default function EnseignantsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 tracking-tight text-black">Gestion des Enseignants</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-2xl lg:text-3xl font-bold text-ink tracking-tight">Gestion des Enseignants</h1>
+          <p className="text-sm text-ink-soft mt-1">
             Gérez le personnel enseignant, les matières principales et les salaires.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={handleExportExcel}
-            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-lg transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-surface border border-border hover:bg-bg text-ink-soft text-sm font-bold rounded-control transition-colors cursor-pointer"
           >
             <DownloadIcon size={16} />
             Exporter
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center justify-center gap-1.5 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-accent hover:bg-accent-hover text-cream text-sm font-bold rounded-control shadow-md transition-colors cursor-pointer"
           >
             <PlusIcon size={16} />
             Ajouter un enseignant
@@ -213,42 +214,42 @@ export default function EnseignantsPage() {
 
       {/* Stats Quick Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Effectif Total</span>
-          <span className="text-2xl font-extrabold text-slate-800 mt-1 block text-black">{enseignants.length}</span>
+        <div className="bg-surface border border-border p-4 rounded-control shadow-sm">
+          <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Effectif Total</span>
+          <span className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight mt-1 block">{enseignants.length}</span>
         </div>
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Actifs</span>
-          <span className="text-2xl font-extrabold text-emerald-600 mt-1 block">{enseignants.filter(e => e.statut === 'actif').length}</span>
+        <div className="bg-surface border border-border p-4 rounded-control shadow-sm">
+          <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Actifs</span>
+          <span className="text-2xl font-extrabold text-green mt-1 block">{enseignants.filter(e => e.statut === 'actif').length}</span>
         </div>
-        <div className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Masse Salariale Mensuelle</span>
-          <span className="text-2xl font-extrabold text-indigo-600 mt-1 block">
+        <div className="bg-surface border border-border p-4 rounded-control shadow-sm">
+          <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Masse Salariale Mensuelle</span>
+          <span className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight mt-1 block">
             {formatFCFA(enseignants.filter(e => e.statut === 'actif').reduce((sum, e) => sum + Number(e.salaire_mensuel), 0))}
           </span>
         </div>
       </div>
 
       {/* Search Bar */}
-      <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm flex items-center">
+      <div className="bg-surface rounded-control border border-border p-4 shadow-sm flex items-center">
         <div className="relative w-full max-w-md">
-          <SearchIcon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <SearchIcon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
           <input
             type="text"
             placeholder="Rechercher par nom, prénom, matière..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-black"
+            className="w-full pl-10 pr-4 py-2 bg-bg border border-border rounded-control text-sm focus:outline-none focus:ring-2 focus:border-accent focus:border-accent transition-all"
           />
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-slate-100 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-surface border border-border rounded-control shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase tracking-wider font-bold text-slate-400">
+              <tr className="bg-bg/50 border-b border-border text-[10px] uppercase tracking-wider font-bold text-ink-faint">
                 <th className="px-6 py-3">Enseignant</th>
                 <th className="px-6 py-3">Contact</th>
                 <th className="px-6 py-3">Matière Principale</th>
@@ -256,42 +257,42 @@ export default function EnseignantsPage() {
                 <th className="px-6 py-3">Statut</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
+            <tbody className="divide-y divide-border-row text-sm">
               {filteredEnseignants.map((e) => (
-                <tr key={e.id} className="hover:bg-slate-50/50 transition-colors">
+                <tr key={e.id} className="hover:bg-bg/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                      <div className="w-8 h-8 rounded-full bg-chip text-ink flex items-center justify-center font-bold text-xs">
                         {e.prenom[0]}{e.nom[0]}
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-800 text-black">{e.nom} {e.prenom}</div>
-                        <div className="text-[10px] text-slate-400 font-medium">{e.matricule}</div>
+                        <div className="font-semibold text-ink">{e.nom} {e.prenom}</div>
+                        <div className="text-[10px] text-ink-faint font-medium">{e.matricule}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-slate-600">{e.telephone || 'N/A'}</div>
-                    <div className="text-[10px] text-slate-400">{e.email || 'N/A'}</div>
+                    <div className="text-ink-soft">{e.telephone || 'N/A'}</div>
+                    <div className="text-[10px] text-ink-faint">{e.email || 'N/A'}</div>
                   </td>
-                  <td className="px-6 py-4 font-medium text-slate-700">
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                  <td className="px-6 py-4 font-medium text-ink-soft">
+                    <span className="px-2 py-0.5 bg-chip text-ink-soft rounded text-xs">
                       {e.matiere_principale || 'Général'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 font-semibold text-slate-800 text-black">
+                  <td className="px-6 py-4 font-semibold text-ink">
                     {formatFCFA(e.salaire_mensuel)}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold border ${
-                      e.statut === 'actif' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                      e.statut === 'en_conge' ? 'bg-amber-50 text-amber-700 border-amber-100' : 
-                      'bg-slate-50 text-slate-600 border-slate-200'
+                      e.statut === 'actif' ? 'bg-green-bg text-green border-transparent' : 
+                      e.statut === 'en_conge' ? 'bg-chip text-ink-soft border-transparent' : 
+                      'bg-bg text-ink-soft border-border'
                     }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${
-                        e.statut === 'actif' ? 'bg-emerald-500' : 
-                        e.statut === 'en_conge' ? 'bg-amber-500' : 
-                        'bg-slate-400'
+                        e.statut === 'actif' ? 'bg-green' : 
+                        e.statut === 'en_conge' ? 'bg-accent' : 
+                        'bg-chip'
                       }`}></span>
                       {e.statut === 'actif' ? 'Actif' : e.statut === 'en_conge' ? 'En congé' : 'Quitté'}
                     </span>
@@ -301,7 +302,7 @@ export default function EnseignantsPage() {
               {filteredEnseignants.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center">
-                    <p className="text-sm font-medium text-slate-400">Aucun enseignant trouvé.</p>
+                    <p className="text-sm font-medium text-ink-faint">Aucun enseignant trouvé.</p>
                   </td>
                 </tr>
               )}
@@ -312,11 +313,11 @@ export default function EnseignantsPage() {
 
       {/* Add Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <h3 className="text-lg font-bold text-slate-800 text-black">Ajouter un enseignant</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer p-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-surface rounded-card shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-bg/50">
+              <h3 className="text-lg font-bold text-ink">Ajouter un enseignant</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-ink-faint hover:text-ink-soft cursor-pointer p-1">
                 ✕
               </button>
             </div>
@@ -326,51 +327,51 @@ export default function EnseignantsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Identité & Contact */}
                   <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Identité & Contact</h4>
+                    <h4 className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Identité & Contact</h4>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Nom <span className="text-red-500">*</span></label>
-                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                      <label className="block text-xs font-bold text-ink-soft mb-1">Nom <span className="text-accent">*</span></label>
+                      <input required type="text" className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" 
                         value={newEns.nom || ''} onChange={e => setNewEns({...newEns, nom: e.target.value})} />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Prénom <span className="text-red-500">*</span></label>
-                      <input required type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                      <label className="block text-xs font-bold text-ink-soft mb-1">Prénom <span className="text-accent">*</span></label>
+                      <input required type="text" className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" 
                         value={newEns.prenom || ''} onChange={e => setNewEns({...newEns, prenom: e.target.value})} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Genre <span className="text-red-500">*</span></label>
-                        <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500"
+                        <label className="block text-xs font-bold text-ink-soft mb-1">Genre <span className="text-accent">*</span></label>
+                        <select className="w-full px-3 py-2 border border-border rounded-control text-sm font-semibold outline-none focus:border-accent"
                           value={newEns.sexe} onChange={e => setNewEns({...newEns, sexe: e.target.value as 'M'|'F'})}>
                           <option value="M">Masculin</option>
                           <option value="F">Féminin</option>
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone</label>
-                        <input type="text" placeholder="+237 6xx xx..." className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                        <label className="block text-xs font-bold text-ink-soft mb-1">Téléphone</label>
+                        <input type="text" placeholder="+237 6xx xx..." className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" 
                           value={newEns.telephone || ''} onChange={e => setNewEns({...newEns, telephone: e.target.value})} />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Email</label>
-                      <input type="email" placeholder="nom@ecole.cm" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                      <label className="block text-xs font-bold text-ink-soft mb-1">Email</label>
+                      <input type="email" placeholder="nom@ecole.cm" className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" 
                         value={newEns.email || ''} onChange={e => setNewEns({...newEns, email: e.target.value})} />
                     </div>
                   </div>
 
                   {/* Professionnel & Contrat */}
                   <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Contrat & Poste</h4>
+                    <h4 className="text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Contrat & Poste</h4>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Matière principale</label>
-                      <input type="text" placeholder="ex: Mathématiques" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black outline-none focus:border-indigo-500" 
+                      <label className="block text-xs font-bold text-ink-soft mb-1">Matière principale</label>
+                      <input type="text" placeholder="ex: Mathématiques" className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent" 
                         value={newEns.matiere_principale || ''} onChange={e => setNewEns({...newEns, matiere_principale: e.target.value})} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Catégorie Métier <span className="text-red-500">*</span></label>
-                        <select required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500"
+                        <label className="block text-xs font-bold text-ink-soft mb-1">Catégorie Métier <span className="text-accent">*</span></label>
+                        <select required className="w-full px-3 py-2 border border-border rounded-control text-sm font-semibold outline-none focus:border-accent"
                           value={newEns.categorie || 'Enseignant'} onChange={e => setNewEns({...newEns, categorie: e.target.value})}>
                           <option value="Enseignant">Enseignant</option>
                           <option value="Administration">Administration</option>
@@ -379,8 +380,8 @@ export default function EnseignantsPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Type de Contrat <span className="text-red-500">*</span></label>
-                        <select required className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500"
+                        <label className="block text-xs font-bold text-ink-soft mb-1">Type de Contrat <span className="text-accent">*</span></label>
+                        <select required className="w-full px-3 py-2 border border-border rounded-control text-sm font-semibold outline-none focus:border-accent"
                           value={newEns.type_contrat || 'CDI'} onChange={e => setNewEns({...newEns, type_contrat: e.target.value})}>
                           <option value="CDI">CDI</option>
                           <option value="CDD">CDD</option>
@@ -390,13 +391,13 @@ export default function EnseignantsPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Salaire Mensuel Brut (FCFA) <span className="text-red-500">*</span></label>
-                      <input required type="number" min="0" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-mono outline-none focus:border-indigo-500" 
+                      <label className="block text-xs font-bold text-ink-soft mb-1">Salaire Mensuel Brut (FCFA) <span className="text-accent">*</span></label>
+                      <input required type="number" min="0" className="w-full px-3 py-2 border border-border rounded-control text-sm font-mono outline-none focus:border-accent" 
                         value={newEns.salaire_mensuel || 0} onChange={e => setNewEns({...newEns, salaire_mensuel: Number(e.target.value)})} />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Date de Prise d'Effet <span className="text-red-500">*</span></label>
-                      <input required type="date" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-black font-semibold outline-none focus:border-indigo-500" 
+                      <label className="block text-xs font-bold text-ink-soft mb-1">Date de Prise d'Effet <span className="text-accent">*</span></label>
+                      <input required type="date" className="w-full px-3 py-2 border border-border rounded-control text-sm font-semibold outline-none focus:border-accent" 
                         value={newEns.date_embauche || ''} onChange={e => setNewEns({...newEns, date_embauche: e.target.value})} />
                     </div>
                   </div>
@@ -404,11 +405,11 @@ export default function EnseignantsPage() {
               </form>
             </div>
             
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3">
-              <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer">
+            <div className="px-6 py-4 border-t border-border bg-bg flex items-center justify-end gap-3">
+              <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 text-sm font-bold text-ink-soft hover:text-ink transition-colors cursor-pointer">
                 Annuler
               </button>
-              <button type="submit" form="add-ens-form" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-md transition-colors cursor-pointer">
+              <button type="submit" form="add-ens-form" className="px-4 py-2 bg-accent hover:bg-accent-hover text-cream text-sm font-bold rounded-control shadow-md transition-colors cursor-pointer">
                 Enregistrer l'enseignant
               </button>
             </div>
