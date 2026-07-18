@@ -298,41 +298,21 @@ export default function SettingsPage() {
 
       if (isUserAdmin && profile.etablissement_id) {
         const etabId = profile.etablissement_id;
-        
-        // 1. Delete notes and bulletins
-        const eleveIds = (await supabase.from('eleves').select('id').eq('etablissement_id', etabId)).data?.map(e => e.id) || [];
-        if (eleveIds.length > 0) {
-          await supabase.from('notes').delete().in('eleve_id', eleveIds);
-          await supabase.from('bulletins').delete().in('eleve_id', eleveIds);
-          await supabase.from('discipline_incidents').delete().in('eleve_id', eleveIds);
-        }
-        
-        // 2. Delete payments, students
-        await supabase.from('paiements').delete().eq('etablissement_id', etabId);
-        await supabase.from('eleves').delete().eq('etablissement_id', etabId);
-        
-        // 3. Delete accounting lines and entries
-        const ecritureIds = (await supabase.from('ecritures_comptables').select('id').eq('etablissement_id', etabId)).data?.map(e => e.id) || [];
-        if (ecritureIds.length > 0) {
-          await supabase.from('lignes_ecritures').delete().in('ecriture_id', ecritureIds);
-        }
-        await supabase.from('ecritures_comptables').delete().eq('etablissement_id', etabId);
-        await supabase.from('comptes_ohada').delete().eq('etablissement_id', etabId);
-        
-        // 4. Delete classes, subjects, sections, years
-        await supabase.from('classes').delete().eq('etablissement_id', etabId);
-        await supabase.from('sections').delete().eq('etablissement_id', etabId);
-        await supabase.from('annees_scolaires').delete().eq('etablissement_id', etabId);
-        
-        // 5. Delete teachers and personnel
-        await supabase.from('enseignants').delete().eq('etablissement_id', etabId);
-        await supabase.from('membres_personnel').delete().eq('etablissement_id', etabId);
-        await supabase.from('formations_rh').delete().eq('etablissement_id', etabId);
-        
-        // 6. Delete other profiles
-        await supabase.from('profiles').delete().eq('etablissement_id', etabId).neq('id', user.id);
-        
-        // 7. Delete etablissement (will delete current profile via cascade, which triggers auth delete)
+
+        // Suppression en cascade (notes, bulletins, incidents, paiements,
+        // élèves, écritures comptables, classes, personnel, autres profils)
+        // faite directement en base via une seule RPC transactionnelle —
+        // remplace l'ancien enchaînement de 12+ appels réseau séquentiels qui
+        // récupérait les ids élèves/écritures sans pagination (plafond 1000
+        // lignes Supabase, lignes orphelines silencieuses au-delà) et sans
+        // garantie d'atomicité.
+        const { error: cascadeErr } = await supabase.rpc('delete_etablissement_child_data', {
+          p_etablissement_id: etabId,
+          p_current_user_id: user.id,
+        });
+        if (cascadeErr) throw cascadeErr;
+
+        // Delete etablissement (will delete current profile via cascade, which triggers auth delete)
         const { error: delEtabErr } = await supabase.from('etablissements').delete().eq('id', etabId);
         if (delEtabErr) throw delEtabErr;
       } else {
