@@ -287,7 +287,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
           </div>
           <div>
             <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Professeur Titulaire</span>
-            <span className="font-bold text-[#2b2318]">M. Eric Tchoupo</span>
+            <span className="font-bold text-[#2b2318]">{teachersMap[classInfo.enseignant_principal_id] || 'Non spécifié'}</span>
           </div>
           <div>
             <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Né le</span>
@@ -300,8 +300,9 @@ export default function BulletinImpressionPage({ params }: PageProps) {
             <span className="font-bold text-[#2b2318]">{student.sexe === 'M' ? 'Masculin / Male' : 'Féminin / Female'}</span>
           </div>
           <div>
+            {/* Aucun champ de redoublement n'existe sur eleves — affichait "Non" en dur pour tous. */}
             <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Redoublant / Repeater</span>
-            <span className="font-bold text-[#2b2318]">Non</span>
+            <span className="font-bold text-[#2b2318]">N/A</span>
           </div>
           <div>
             <span className="text-[8px] font-bold text-[#a3947a] uppercase tracking-[1px] block">Parent Responsable</span>
@@ -398,7 +399,9 @@ export default function BulletinImpressionPage({ params }: PageProps) {
         <div className="grid grid-cols-2 gap-4 mb-5 text-[11.5px]">
           <div className="border border-[#d9cfb5] rounded-control p-3 bg-[#fdfaf2]">
             <div className="text-[8px] font-bold text-[#a3947a] uppercase tracking-wide mb-1.5">Discipline / Assiduité</div>
-            Absences non justifiées : <strong>{absencesCount * 2} h</strong> · Retards : <strong>{retardsCount}</strong> · Sanctions : <strong>{sanctionsCount > 0 ? `${sanctionsCount} sanction(s)` : 'Aucune'}</strong>
+            {/* discipline_incidents ne trace pas de durée : compte d'incidents réel,
+                pas de conversion en heures (auparavant absencesCount * 2, un facteur inventé). */}
+            Absences non justifiées : <strong>{absencesCount} incident(s)</strong> · Retards : <strong>{retardsCount}</strong> · Sanctions : <strong>{sanctionsCount > 0 ? `${sanctionsCount} sanction(s)` : 'Aucune'}</strong>
           </div>
           <div className="border border-[#d9cfb5] rounded-control p-3 bg-[#fdfaf2]">
             <div className="text-[8px] font-bold text-[#a3947a] uppercase tracking-wide mb-1.5">Appréciation du conseil de classe</div>
