@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { getStudentsPerClass } from '@/lib/queries/classes';
 
 interface SupabaseClasse {
   id: string;
@@ -15,6 +16,7 @@ interface SupabaseClasse {
 export default function ClassesPage() {
   const [classesList, setClassesList] = useState<SupabaseClasse[]>([]);
   const [elevesCount, setElevesCount] = useState<Record<string, number>>({});
+  const [serverElevesCount, setServerElevesCount] = useState<Record<string, number> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   const [showAddModal, setShowAddModal] = useState(false);
@@ -40,6 +42,18 @@ export default function ClassesPage() {
   useEffect(() => {
     if (etablissementId) fetchData();
   }, [etablissementId]);
+
+  // Comptage par classe calculé en base (get_students_per_class), pour éviter
+  // le fetch complet ci-dessous. Repli automatique sur elevesCount (calcul
+  // client) si la RPC échoue ou n'est pas encore appliquée.
+  useEffect(() => {
+    if (!etablissementId) return;
+    getStudentsPerClass(etablissementId)
+      .then(setServerElevesCount)
+      .catch(() => setServerElevesCount(null));
+  }, [etablissementId]);
+
+  const effectiveElevesCount = serverElevesCount ?? elevesCount;
 
   const fetchData = async () => {
     if (!etablissementId) return;
@@ -168,7 +182,7 @@ export default function ClassesPage() {
     event.stopPropagation();
     
     // Check if there are students in this class
-    if (elevesCount[id] > 0) {
+    if (effectiveElevesCount[id] > 0) {
       alert("Impossible de supprimer cette classe car elle contient des élèves. Réaffectez les élèves d'abord.");
       return;
     }
@@ -272,7 +286,7 @@ export default function ClassesPage() {
               <div className="flex justify-between items-center text-sm border-t border-border pt-4">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-green"></span>
-                  <span className="text-ink-soft font-semibold">{elevesCount[cls.id] || 0} Élèves</span>
+                  <span className="text-ink-soft font-semibold">{effectiveElevesCount[cls.id] || 0} Élèves</span>
                 </div>
                 <span className="text-ink-faint font-bold group-hover:text-ink transition-colors">→</span>
               </div>

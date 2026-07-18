@@ -48,3 +48,19 @@ export async function getMatieresByNiveau(niveauId: string) {
   if (error) throw error;
   return data || [];
 }
+
+/**
+ * Nombre d'élèves par classe, calculé en base — évite de charger la colonne
+ * classe_id de tous les élèves de l'établissement juste pour les compter.
+ */
+export async function getStudentsPerClass(etablissementId: string): Promise<Record<string, number>> {
+  const { data, error } = await supabase.rpc('get_students_per_class', {
+    p_etablissement_id: etablissementId,
+  });
+  if (error) throw error;
+  const counts: Record<string, number> = {};
+  ((data as Record<string, unknown>[]) ?? []).forEach((row) => {
+    counts[row.classe_id as string] = Number(row.student_count);
+  });
+  return counts;
+}
