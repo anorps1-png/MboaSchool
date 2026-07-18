@@ -3,12 +3,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
-import { getMoyennesParSection } from '@/lib/queries/evaluations';
+import { getMoyennesParSection, getSectionsSummary, type SectionSummary } from '@/lib/queries/evaluations';
 
 export default function SectionsPage() {
   const [sectionsList, setSectionsList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [moyennesParSection, setMoyennesParSection] = useState<Record<string, number>>({});
+  const [serverSectionsSummary, setServerSectionsSummary] = useState<Record<string, SectionSummary> | null>(null);
   const { etablissementId } = useEtablissement();
 
   const supabase = createClient();
@@ -17,9 +18,12 @@ export default function SectionsPage() {
     if (!etablissementId) return;
     setIsLoading(true);
     try {
+      // eleves(id) seulement : seul .length est lu plus bas, pas besoin des
+      // autres colonnes. get_sections_summary (ci-dessous) remplace ce
+      // comptage par une agrégation en base quand elle est disponible.
       const { data: classesData, error } = await supabase
         .from('classes')
-        .select('*, eleves(*)')
+        .select('*, eleves(id)')
         .eq('etablissement_id', etablissementId);
 
       if (classesData) {
@@ -69,6 +73,20 @@ export default function SectionsPage() {
       });
   }, [etablissementId]);
 
+  useEffect(() => {
+    if (!etablissementId) return;
+    getSectionsSummary(etablissementId)
+      .then(rows => {
+        const map: Record<string, SectionSummary> = {};
+        rows.forEach(r => { map[r.section] = r; });
+        setServerSectionsSummary(map);
+      })
+      .catch(err => {
+        captureError(err, { context: "Error loading sections summary:" });
+        setServerSectionsSummary(null);
+      });
+  }, [etablissementId]);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Sections &amp; Sous-systèmes</h1>
@@ -94,12 +112,16 @@ export default function SectionsPage() {
           {sectionsList.map(section => (
             <div key={section.name} className="bg-surface p-6 rounded-card shadow-sm border border-border">
               <h2 className="text-xl font-bold text-ink">{section.name}</h2>
-              <p className="text-sm text-ink-soft mt-1">{section.classes.length} classe(s) rattachée(s)</p>
-              
+              <p className="text-sm text-ink-soft mt-1">
+                {serverSectionsSummary?.[section.name]?.classesCount ?? section.classes.length} classe(s) rattachée(s)
+              </p>
+
               <div className="mt-6 grid grid-cols-2 gap-4">
                 <div className="p-4 bg-bg rounded-control">
                   <p className="text-xs font-bold text-ink-faint uppercase">Effectif Total</p>
-                  <p className="text-2xl font-bold">{section.studentsCount}</p>
+                  <p className="text-2xl font-bold">
+                    {serverSectionsSummary?.[section.name]?.studentsCount ?? section.studentsCount}
+                  </p>
                 </div>
                 <div className="p-4 bg-bg rounded-control">
                   <p className="text-xs font-bold text-ink-faint uppercase">Moyenne Générale</p>

@@ -68,3 +68,25 @@ export async function getMoyennesParSection(etablissementId: string): Promise<Mo
     moyenne: Number(row.moyenne),
   }));
 }
+
+export interface SectionSummary {
+  section: string;
+  classesCount: number;
+  studentsCount: number;
+}
+
+/**
+ * Nombre de classes et d'élèves par section, calculé en base — évite de
+ * charger tous les élèves de l'établissement juste pour les compter.
+ */
+export async function getSectionsSummary(etablissementId: string): Promise<SectionSummary[]> {
+  const { data, error } = await supabase.rpc('get_sections_summary', {
+    p_etablissement_id: etablissementId,
+  });
+  if (error) throw error;
+  return ((data as Record<string, unknown>[]) ?? []).map((row) => ({
+    section: row.section as string,
+    classesCount: Number(row.classes_count),
+    studentsCount: Number(row.students_count),
+  }));
+}
