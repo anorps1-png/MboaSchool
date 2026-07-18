@@ -43,7 +43,11 @@ export default function SectionsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [etablissementId, supabase]);
+    // supabase volontairement exclu : createClient() renvoie un nouveau Proxy
+    // à chaque rendu, donc l'inclure ici recrée fetchSectionsData en boucle et
+    // redéclenche le useEffect ci-dessous indéfiniment (boucle infinie de fetch).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etablissementId]);
 
   useEffect(() => {
     if (etablissementId) fetchSectionsData();
