@@ -635,11 +635,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return href === '/dashboard';
   };
 
-  const notifications = [
-    { id: 1, text: "Nouveau paiement de 150 000 FCFA reçu pour Jean-Pierre Fouda", time: "Il y a 10 min", unread: true },
-    { id: 2, text: "Emploi du temps de la classe Seconde C mis à jour", time: "Il y a 1 heure", unread: true },
-    { id: 3, text: "Inscription de Christian Bassogog complétée", time: "Il y a 3 heures", unread: false },
-  ];
+  // Aucune source réelle de notifications n'existe encore dans l'application
+  // (pas de table `notifications` en base) — liste volontairement vide plutôt
+  // que des événements fictifs ("Nouveau paiement reçu pour Jean-Pierre
+  // Fouda"...) affichés comme s'ils étaient réels sur chaque page du tableau
+  // de bord.
+  const notifications: { id: number; text: string; time: string; unread: boolean }[] = [];
 
   return (
     <div className="min-h-screen bg-bg flex flex-col font-sans text-ink">
@@ -752,7 +753,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 className="p-2 text-ink-soft hover:text-ink hover:bg-chip rounded-full transition-colors relative"
               >
                 <NotificationIcon size={20} />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full"></span>
+                {notifications.some(n => n.unread) && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-accent rounded-full"></span>
+                )}
               </button>
               {showNotifications && (
                 <>
@@ -760,7 +763,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   <div className="absolute right-0 mt-2 w-80 bg-surface border border-border rounded-card shadow-lg py-2 z-40 animate-fade-up">
                     <div className="px-4 py-2 border-b border-border flex items-center justify-between">
                       <span className="text-xs font-bold text-ink">Notifications</span>
-                      <span className="text-[10px] text-green bg-green-bg px-2 py-0.5 rounded-pill font-bold">2 Nouvelles</span>
+                      {notifications.some(n => n.unread) && (
+                        <span className="text-[10px] text-green bg-green-bg px-2 py-0.5 rounded-pill font-bold">
+                          {notifications.filter(n => n.unread).length} Nouvelle(s)
+                        </span>
+                      )}
                     </div>
                     <div className="max-h-64 overflow-y-auto">
                       {notifications.map((n) => (
@@ -769,6 +776,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                           <span className="text-[10px] text-ink-faint mt-1 block">{n.time}</span>
                         </div>
                       ))}
+                      {notifications.length === 0 && (
+                        <p className="px-4 py-6 text-xs text-ink-faint text-center italic">Aucune notification pour le moment.</p>
+                      )}
                     </div>
                   </div>
                 </>
