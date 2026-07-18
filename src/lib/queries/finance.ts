@@ -30,3 +30,73 @@ export async function addEcritureComptable(ecriture: Record<string, any>, lignes
 
   return { id: ecritureId as string, ...ecriture, etablissement_id: etablissementId };
 }
+
+export interface AccountBalance {
+  debit: number;
+  credit: number;
+}
+
+/**
+ * Soldes débit/crédit par compte, calculés en base (vraies lignes_ecritures +
+ * mêmes écritures synthétiques que le calcul client historique : constatation
+ * frais scolaires, règlements, formations). Remplace le fetch complet
+ * élèves+paiements+écritures pour alimenter les mêmes totaux (CA, charges,
+ * TVA, bilan, DSF).
+ */
+export async function getFinanceAccountBalances(
+  etablissementId: string
+): Promise<Record<string, AccountBalance>> {
+  const { data, error } = await supabase.rpc('get_finance_account_balances', {
+    p_etablissement_id: etablissementId,
+  });
+  if (error) throw error;
+  const balances: Record<string, AccountBalance> = {};
+  ((data as Record<string, unknown>[]) ?? []).forEach((row) => {
+    balances[row.compte_numero as string] = {
+      debit: Number(row.debit),
+      credit: Number(row.credit),
+    };
+  });
+  return balances;
+}
+
+export interface CaParClasse {
+  classeId: string;
+  caCollecte: number;
+}
+
+/** CA (paiements statut='paid') collecté par classe, calculé en base. */
+export async function getFinanceCaParClasse(etablissementId: string): Promise<Record<string, number>> {
+  const { data, error } = await supabase.rpc('get_finance_ca_par_classe', {
+    p_etablissement_id: etablissementId,
+  });
+  if (error) throw error;
+  const map: Record<string, number> = {};
+  ((data as Record<string, unknown>[]) ?? []).forEach((row) => {
+    map[row.classe_id as string] = Number(row.ca_collecte);
+  });
+  return map;
+}
+
+export interface ReconciliationJour {
+  jour: string;
+  caConstate: number;
+  encaisse: number;
+}
+
+/** Rapprochement de trésorerie quotidien (N derniers jours), calculé en base. */
+export async function getFinanceReconciliationQuotidienne(
+  etablissementId: string,
+  jours = 7
+): Promise<ReconciliationJour[]> {
+  const { data, error } = await supabase.rpc('get_finance_reconciliation_quotidienne', {
+    p_etablissement_id: etablissementId,
+    p_jours: jours,
+  });
+  if (error) throw error;
+  return ((data as Record<string, unknown>[]) ?? []).map((row) => ({
+    jour: row.jour as string,
+    caConstate: Number(row.ca_constate),
+    encaisse: Number(row.encaisse),
+  }));
+}

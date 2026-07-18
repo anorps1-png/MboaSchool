@@ -18,6 +18,13 @@ import { captureError, captureMessage } from '@/lib/observability/logger';
 import { getDashboardStats, type DashboardStats } from '@/lib/queries/dashboard';
 import { getMoyenneGenerale } from '@/lib/queries/evaluations';
 import { getAbsences, getEvaluationsRH } from '@/lib/queries/rh';
+import {
+  getFinanceAccountBalances,
+  getFinanceCaParClasse,
+  getFinanceReconciliationQuotidienne,
+  type AccountBalance,
+  type ReconciliationJour,
+} from '@/lib/queries/finance';
 
 
 export default function FinancePage() {
@@ -125,6 +132,46 @@ export default function FinancePage() {
       getEvaluationsRH(etablissementId)
         .then((rows) => setEvaluationsRH(rows || []))
         .catch(() => setEvaluationsRH([]));
+    }
+  }, [etablissementId]);
+
+  // Soldes par compte calculés en base (get_finance_account_balances), pour
+  // éviter le fetch complet élèves+paiements+écritures ci-dessous. N'est
+  // utilisée comme source que si aucune écriture synthétique n'a été masquée
+  // localement (voir hasLocalDeletedEcritures plus bas) : ce masquage n'existe
+  // que dans le localStorage du navigateur et ne peut pas être reproduit
+  // côté serveur, donc le calcul client reste la seule source fiable pour un
+  // établissement qui a utilisé cette fonctionnalité.
+  const [serverBalances, setServerBalances] = useState<Record<string, AccountBalance> | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getFinanceAccountBalances(etablissementId)
+        .then(setServerBalances)
+        .catch(() => setServerBalances(null));
+    }
+  }, [etablissementId]);
+
+  // CA collecté par classe, calculé en base (get_finance_ca_par_classe), pour
+  // getClassProductivity/getSectionProductivity. Ne dépend pas des écritures
+  // ni du registre de masquage local, donc toujours sûre à préférer.
+  const [serverCaParClasse, setServerCaParClasse] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getFinanceCaParClasse(etablissementId)
+        .then(setServerCaParClasse)
+        .catch(() => setServerCaParClasse(null));
+    }
+  }, [etablissementId]);
+
+  // Rapprochement de trésorerie quotidien, calculé en base
+  // (get_finance_reconciliation_quotidienne). Même remarque que ci-dessus :
+  // basée sur paiements, pas sur ecritures, donc toujours sûre à préférer.
+  const [serverReconciliation, setServerReconciliation] = useState<ReconciliationJour[] | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && etablissementId) {
+      getFinanceReconciliationQuotidienne(etablissementId, 7)
+        .then(setServerReconciliation)
+        .catch(() => setServerReconciliation(null));
     }
   }, [etablissementId]);
 
@@ -521,26 +568,58 @@ export default function FinancePage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Accounting balance computed first to feed financial metrics
-  const accountBalances: Record<string, { debit: number, credit: number, solde: number }> = {};
+  // Accounting balance computed first to feed financial metrics.
+  // legacyAccountBalances : calcul client historique (fetch complet
+  // élèves+paiements+écritures plus haut), c'est la seule source qui respecte
+  // le registre local de masquage d'écritures synthétiques (voir plus haut).
+  const legacyAccountBalances: Record<string, { debit: number, credit: number, solde: number }> = {};
   planComptable.forEach(c => {
-    accountBalances[c.numero] = { debit: 0, credit: 0, solde: 0 };
+    legacyAccountBalances[c.numero] = { debit: 0, credit: 0, solde: 0 };
   });
 
   ecritures.forEach(ecr => {
     ecr.lignes.forEach(ligne => {
-      if (!accountBalances[ligne.compteNumero]) {
-        accountBalances[ligne.compteNumero] = { debit: 0, credit: 0, solde: 0 };
+      if (!legacyAccountBalances[ligne.compteNumero]) {
+        legacyAccountBalances[ligne.compteNumero] = { debit: 0, credit: 0, solde: 0 };
       }
-      accountBalances[ligne.compteNumero].debit += ligne.debit;
-      accountBalances[ligne.compteNumero].credit += ligne.credit;
+      legacyAccountBalances[ligne.compteNumero].debit += ligne.debit;
+      legacyAccountBalances[ligne.compteNumero].credit += ligne.credit;
     });
   });
 
-  Object.keys(accountBalances).forEach(num => {
-    const b = accountBalances[num];
+  Object.keys(legacyAccountBalances).forEach(num => {
+    const b = legacyAccountBalances[num];
     b.solde = b.debit - b.credit;
   });
+
+  const hasLocalDeletedEcritures = (() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const stored = localStorage.getItem('mboaschool_deleted_ecritures');
+      return !!stored && (JSON.parse(stored) as string[]).length > 0;
+    } catch {
+      return false;
+    }
+  })();
+
+  // accountBalances : préfère le calcul serveur (get_finance_account_balances)
+  // quand il est disponible ET qu'aucune écriture synthétique n'a été masquée
+  // localement — sinon repli sur legacyAccountBalances, seule source fiable
+  // dans ce cas précis (voir commentaire sur serverBalances plus haut).
+  const accountBalances: Record<string, { debit: number, credit: number, solde: number }> =
+    (serverBalances && !hasLocalDeletedEcritures)
+      ? (() => {
+          const merged: Record<string, { debit: number, credit: number, solde: number }> = {};
+          planComptable.forEach(c => {
+            merged[c.numero] = { debit: 0, credit: 0, solde: 0 };
+          });
+          Object.keys(serverBalances).forEach(num => {
+            const b = serverBalances[num];
+            merged[num] = { debit: b.debit, credit: b.credit, solde: b.debit - b.credit };
+          });
+          return merged;
+        })()
+      : legacyAccountBalances;
 
   // --- Dynamic Financial Metrics for 2026 ---
 
@@ -613,9 +692,14 @@ export default function FinancePage() {
 
   // --- Clients/Students Perspective ---
   const totalStudents2026 = serverStats?.total_students ?? students.length;
-  // Recovery Rate: Total cash collected / Total scolarité due (mock: 120,000 per student average)
-  const totalFeesDue2026 = students.length * 110000; 
-  const totalRecoveryRate2026 = totalFeesDue2026 > 0 ? (totalCA2026 / totalFeesDue2026) * 100 : 0;
+  // Taux de recouvrement : trésorerie perçue / montant constaté (706 crédit).
+  // totalFeesDue2026 utilisait auparavant un taux forfaitaire fabriqué
+  // (110 000 F/élève) déconnecté du vrai prix des classes — alors que
+  // totalCA2026 (constatation réelle, prix de classe réel) EST déjà le
+  // montant dû sous ce système en comptabilité d'engagement. Les deux
+  // constantes étaient incohérentes entre elles ; on les aligne.
+  const totalFeesDue2026 = totalCA2026;
+  const totalRecoveryRate2026 = totalFeesDue2026 > 0 ? (totalTresoreriePercue / totalFeesDue2026) * 100 : 0;
 
   // --- Internal Process Perspective ---
   const avgMoyenneGenerale2026 = serverMoyenneGenerale;
@@ -665,11 +749,14 @@ export default function FinancePage() {
     const classIds = sectionClasses.map(c => c.id);
     const classNames = sectionClasses.map(c => c.nom);
 
-    // Sum CA for this section
-    const secCA = students
-      .filter(s => classIds.includes(s.classeId) || classNames.includes(s.classeId))
-      .flatMap(s => s.paiements || [])
-      .reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
+    // Sum CA for this section : préfère le CA par classe calculé en base
+    // (get_finance_ca_par_classe), sinon repli sur le calcul client complet.
+    const secCA = serverCaParClasse
+      ? classIds.reduce((sum, id) => sum + (serverCaParClasse[id] || 0), 0)
+      : students
+          .filter(s => classIds.includes(s.classeId) || classNames.includes(s.classeId))
+          .flatMap(s => s.paiements || [])
+          .reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
 
     // Count unique teachers assigned to these classes
     const teachersSet = new Set<string>();
@@ -707,14 +794,26 @@ export default function FinancePage() {
   const secEnProductivity = getSectionProductivity('sec-en');
   const secBiProductivity = getSectionProductivity('sec-bi');
 
-  // Productivité par classe (CA collecté), basée uniquement sur le classeId réel.
+  // Productivité par classe (CA collecté) : préfère la RPC get_finance_ca_par_classe,
+  // sinon repli sur le calcul client complet basé sur le classeId réel.
   const getClassProductivity = (classId: string) => {
+    if (serverCaParClasse) return serverCaParClasse[classId] || 0;
     const classStudents = students.filter(s => s.classeId === classId);
     return classStudents.flatMap(s => s.paiements || []).reduce((sum, p) => p.statut === 'paid' ? sum + p.montant : sum, 0);
   };
 
   // --- Daily cash reconciliation (7 last days) ---
   const getDailyReconciliation = () => {
+    // Préfère le rapprochement calculé en base (get_finance_reconciliation_quotidienne).
+    if (serverReconciliation) {
+      return serverReconciliation.map(r => ({
+        date: r.jour,
+        caConstated: r.caConstate,
+        cashReceived: r.encaisse,
+        gap: r.encaisse - r.caConstate,
+      }));
+    }
+
     const days = [];
     const today = new Date();
 
