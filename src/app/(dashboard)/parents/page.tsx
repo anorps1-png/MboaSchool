@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Eleve } from '@/types/domain';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import { getParentsList } from '@/lib/queries/parents';
+import { captureError } from '@/lib/observability/logger';
 
 interface ParentProfile {
   id: string;
@@ -20,6 +22,7 @@ export default function CommunauteQHSEPage() {
   // LOGIQUE ONGLET 1: COMMUNICATION
   // ==========================================
   const [parentsList, setParentsList] = useState<ParentProfile[]>([]);
+  const [serverParents, setServerParents] = useState<ParentProfile[] | null>(null);
   const [selectedParents, setSelectedParents] = useState<string[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [messageChannel, setMessageChannel] = useState('SMS');
@@ -130,8 +133,23 @@ export default function CommunauteQHSEPage() {
     fetchData();
   }, [etablissementId]);
 
+  // Liste de parents calculée en base (get_parents_list), pour éviter le
+  // fetch complet des élèves ci-dessus. Repli automatique sur parentsList
+  // (calcul client) si la RPC échoue ou n'est pas encore appliquée.
+  useEffect(() => {
+    if (!etablissementId) return;
+    getParentsList(etablissementId)
+      .then(setServerParents)
+      .catch(err => {
+        captureError(err, { context: "Error loading parents list:" });
+        setServerParents(null);
+      });
+  }, [etablissementId]);
+
+  const effectiveParentsList = serverParents ?? parentsList;
+
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) setSelectedParents(parentsList.map(p => p.id));
+    if (e.target.checked) setSelectedParents(effectiveParentsList.map(p => p.id));
     else setSelectedParents([]);
   };
 
@@ -141,7 +159,7 @@ export default function CommunauteQHSEPage() {
   };
 
   const openGroupMessage = () => {
-    setTargetParents(parentsList.filter(p => selectedParents.includes(p.id)));
+    setTargetParents(effectiveParentsList.filter(p => selectedParents.includes(p.id)));
     setShowModal(true);
   };
 
@@ -198,7 +216,7 @@ export default function CommunauteQHSEPage() {
                   <input 
                     type="checkbox" 
                     className="rounded border-border text-ink"
-                    checked={selectedParents.length === parentsList.length && parentsList.length > 0}
+                    checked={selectedParents.length === effectiveParentsList.length && effectiveParentsList.length > 0}
                     onChange={handleSelectAll}
                   />
                 </th>
@@ -209,7 +227,7 @@ export default function CommunauteQHSEPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border-row text-sm">
-              {parentsList.map(parent => (
+              {effectiveParentsList.map(parent => (
                 <tr key={parent.id} className="hover:bg-bg/30 transition-colors">
                   <td className="px-6 py-4 text-center">
                     <input 
@@ -245,7 +263,7 @@ export default function CommunauteQHSEPage() {
                   </td>
                 </tr>
               ))}
-              {parentsList.length === 0 && (
+              {effectiveParentsList.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-ink-faint italic">
                     Aucun parent trouvé.
