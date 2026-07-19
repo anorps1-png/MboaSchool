@@ -186,6 +186,7 @@ export default function Dashboard() {
   const activeStudents = students.filter(s => s.statut === 'actif').length;
   const totalTeachers = teachersList.length;
   const activeTeachers = teachersList.filter(t => t.statut === 'actif').length;
+  const onLeaveTeachers = teachersList.filter(t => t.statut === 'en_conge').length;
 
   // Taux de Réussite Global : calculé en base (getDashboardStats) plutôt que
   // sur les notes chargées côté client.
@@ -463,7 +464,7 @@ export default function Dashboard() {
           <div className="text-[44px] font-extrabold text-ink tracking-[-2px] leading-none mt-3">{totalTeachers}</div>
           <div className="mt-3.5">
             <span className="text-[13px] font-bold text-green bg-green-bg rounded-pill px-3 py-1 inline-block">
-              {activeTeachers} actifs · {totalTeachers - activeTeachers} inactifs
+              {activeTeachers} actifs · {onLeaveTeachers} en congé · {totalTeachers - activeTeachers - onLeaveTeachers} quittés
             </span>
           </div>
         </div>

@@ -11,10 +11,9 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // Navigation & Wizard State
+  // Navigation State
   const [isSignUp, setIsSignUp] = useState(false);
   const [signUpSuccess, setSignUpSuccess] = useState(false);
-  const [signupStep, setSignupStep] = useState(1); // 1: Credentials, 2: Plan, 3: Payment, 4: School Info
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
@@ -41,19 +40,12 @@ function LoginContent() {
     }
   }, []);
 
-  // Step 2 State: Subscription Plan
-  const [selectedPlan, setSelectedPlan] = useState<'Basic' | 'Standard' | 'Premium'>('Standard');
+  // Abonnement souscrit à la création du compte — pas de sélection de plan
+  // ni de paiement dans ce MVP (facturation non branchée) : 'Standard' par
+  // défaut, persisté pour l'affichage (DashboardLayout).
+  const [selectedPlan] = useState<'Basic' | 'Standard' | 'Premium'>('Standard');
 
-  // Step 3 State: Payment Method
-  const [paymentMethod, setPaymentMethod] = useState<'momo' | 'om' | 'card'>('momo');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvv, setCardCvv] = useState('');
-  const [paymentLoading, setPaymentLoading] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-
-  // Step 4 State: School Information
+  // School Information
   const [schoolName, setSchoolName] = useState('');
   const [schoolSystem, setSchoolSystem] = useState('Francophone');
   const [schoolYear, setSchoolYear] = useState('2025/2026');
@@ -64,7 +56,6 @@ function LoginContent() {
     const isSignupUrl = searchParams.get('signup') === 'true';
     if (isSignupUrl) {
       setIsSignUp(true);
-      setSignupStep(1);
     }
   }, [searchParams]);
 
@@ -300,44 +291,19 @@ function LoginContent() {
     }
   };
 
-  const handleNextStep = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    if (signupStep === 1) {
-      if (!email || !password) {
-        setErrorMsg("Veuillez renseigner votre email et un mot de passe.");
-        return;
-      }
-      const pwdError = validatePasswordStrength(password);
-      if (pwdError) {
-        setErrorMsg(pwdError);
-        return;
-      }
-      setSignupStep(2);
-    } else if (signupStep === 2) {
-      setSignupStep(3);
-    }
-  };
-
-  const handleSimulatePayment = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPaymentLoading(true);
-    setErrorMsg(null);
-
-    // Simulate validation
-    setTimeout(() => {
-      setPaymentLoading(false);
-      setPaymentSuccess(true);
-      setTimeout(() => {
-        setSignupStep(4);
-      }, 1000);
-    }, 2000);
-  };
-
   const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!schoolName) {
       setErrorMsg("Veuillez renseigner le nom de votre établissement.");
+      return;
+    }
+    if (!email || !password) {
+      setErrorMsg("Veuillez renseigner votre email et un mot de passe.");
+      return;
+    }
+    const pwdError = validatePasswordStrength(password);
+    if (pwdError) {
+      setErrorMsg(pwdError);
       return;
     }
     setIsLoading(true);
@@ -505,12 +471,6 @@ function LoginContent() {
     }
   };
 
-  const getPlanPrice = (plan: 'Basic' | 'Standard' | 'Premium') => {
-    if (plan === 'Basic') return '25 000 FCFA';
-    if (plan === 'Standard') return '50 000 FCFA';
-    return '100 000 FCFA';
-  };
-
   return (
     <div className="min-h-screen bg-bg text-ink flex flex-col items-center justify-center py-12 px-4 relative">
       {/* Bande kenté signature */}
@@ -625,7 +585,7 @@ function LoginContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setIsSignUp(true); setSignupStep(1); }}
+                  onClick={() => setIsSignUp(true)}
                   className="text-accent hover:text-accent-hover bg-transparent border-none cursor-pointer font-semibold"
                 >
                   Créer un compte →

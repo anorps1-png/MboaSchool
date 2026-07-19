@@ -33,6 +33,8 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   
   const [notesList, setNotesList] = useState<any[]>([]);
   const [rankings, setRankings] = useState<ClassRanking[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadTrigger, setReloadTrigger] = useState(0);
 
   // Buffer for currently edited grades in Saisie
   const [gradesBuffer, setGradesBuffer] = useState<Record<string, string | number>>({});
@@ -43,6 +45,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     if (!etablissementId) return;
     const loadData = async () => {
       try {
+        setLoadError(null);
         // 1. Get class details
         const { data: clsData, error: clsErr } = await supabase
           .from('classes')
@@ -54,10 +57,12 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         if (clsErr) throw clsErr;
         setClassInfo(clsData);
 
-        // 2. Get students in this class along with their notes
+        // 2. Get students in this class (leurs notes du trimestre sont
+        // chargées séparément juste après, filtrées par trimestre — pas
+        // besoin d'embarquer tout l'historique de notes ici)
         const { data: studsData, error: studsErr } = await supabase
           .from('eleves')
-          .select('*, notes(*)')
+          .select('*')
           .eq('classe_id', decodeURIComponent(classeId))
           .eq('etablissement_id', etablissementId);
 
@@ -91,21 +96,54 @@ export default function EvaluationsClassePage({ params }: PageProps) {
           setRankings([]);
         }
 
-        // 4. Subjects
-        const storedSubjects = localStorage.getItem('mboaschool_subjects');
-        let subjects = defaultSubjects;
-        if (storedSubjects) {
-          try { subjects = JSON.parse(storedSubjects); } catch (e) { }
-        } else {
-          localStorage.setItem('mboaschool_subjects', JSON.stringify(defaultSubjects));
+        // 4. Subjects — table matieres (scoping etablissement_id, partagée
+        // par tout l'établissement) en priorité ; repli localStorage
+        // (propre à ce poste) si la migration n'est pas encore appliquée.
+        let subjects: string[] = [];
+        let matieresTableAvailable = false;
+        try {
+          const { data: matieresData, error: matieresErr } = await supabase
+            .from('matieres')
+            .select('nom')
+            .eq('etablissement_id', etablissementId)
+            .order('nom', { ascending: true });
+          if (matieresErr) throw matieresErr;
+          matieresTableAvailable = true;
+          subjects = (matieresData || []).map((m: any) => m.nom);
+        } catch (matieresErr) {
+          captureMessage('Table matieres indisponible, repli localStorage:', { detail: matieresErr });
+        }
+
+        if (subjects.length === 0) {
+          if (matieresTableAvailable) {
+            // Première utilisation pour cet établissement : seed des
+            // matières par défaut, partagées désormais par tout
+            // l'établissement (pas seulement ce poste).
+            subjects = defaultSubjects;
+            supabase.from('matieres')
+              .insert(defaultSubjects.map(nom => ({ nom, etablissement_id: etablissementId })))
+              .then(({ error: seedErr }) => {
+                if (seedErr) captureMessage('Seed matières par défaut échoué:', { detail: seedErr });
+              });
+          } else {
+            const storedSubjects = localStorage.getItem('mboaschool_subjects');
+            if (storedSubjects) {
+              try { subjects = JSON.parse(storedSubjects); } catch (e) { }
+            }
+            if (subjects.length === 0) {
+              subjects = defaultSubjects;
+              localStorage.setItem('mboaschool_subjects', JSON.stringify(defaultSubjects));
+            }
+          }
         }
         setSubjectsList(subjects);
-        
+
         const subjToUse = selectedSubject || subjects[0] || 'Mathématiques';
         if (!selectedSubject) setSelectedSubject(subjToUse);
 
       } catch (err) {
         captureError(err, { context: "Error loading evaluations page:" });
+        setLoadError("Impossible de charger les données de la classe. Vérifiez votre connexion et réessayez.");
       }
     };
 
@@ -115,7 +153,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     // effet une seconde fois (puisque selectedSubject est dans ses propres
     // dépendances) — un seul refetch redondant, auto-limité par le
     // `if (!selectedSubject)` ci-dessus, pas une boucle infinie.
-  }, [classeId, term, selectedSubject, etablissementId, supabase]);
+  }, [classeId, term, selectedSubject, etablissementId, supabase, reloadTrigger]);
 
   useEffect(() => {
     if (studentsList.length > 0) {
@@ -140,7 +178,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     }
   }, [studentsList, notesList, selectedSubject]);
 
-  const handleAddSubject = () => {
+  const handleAddSubject = async () => {
     if (!newSubjectName.trim()) return;
     const newSubj = newSubjectName.trim();
     if (subjectsList.includes(newSubj)) {
@@ -149,10 +187,21 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     }
     const newList = [...subjectsList, newSubj];
     setSubjectsList(newList);
-    localStorage.setItem('mboaschool_subjects', JSON.stringify(newList));
     setSelectedSubject(newSubj);
     setNewSubjectName('');
     triggerToast(`Matière "${newSubj}" ajoutée.`);
+
+    if (etablissementId) {
+      const { error } = await supabase.from('matieres').insert([{ nom: newSubj, etablissement_id: etablissementId }]);
+      if (error) {
+        // Table matieres indisponible (migration pas encore appliquée) :
+        // repli localStorage pour ne pas perdre la matière sur ce poste.
+        captureMessage('Insertion matieres échouée, repli localStorage:', { detail: error });
+        localStorage.setItem('mboaschool_subjects', JSON.stringify(newList));
+      }
+    } else {
+      localStorage.setItem('mboaschool_subjects', JSON.stringify(newList));
+    }
   };
 
   const triggerToast = (msg: string) => {
@@ -177,7 +226,6 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         matiere: selectedSubject,
         trimestre: term,
         coefficient: selectedCoef,
-        date_saisie: new Date().toISOString(),
         etablissement_id: etablissementId
       };
 
@@ -193,17 +241,34 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         noteObj.evaluation_maternelle = null;
       }
 
-      return noteObj;
-    }).filter(n => n.note !== null || n.evaluation_maternelle !== null || n.id !== undefined);
+      const isNewNote = !existingNote && (noteObj.note !== null || noteObj.evaluation_maternelle !== null);
+      const valueChanged = !!existingNote && (
+        isMaternelle
+          ? (existingNote.evaluation_maternelle || null) !== noteObj.evaluation_maternelle
+          : (existingNote.note !== null && existingNote.note !== undefined ? Number(existingNote.note) : null) !== noteObj.note
+      );
+      const coefChanged = !!existingNote && Number(existingNote.coefficient || 1) !== Number(selectedCoef);
 
-    if (upsertData.length === 0) return;
+      // Ne réécrit (et ne réhorodate date_saisie) que les notes réellement
+      // nouvelles ou modifiées cette session — évite de reperdre
+      // l'horodatage de saisie des notes non touchées à chaque sauvegarde.
+      if (!isNewNote && !valueChanged && !coefChanged) return null;
+
+      noteObj.date_saisie = new Date().toISOString();
+      return noteObj;
+    }).filter((n): n is Record<string, any> => n !== null);
+
+    if (upsertData.length === 0) {
+      triggerToast('Aucune modification à sauvegarder.');
+      return;
+    }
 
     try {
       const { error } = await supabase.from('notes').upsert(upsertData);
       if (error) throw error;
-      
+
       triggerToast(`Les notes de ${selectedSubject} ont été sauvegardées avec succès.`);
-      
+
       // Reload notes from DB
       const studsIds = studentsList.map(s => s.id);
       const { data: notesData } = await supabase
@@ -212,12 +277,12 @@ export default function EvaluationsClassePage({ params }: PageProps) {
         .in('eleve_id', studsIds)
         .eq('trimestre', term)
         .eq('etablissement_id', etablissementId);
-      
+
       if (notesData) {
         setNotesList(notesData);
       }
     } catch (err: any) {
-      alert("Erreur lors de la sauvegarde : " + err.message);
+      triggerToast("Erreur lors de la sauvegarde : " + err.message);
     }
   };
 
@@ -257,6 +322,19 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   }, [rankings, studentsList, notesList]);
 
   if (!classInfo) {
+    if (loadError) {
+      return (
+        <div className="p-8 text-center space-y-4">
+          <p className="text-accent font-semibold">{loadError}</p>
+          <button
+            onClick={() => setReloadTrigger(t => t + 1)}
+            className="px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold transition-colors"
+          >
+            Réessayer
+          </button>
+        </div>
+      );
+    }
     return <div className="p-8 text-center text-ink-soft">Chargement...</div>;
   }
 
