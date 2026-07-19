@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
-import { mockClassFees } from '@/mock/fees';
+import React, { useState, useEffect, useMemo, use } from 'react';
 import Link from 'next/link';
 import {
   ChevronLeftIcon,
@@ -21,9 +20,11 @@ export default function FicheElevePage({ params }: PageProps) {
   const resolvedParams = use(params);
   const studentId = resolvedParams.id;
   const { etablissementId } = useEtablissement();
+  const supabase = useMemo(() => createClient(), []);
 
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
+  const [teachersMap, setTeachersMap] = useState<Record<string, string>>({});
   const [student, setStudent] = useState<Eleve | undefined>(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'finance' | 'grades' | 'discipline'>('info');
@@ -31,14 +32,25 @@ export default function FicheElevePage({ params }: PageProps) {
   useEffect(() => {
     if (!etablissementId) return;
     const fetchData = async () => {
-      const supabase = createClient();
-      
       // Fetch classes
       const { data: classesData } = await supabase
         .from('classes')
         .select('*')
         .eq('etablissement_id', etablissementId);
       if (classesData) setClassesList(classesData);
+
+      // Fetch teachers (for displaying names instead of raw ids on notes)
+      const { data: teachersData } = await supabase
+        .from('enseignants')
+        .select('id, nom, prenom')
+        .eq('etablissement_id', etablissementId);
+      if (teachersData) {
+        const map: Record<string, string> = {};
+        teachersData.forEach((t: any) => {
+          map[t.id] = `${t.prenom || ''} ${t.nom || ''}`.trim();
+        });
+        setTeachersMap(map);
+      }
 
       // Fetch student with payments, notes, and discipline
       const { data: studentData } = await supabase
@@ -66,7 +78,8 @@ export default function FicheElevePage({ params }: PageProps) {
               note: Number(n.note),
               trimestre: n.trimestre,
               matiereId: n.matiere || n.matiere_id,
-              evaluationMaternelle: n.evaluation_maternelle
+              evaluationMaternelle: n.evaluation_maternelle,
+              coefficient: n.coefficient !== null && n.coefficient !== undefined ? Number(n.coefficient) : undefined
             })) || []
           }));
           setStudents(mappedClassmates as any);
@@ -102,7 +115,8 @@ export default function FicheElevePage({ params }: PageProps) {
             trimestre: n.trimestre,
             matiereId: n.matiere || n.matiere_id,
             evaluationMaternelle: n.evaluation_maternelle,
-            enseignantId: n.enseignant_id
+            enseignantId: n.enseignant_id,
+            coefficient: n.coefficient !== null && n.coefficient !== undefined ? Number(n.coefficient) : undefined
           })) || [],
           discipline: studentData.discipline?.map((d: any) => ({
             id: d.id,
@@ -122,7 +136,7 @@ export default function FicheElevePage({ params }: PageProps) {
     if (typeof window !== 'undefined') {
       fetchData();
     }
-  }, [studentId, etablissementId]);
+  }, [studentId, etablissementId, supabase]);
 
   // Form states for adding payment
   const [payAmount, setPayAmount] = useState('');
@@ -169,7 +183,6 @@ export default function FicheElevePage({ params }: PageProps) {
         }
       }
       
-      const supabase = createClient();
       const { error } = await supabase.from('notes').update(updatePayload).eq('id', gradeId);
       
       if (error) {
@@ -218,14 +231,13 @@ export default function FicheElevePage({ params }: PageProps) {
   }
 
   // Financial calculations
-  const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
   const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
-  const totalDue = classObj && typeof classObj.prix !== 'undefined' ? classObj.prix : (classFeeConfig ? classFeeConfig.total : 200000);
+  const totalDue = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
   const totalPaid = ((student.paiements || []) || [])
     .filter(p => p.statut === 'paid')
     .reduce((sum, p) => sum + p.montant, 0);
-  const pendingAmount = totalDue - totalPaid;
-  const paymentProgressPct = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
+  const pendingAmount = totalDue !== null ? totalDue - totalPaid : null;
+  const paymentProgressPct = totalDue !== null && totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
   // Grade calculations
   const firstTermGrades = (student.notes || []).filter(g => g.trimestre === 'Trimestre 1');
@@ -233,9 +245,9 @@ export default function FicheElevePage({ params }: PageProps) {
 
   const calculateWeightedAverage = (gradesList: NoteMatiere[]) => {
     if (gradesList.length === 0) return 0;
-    const totalPoints = gradesList.reduce((sum, g) => sum + (((g.note || 0) || 0) * 1), 0);
-    const totalCoefs = gradesList.reduce((sum, g) => sum + 1, 0);
-    return totalPoints / totalCoefs;
+    const totalPoints = gradesList.reduce((sum, g) => sum + ((g.note || 0) * (g.coefficient || 1)), 0);
+    const totalCoefs = gradesList.reduce((sum, g) => sum + (g.coefficient || 1), 0);
+    return totalCoefs > 0 ? totalPoints / totalCoefs : 0;
   };
 
   const avgTrim1 = calculateWeightedAverage(firstTermGrades);
@@ -271,7 +283,6 @@ export default function FicheElevePage({ params }: PageProps) {
 
     const reference = `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const supabase = createClient();
     const { data: payData, error } = await supabase.from('paiements').insert([{
       eleve_id: student.id,
       montant: amountVal,
@@ -324,10 +335,9 @@ export default function FicheElevePage({ params }: PageProps) {
       return;
     }
 
-    const supabase = createClient();
     const payload: any = {
       eleve_id: student.id,
-      matiere: newGradeMatiere, // Necessite ALTER TABLE notes RENAME COLUMN matiere_id TO matiere; ALTER TABLE notes ALTER COLUMN matiere TYPE TEXT;
+      matiere: newGradeMatiere,
       trimestre: 'Trimestre 1',
       coefficient: Number(newGradeCoef) || 1,
       etablissement_id: etablissementId
@@ -385,7 +395,6 @@ export default function FicheElevePage({ params }: PageProps) {
       return;
     }
 
-    const supabase = createClient();
     const payload = {
       eleve_id: student.id,
       date_incident: new Date().toISOString().split('T')[0],
@@ -626,29 +635,33 @@ export default function FicheElevePage({ params }: PageProps) {
             <div className="bg-surface rounded-card border border-border p-6 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-6 items-center">
               <div>
                 <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Frais Totaux Annuel</span>
-                <span className="text-xl font-extrabold text-ink block mt-1">{formatFCFA(totalDue)}</span>
+                <span className="text-xl font-extrabold text-ink block mt-1">
+                  {totalDue !== null ? formatFCFA(totalDue) : <span className="text-ink-faint italic text-sm">Non configuré</span>}
+                </span>
                 <span className="text-[10px] text-ink-faint mt-1 block">Classe : {displayClasse}</span>
               </div>
               <div>
                 <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Montant Payé</span>
                 <span className="text-xl font-extrabold text-green block mt-1">{formatFCFA(totalPaid)}</span>
-                
+
                 {/* Progress bar */}
-                <div className="w-full bg-chip h-1.5 rounded-full overflow-hidden mt-2 max-w-[200px]">
-                  <div 
-                    className="h-full bg-green rounded-full transition-all duration-300"
-                    style={{ width: `${paymentProgressPct}%` }}
-                  ></div>
-                </div>
+                {totalDue !== null && (
+                  <div className="w-full bg-chip h-1.5 rounded-full overflow-hidden mt-2 max-w-[200px]">
+                    <div
+                      className="h-full bg-green rounded-full transition-all duration-300"
+                      style={{ width: `${paymentProgressPct}%` }}
+                    ></div>
+                  </div>
+                )}
               </div>
               <div className="flex justify-between items-center sm:block">
                 <div>
                   <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Reste à recouvrer</span>
-                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount > 0 ? 'text-accent' : 'text-ink-soft'}`}>
-                    {formatFCFA(pendingAmount)}
+                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount !== null && pendingAmount > 0 ? 'text-accent' : 'text-ink-soft'}`}>
+                    {pendingAmount !== null ? formatFCFA(pendingAmount) : <span className="text-ink-faint italic text-sm">Non configuré</span>}
                   </span>
                 </div>
-                {pendingAmount > 0 && (
+                {pendingAmount !== null && pendingAmount > 0 && (
                   <button
                     onClick={() => setShowAddPaymentModal(true)}
                     className="mt-3.5 px-4 py-2 bg-accent hover:bg-accent-hover text-cream text-xs font-bold rounded-control shadow-cta transition-colors"
@@ -812,7 +825,7 @@ export default function FicheElevePage({ params }: PageProps) {
                               g.evaluationMaternelle ? g.evaluationMaternelle : `${((g.note || 0))} / 20`
                             )}
                           </td>
-                          <td className="px-6 py-4 text-ink-soft font-medium">{g.enseignantId}</td>
+                          <td className="px-6 py-4 text-ink-soft font-medium">{g.enseignantId ? (teachersMap[g.enseignantId] || g.enseignantId) : '--'}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
                               g.evaluationMaternelle ? (g.evaluationMaternelle === 'Acquis' ? 'bg-green-bg text-green' : g.evaluationMaternelle === 'En cours' ? 'bg-chip text-ink' : 'bg-red-bg text-accent') : (((g.note || 0)) >= 14 ? 'bg-green-bg text-green' : ((g.note || 0)) >= 10 ? 'bg-chip text-ink' : 'bg-red-bg text-accent')
@@ -861,7 +874,7 @@ export default function FicheElevePage({ params }: PageProps) {
                           ) : (
                             <div className="flex flex-col gap-1">
                               <span>Total des points: {firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0)}</span>
-                              <span>Rang estimé: {student.id === 'stud-1' ? '1er' : '3ème'} / 45</span>
+                              <span>Rang: {myRank} / {classmates.length}</span>
                               <span className="text-xs font-semibold text-accent">Mention: {(firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length) >= 12 ? 'Tableau d\'Honneur' : 'Encouragements'}</span>
                             </div>
                           )}

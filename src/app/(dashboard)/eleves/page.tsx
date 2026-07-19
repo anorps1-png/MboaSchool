@@ -3,7 +3,6 @@ import { captureError, captureMessage } from '@/lib/observability/logger';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { mockClassFees } from '@/mock/fees';
 import Link from 'next/link';
 import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, DownloadIcon } from '@/components/icons';
 import { Eleve, Classe } from '@/types/domain';
@@ -99,47 +98,52 @@ export default function ElevesPage() {
       };
 
       fetchClasses();
+    }
+  }, [etablissementId]);
 
-      const fetchEleves = async () => {
-        try {
-          const data = await getStudents(etablissementId);
-          const mapped = data.map(d => ({
-            id: d.id,
-            matricule: d.matricule,
-            nom: d.nom,
-            prenom: d.prenom,
-            sexe: d.sexe,
-            classeId: d.classe_id,
-            anneeScolaireId: d.annee_scolaire_id,
-            telephoneParent: d.telephone_parent,
-            nomParent: d.nom_parent,
-            emailParent: d.email_parent,
-            dateNaissance: d.date_naissance,
-            lieuNaissance: d.lieu_naissance,
-            dateInscription: d.date_inscription,
-            statut: d.statut,
-            paiements: d.paiements?.map((p: any) => ({
-              id: p.id,
-              eleveId: p.eleve_id,
-              montant: Number(p.montant),
-              date: p.date,
-              typeFrais: p.type_frais,
-              statut: p.statut,
-              reference: p.reference,
-              modePaiement: p.mode_paiement
-            })) || [],
-            notes: []
-          }));
-          setStudents(mapped as any);
-        } catch (error) {
-          captureError(error, { context: "Error fetching students:" });
-          setStudents([]);
-        } finally {
-          setIsLoaded(true);
-        }
-      };
-
-      fetchEleves();
+  // Fetch complet des élèves (avec historique de paiements) — nécessaire
+  // uniquement en repli client (tableau serveur paginé indisponible/hors-ligne)
+  // pour alimenter le tableau de repli, la CRUD locale et les KPI de repli.
+  // Ne s'exécute plus systématiquement à chaque montage (voir effet
+  // ci-dessous, déclenché par serverModeAvailable). L'export Excel a sa
+  // propre source de données indépendante (handleExportExcel).
+  const fetchAllStudentsFallback = useCallback(async () => {
+    if (typeof window === 'undefined' || !etablissementId) return;
+    try {
+      const data = await getStudents(etablissementId);
+      const mapped = data.map(d => ({
+        id: d.id,
+        matricule: d.matricule,
+        nom: d.nom,
+        prenom: d.prenom,
+        sexe: d.sexe,
+        classeId: d.classe_id,
+        anneeScolaireId: d.annee_scolaire_id,
+        telephoneParent: d.telephone_parent,
+        nomParent: d.nom_parent,
+        emailParent: d.email_parent,
+        dateNaissance: d.date_naissance,
+        lieuNaissance: d.lieu_naissance,
+        dateInscription: d.date_inscription,
+        statut: d.statut,
+        paiements: d.paiements?.map((p: any) => ({
+          id: p.id,
+          eleveId: p.eleve_id,
+          montant: Number(p.montant),
+          date: p.date,
+          typeFrais: p.type_frais,
+          statut: p.statut,
+          reference: p.reference,
+          modePaiement: p.mode_paiement
+        })) || [],
+        notes: []
+      }));
+      setStudents(mapped as any);
+    } catch (error) {
+      captureError(error, { context: "Error fetching students:" });
+      setStudents([]);
+    } finally {
+      setIsLoaded(true);
     }
   }, [etablissementId]);
 
@@ -193,6 +197,17 @@ export default function ElevesPage() {
     fetchTablePage();
   }, [fetchTablePage]);
 
+  // Ne déclenche le fetch complet (repli client) qu'une fois qu'on sait que
+  // le tableau serveur paginé est indisponible. Si le serveur est disponible,
+  // la liste complète n'est pas nécessaire pour l'affichage.
+  useEffect(() => {
+    if (serverModeAvailable === false) {
+      fetchAllStudentsFallback();
+    } else if (serverModeAvailable === true) {
+      setIsLoaded(true);
+    }
+  }, [serverModeAvailable, fetchAllStudentsFallback]);
+
   /** À appeler après toute mutation réussie (ajout/suppression/import) pour
    * garder le tableau serveur et les cartes KPI synchro avec students. */
   const refreshServerViews = useCallback(() => {
@@ -202,16 +217,15 @@ export default function ElevesPage() {
 
   // Helper: Get student payment stats
   const getStudentPaymentStats = useCallback((student: Eleve) => {
-    if (!student) return { totalDue: 0, totalPaid: 0, status: 'unpaid' as const };
-    const classFeeConfig = mockClassFees.find(cf => cf.niveauId === student.classeId);
+    if (!student) return { totalDue: null as number | null, totalPaid: 0, status: 'unpaid' as const };
     const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
-    const totalDue = classObj && typeof classObj.prix !== 'undefined' ? classObj.prix : (classFeeConfig ? classFeeConfig.total : 200000);
+    const totalDue: number | null = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
     const totalPaid = (student.paiements || [])
       .filter(p => p.statut === 'paid')
       .reduce((sum, p) => sum + p.montant, 0);
-    
+
     let status: 'paid' | 'partial' | 'unpaid' = 'unpaid';
-    if (totalPaid >= totalDue && totalDue > 0) {
+    if (totalDue !== null && totalPaid >= totalDue && totalDue > 0) {
       status = 'paid';
     } else if (totalPaid > 0) {
       status = 'partial';
@@ -289,7 +303,7 @@ export default function ElevesPage() {
     classeId: string;
     nomParent: string | null | undefined;
     classeNomOverride: string | null;
-    precomputedStats: { totalDue: number; totalPaid: number; status: 'paid' | 'partial' | 'unpaid' } | null;
+    precomputedStats: { totalDue: number | null; totalPaid: number; status: 'paid' | 'partial' | 'unpaid' } | null;
   }
 
   const displayRows: DisplayRow[] = useMemo(() => {
@@ -387,15 +401,7 @@ export default function ElevesPage() {
       }
     }
 
-    // 4. Try to extract it from loaded students list if any exist
-    if (!resolvedAnneeScolaireId && students.length > 0) {
-      const studentWithYear = students.find(s => s && s.anneeScolaireId);
-      if (studentWithYear) {
-        resolvedAnneeScolaireId = studentWithYear.anneeScolaireId;
-      }
-    }
-
-    // 5. Try offline cache for annees_scolaires if still missing
+    // 4. Try offline cache for annees_scolaires if still missing
     if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
       const storedYears = localStorage.getItem('offline_cache_annees_scolaires');
       if (storedYears) {
@@ -579,7 +585,57 @@ export default function ElevesPage() {
     fileInputRef.current?.click();
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    if (useServerTable && etablissementId) {
+      // Export dédié : boucle sur get_students_paginated (pageSize élevé) au
+      // lieu de dépendre de `students` complet, qui n'est plus chargé en
+      // entier quand le tableau serveur est disponible. La RPC calcule déjà
+      // total_due/total_paid/statut_paiement à partir des vraies données.
+      try {
+        const EXPORT_PAGE_SIZE = 1000;
+        let page = 1;
+        let all: StudentPage[] = [];
+        let totalCount = Infinity;
+        while (all.length < totalCount) {
+          const { students: rows, totalCount: tc } = await getStudentsPaginated({
+            etablissementId,
+            anneeScolaireId: academicYearId || null,
+            search: searchTerm,
+            classeId: selectedClass === 'All' ? null : selectedClass,
+            statutPaiement: selectedPaymentStatus === 'All' ? null : (selectedPaymentStatus as 'paid' | 'partial' | 'unpaid'),
+            sexe: selectedGender === 'All' ? null : (selectedGender as 'M' | 'F'),
+            page,
+            pageSize: EXPORT_PAGE_SIZE,
+          });
+          all = all.concat(rows);
+          totalCount = tc;
+          if (rows.length < EXPORT_PAGE_SIZE) break;
+          page++;
+        }
+
+        const dataToExport = all.map(s => ({
+          Matricule: s.matricule,
+          Nom: s.nom,
+          Prénom: s.prenom,
+          Genre: s.sexe,
+          Classe: s.classe_nom || classesList.find(c => c.id === s.classe_id)?.nom || s.classe_id,
+          'Parent / Tuteur': s.nom_parent,
+          Téléphone: s.telephone_parent,
+          'Scolarité (FCFA)': s.total_due,
+          'Montant Payé': s.total_paid,
+          Statut: s.statut_paiement === 'paid' ? 'Payé' : s.statut_paiement === 'partial' ? 'Partiel' : 'Non Payé'
+        }));
+        downloadExcel(dataToExport, 'Liste_Eleves');
+        triggerToast('Export Excel généré avec succès !');
+      } catch (err) {
+        captureError(err, { context: "Server-backed Excel export failed" });
+        alert("Erreur lors de la génération de l'export.");
+      }
+      return;
+    }
+
+    // Repli client (RPC indisponible ou hors-ligne) : utilise la liste
+    // complète déjà chargée localement (fetchAllStudentsFallback).
     const dataToExport = filteredStudents.map(s => {
       const { totalDue, totalPaid, status } = getStudentPaymentStats(s);
       return {
@@ -590,7 +646,7 @@ export default function ElevesPage() {
         Classe: classesList.find(c => c.id === s.classeId)?.nom || s.classeId,
         'Parent / Tuteur': s.nomParent,
         Téléphone: s.telephoneParent,
-        'Scolarité (FCFA)': totalDue,
+        'Scolarité (FCFA)': totalDue !== null ? totalDue : 'Non configuré',
         'Montant Payé': totalPaid,
         Statut: status === 'paid' ? 'Payé' : status === 'partial' ? 'Partiel' : 'Non Payé'
       };
@@ -617,7 +673,6 @@ export default function ElevesPage() {
     const newClassData = {
       nom: classNameStr,
       niveau: classNameStr,
-      prix: 200000,
       section: sectionStr
     };
 
@@ -768,11 +823,19 @@ export default function ElevesPage() {
 
         let importedCount = 0;
         let errorsCount = 0;
-        const localClasses = [...classesList]; // Local reference to track created classes during the loop synchronously
 
         const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
         const supabase = createClient();
 
+        // 1) Parsing pur des lignes (aucun appel réseau ici) — évite de refaire
+        // le parsing à chaque étape du traitement en lot ci-dessous.
+        interface ParsedImportRow {
+          nom: string; prenom: string; sexe: 'M' | 'F'; classNameStr: string; sectionStr: string;
+          nomParent: string; telephoneParent: string; emailParent: string;
+          dateNaissance: string | null; lieuNaissance: string; dateInscriptionVal: string;
+          matriculeVal: string; amountPaidVal: number; mode: string; reference: string;
+        }
+        const parsedRows: ParsedImportRow[] = [];
         for (const row of data) {
           const nom = (row.Nom || row.nom || row.NOM || '').toString().trim();
           const prenom = (row.Prénom || row.prenom || row.Prenom || row.PRENOM || '').toString().trim();
@@ -789,7 +852,7 @@ export default function ElevesPage() {
           const dateNaissance = parseImportDate(row["Date Naissance"] || row.date_naissance || row.Naissance || row.naissance);
           const lieuNaissance = (row["Lieu Naissance"] || row.lieu_naissance || row.Lieu || row.lieu || '').toString().trim();
           const dateInscriptionVal = parseImportDate(row["Date Inscription"] || row.date_inscription || row.inscription || row.Inscription) || new Date().toISOString().split('T')[0];
-          
+
           // Generate a deterministic fallback matricule based on name/surname if missing, to prevent duplicates on re-import
           const rawMatricule = row.Matricule || row.matricule || row.MATRICULE || row["N° Matricule"];
           const cleanNom = nom.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -797,184 +860,236 @@ export default function ElevesPage() {
           const fallbackMatricule = `MBOA-${cleanNom}-${cleanPrenom}`.substring(0, 50);
           const matriculeVal = (rawMatricule ? rawMatricule.toString().trim() : fallbackMatricule);
 
-          let classId = '';
-          if (classNameStr) {
-            classId = await getOrCreateClass(classNameStr, resolvedAnneeScolaireId, sectionStr, localClasses);
-          } else if (localClasses.length > 0) {
-            classId = localClasses[0].id;
-          } else {
-            classId = await getOrCreateClass('Non classé', resolvedAnneeScolaireId, sectionStr, localClasses);
-          }
-
-          const studentData = {
-            matricule: matriculeVal,
-            nom: nom.toUpperCase(),
-            prenom: prenom,
-            sexe,
-            classe_id: classId,
-            annee_scolaire_id: resolvedAnneeScolaireId,
-            nom_parent: nomParent,
-            telephone_parent: telephoneParent,
-            email_parent: emailParent,
-            date_naissance: dateNaissance,
-            lieu_naissance: lieuNaissance,
-            date_inscription: dateInscriptionVal,
-            statut: 'actif'
-          };
-
-          let studentId = '';
-          let finalStudentObj: any = null;
-
-          try {
-            if (isOffline) {
-              studentId = `temp_stud_${Date.now()}_${Math.floor(Math.random()*1000)}`;
-              await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
-              finalStudentObj = {
-                id: studentId,
-                ...studentData,
-                classeId: classId,
-                anneeScolaireId: resolvedAnneeScolaireId,
-                dateNaissance,
-                lieuNaissance,
-                dateInscription: dateInscriptionVal,
-                nomParent,
-                telephoneParent,
-                emailParent,
-                paiements: [],
-                notes: []
-              };
-            } else {
-              const { data: createdData, error: createErr } = await supabase
-                .from('eleves')
-                .upsert([{ ...studentData, etablissement_id: etablissementId }], { onConflict: 'etablissement_id,matricule' })
-                .select();
-              if (!createErr && createdData && createdData.length > 0 && createdData[0]) {
-                const createdStudent = createdData[0];
-                studentId = createdStudent.id;
-                finalStudentObj = {
-                  id: studentId,
-                  matricule: createdStudent.matricule || studentData.matricule || '',
-                  nom: createdStudent.nom || studentData.nom || '',
-                  prenom: createdStudent.prenom || studentData.prenom || '',
-                  sexe: createdStudent.sexe || studentData.sexe || 'M',
-                  classeId: classId,
-                  nomParent: createdStudent.nom_parent || studentData.nom_parent || '',
-                  telephoneParent: createdStudent.telephone_parent || studentData.telephone_parent || '',
-                  emailParent: createdStudent.email_parent || studentData.email_parent || '',
-                  dateNaissance: createdStudent.date_naissance || studentData.date_naissance || '',
-                  lieuNaissance: createdStudent.lieu_naissance || studentData.lieu_naissance || '',
-                  dateInscription: createdStudent.date_inscription || dateInscriptionVal,
-                  anneeScolaireId: createdStudent.annee_scolaire_id || resolvedAnneeScolaireId,
-                  statut: createdStudent.statut || 'actif',
-                  paiements: [],
-                  notes: []
-                };
-              } else {
-                captureError(createErr || new Error("Empty selection returned from database. Check RLS or insert payload."), { context: "Error creating student in Excel import loop" });
-                errorsCount++;
-                continue;
-              }
-            }
-          } catch (err) {
-            captureError(err, { context: "Failed to create student in loop:" });
-            errorsCount++;
-            continue;
-          }
-
           const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
-          if (amountPaidVal > 0 && studentId && finalStudentObj) {
-            const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
-            const reference = row.Reference || row.reference || row.REFERENCE || `REC-${matriculeVal}-SCOL`;
-            const paymentData = {
-              eleve_id: studentId,
-              montant: amountPaidVal,
-              date: new Date().toISOString().split('T')[0],
-              type_frais: 'Scolarité',
-              mode_paiement: mode,
-              statut: 'paid',
-              reference: reference
+          const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
+          const reference = row.Reference || row.reference || row.REFERENCE || `REC-${matriculeVal}-SCOL`;
+
+          parsedRows.push({
+            nom, prenom, sexe, classNameStr, sectionStr, nomParent, telephoneParent, emailParent,
+            dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, amountPaidVal, mode, reference
+          });
+        }
+
+        if (parsedRows.length === 0) {
+          alert("Aucune ligne valide trouvée dans le fichier.");
+          return;
+        }
+
+        if (isOffline) {
+          // Mode hors-ligne (Electron) : écritures locales via SyncManager (IndexedDB),
+          // pas de coût réseau réel — la boucle par ligne reste donc telle quelle.
+          const localClasses = [...classesList];
+          for (const r of parsedRows) {
+            const classId = await getOrCreateClass(r.classNameStr, resolvedAnneeScolaireId, r.sectionStr, localClasses);
+
+            const studentData = {
+              matricule: r.matriculeVal, nom: r.nom.toUpperCase(), prenom: r.prenom, sexe: r.sexe,
+              classe_id: classId, annee_scolaire_id: resolvedAnneeScolaireId, nom_parent: r.nomParent,
+              telephone_parent: r.telephoneParent, email_parent: r.emailParent, date_naissance: r.dateNaissance,
+              lieu_naissance: r.lieuNaissance, date_inscription: r.dateInscriptionVal, statut: 'actif'
             };
 
-            try {
-              if (isOffline) {
-                const localPayId = `temp_pay_${Date.now()}_${Math.floor(Math.random()*100)}`;
-                await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
-                if (!finalStudentObj.paiements) finalStudentObj.paiements = [];
-                finalStudentObj.paiements.push({
-                  id: localPayId,
-                  eleveId: studentId,
-                  montant: amountPaidVal,
-                  date: paymentData.date,
-                  typeFrais: 'Scolarité',
-                  modePaiement: mode,
-                  statut: 'paid',
-                  reference
-                });
-              } else {
-                const { data: payCreated, error: payErr } = await supabase
-                  .from('paiements')
-                  .upsert([{ ...paymentData, etablissement_id: etablissementId }], { onConflict: 'etablissement_id,reference' })
-                  .select();
-                if (!payErr && payCreated && payCreated.length > 0 && payCreated[0]) {
-                  if (!finalStudentObj.paiements) finalStudentObj.paiements = [];
-                  // Ensure we don't add duplicate payments in local state representation
-                  const pId = payCreated[0].id;
-                  const payObj = {
-                    id: pId,
-                    eleveId: studentId,
-                    montant: Number(payCreated[0].montant),
-                    date: payCreated[0].date,
-                    typeFrais: payCreated[0].type_frais,
-                    modePaiement: payCreated[0].mode_paiement,
-                    statut: payCreated[0].statut,
-                    reference: payCreated[0].reference
-                  };
-                  const exists = finalStudentObj.paiements.some((p: any) => p.id === pId || p.reference === payObj.reference);
-                  if (exists) {
-                    finalStudentObj.paiements = finalStudentObj.paiements.map((p: any) => (p.id === pId || p.reference === payObj.reference) ? payObj : p);
-                  } else {
-                    finalStudentObj.paiements.push(payObj);
-                  }
-                } else {
-                  captureError(payErr || new Error("Empty selection returned from database."), { context: "Error creating payment in Excel import loop" });
-                }
-              }
-            } catch (pErr) {
-              captureError(pErr, { context: "Failed to insert payment inside loop:" });
-            }
-          }
+            const studentId = `temp_stud_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+            await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
+            const finalStudentObj: any = {
+              id: studentId, ...studentData, classeId: classId, anneeScolaireId: resolvedAnneeScolaireId,
+              dateNaissance: r.dateNaissance, lieuNaissance: r.lieuNaissance, dateInscription: r.dateInscriptionVal,
+              nomParent: r.nomParent, telephoneParent: r.telephoneParent, emailParent: r.emailParent,
+              paiements: [] as any[], notes: []
+            };
 
-          if (finalStudentObj) {
+            if (r.amountPaidVal > 0) {
+              const localPayId = `temp_pay_${Date.now()}_${Math.floor(Math.random() * 100)}`;
+              const paymentData = {
+                eleve_id: studentId, montant: r.amountPaidVal, date: new Date().toISOString().split('T')[0],
+                type_frais: 'Scolarité', mode_paiement: r.mode, statut: 'paid', reference: r.reference
+              };
+              await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
+              finalStudentObj.paiements.push({
+                id: localPayId, eleveId: studentId, montant: r.amountPaidVal, date: paymentData.date,
+                typeFrais: 'Scolarité', modePaiement: r.mode, statut: 'paid', reference: r.reference
+              });
+            }
+
             setStudents(prev => {
               const existingIndex = prev.findIndex(s => s.id === finalStudentObj.id);
               if (existingIndex > -1) {
                 const existingStudent = prev[existingIndex];
-                // Merge payments to preserve other historical payments
-                const mergedPaiements = [...(existingStudent.paiements || [])];
-                (finalStudentObj.paiements || []).forEach((newPay: any) => {
-                  const payIndex = mergedPaiements.findIndex(p => p.id === newPay.id || p.reference === newPay.reference);
-                  if (payIndex > -1) {
-                    mergedPaiements[payIndex] = newPay;
-                  } else {
-                    mergedPaiements.push(newPay);
-                  }
-                });
-                
-                const updatedStudent = {
-                  ...finalStudentObj,
-                  paiements: mergedPaiements,
-                  notes: existingStudent.notes || [] // Keep existing notes
-                };
-                
+                const mergedPaiements = [...(existingStudent.paiements || []), ...finalStudentObj.paiements];
                 const copy = [...prev];
-                copy[existingIndex] = updatedStudent;
+                copy[existingIndex] = { ...finalStudentObj, paiements: mergedPaiements, notes: existingStudent.notes || [] };
                 return copy;
-              } else {
-                return [finalStudentObj, ...prev];
               }
+              return [finalStudentObj, ...prev];
             });
             importedCount++;
           }
+        } else {
+          // Mode en ligne : (1) résout les classes manquantes en un seul insert,
+          // (2) upsert tous les élèves en un seul appel (par lots), (3) upsert tous
+          // les paiements initiaux en un seul appel — au lieu d'un aller-retour
+          // réseau par ligne du fichier (potentiellement des milliers pour un
+          // import de rentrée scolaire).
+          const CHUNK_SIZE = 500;
+          const chunkArray = <T,>(arr: T[], size: number): T[][] => {
+            const out: T[][] = [];
+            for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+            return out;
+          };
+
+          // Une seule ligne par matricule/reference : préserve le comportement
+          // précédent où des lignes en doublon s'écrasaient séquentiellement
+          // (upsert), tout en évitant l'erreur Postgres "ON CONFLICT... cannot
+          // affect row a second time" si un même matricule/reference apparaît
+          // plusieurs fois dans le même lot upsert.
+          const dedupedRows = Array.from(
+            parsedRows.reduce((map, r) => map.set(r.matriculeVal, r), new Map<string, ParsedImportRow>()).values()
+          );
+
+          const localClasses = [...classesList];
+          const distinctClasses = new Map<string, { classNameStr: string; sectionStr: string }>();
+          dedupedRows.forEach(r => {
+            const key = r.classNameStr.toLowerCase().trim();
+            if (!distinctClasses.has(key)) distinctClasses.set(key, { classNameStr: r.classNameStr, sectionStr: r.sectionStr });
+          });
+
+          const missingClasses = Array.from(distinctClasses.entries()).filter(([key]) =>
+            !localClasses.some(c => (c.nom || '').toLowerCase().trim() === key || (c.id || '').toLowerCase().trim() === key)
+          );
+
+          if (missingClasses.length > 0) {
+            const classInsertPayload = missingClasses.map(([, v]) => ({
+              nom: v.classNameStr, niveau: v.classNameStr, section: v.sectionStr, etablissement_id: etablissementId
+            }));
+            const { data: createdClasses, error: classErr } = await supabase
+              .from('classes')
+              .insert(classInsertPayload)
+              .select();
+            if (classErr) {
+              captureError(classErr, { context: "Batch class creation failed during Excel import" });
+            } else if (createdClasses) {
+              const newClassObjs: Classe[] = createdClasses.map((c: any) => ({
+                id: c.id, nom: c.nom, niveauId: c.niveau, anneeScolaireId: resolvedAnneeScolaireId, sectionId: c.section
+              }));
+              localClasses.push(...newClassObjs);
+              setClassesList(prev => [...prev, ...newClassObjs]);
+            }
+          }
+
+          const resolveClassId = (classNameStr: string): string => {
+            const key = classNameStr.toLowerCase().trim();
+            const found = localClasses.find(c => (c.nom || '').toLowerCase().trim() === key || (c.id || '').toLowerCase().trim() === key);
+            if (found) return found.id;
+            return localClasses.length > 0 ? localClasses[0].id : classNameStr;
+          };
+
+          const studentPayload = dedupedRows.map(r => ({
+            matricule: r.matriculeVal,
+            nom: r.nom.toUpperCase(),
+            prenom: r.prenom,
+            sexe: r.sexe,
+            classe_id: resolveClassId(r.classNameStr),
+            annee_scolaire_id: resolvedAnneeScolaireId,
+            nom_parent: r.nomParent,
+            telephone_parent: r.telephoneParent,
+            email_parent: r.emailParent,
+            date_naissance: r.dateNaissance,
+            lieu_naissance: r.lieuNaissance,
+            date_inscription: r.dateInscriptionVal,
+            statut: 'actif',
+            etablissement_id: etablissementId
+          }));
+
+          const createdStudentsByMatricule = new Map<string, any>();
+          for (const batch of chunkArray(studentPayload, CHUNK_SIZE)) {
+            const { data: createdData, error: createErr } = await supabase
+              .from('eleves')
+              .upsert(batch, { onConflict: 'etablissement_id,matricule' })
+              .select();
+            if (createErr) {
+              captureError(createErr, { context: "Batch student upsert failed during Excel import" });
+              errorsCount += batch.length;
+              continue;
+            }
+            (createdData || []).forEach((s: any) => createdStudentsByMatricule.set(s.matricule, s));
+            importedCount += (createdData || []).length;
+          }
+
+          const paymentPayload = dedupedRows
+            .filter(r => r.amountPaidVal > 0 && createdStudentsByMatricule.has(r.matriculeVal))
+            .reduce((map, r) => {
+              const s = createdStudentsByMatricule.get(r.matriculeVal);
+              map.set(r.reference, {
+                eleve_id: s.id,
+                montant: r.amountPaidVal,
+                date: new Date().toISOString().split('T')[0],
+                type_frais: 'Scolarité',
+                mode_paiement: r.mode,
+                statut: 'paid',
+                reference: r.reference,
+                etablissement_id: etablissementId
+              });
+              return map;
+            }, new Map<string, any>());
+
+          const paymentsByEleveId = new Map<string, any[]>();
+          for (const batch of chunkArray(Array.from(paymentPayload.values()), CHUNK_SIZE)) {
+            const { data: payCreated, error: payErr } = await supabase
+              .from('paiements')
+              .upsert(batch, { onConflict: 'etablissement_id,reference' })
+              .select();
+            if (payErr) {
+              captureError(payErr, { context: "Batch payment upsert failed during Excel import" });
+              continue;
+            }
+            (payCreated || []).forEach((p: any) => {
+              const list = paymentsByEleveId.get(p.eleve_id) || [];
+              list.push({
+                id: p.id, eleveId: p.eleve_id, montant: Number(p.montant), date: p.date,
+                typeFrais: p.type_frais, modePaiement: p.mode_paiement, statut: p.statut, reference: p.reference
+              });
+              paymentsByEleveId.set(p.eleve_id, list);
+            });
+          }
+
+          setStudents(prev => {
+            let next = [...prev];
+            createdStudentsByMatricule.forEach((createdStudent: any) => {
+              const finalStudentObj: any = {
+                id: createdStudent.id,
+                matricule: createdStudent.matricule || '',
+                nom: createdStudent.nom || '',
+                prenom: createdStudent.prenom || '',
+                sexe: createdStudent.sexe || 'M',
+                classeId: createdStudent.classe_id,
+                nomParent: createdStudent.nom_parent || '',
+                telephoneParent: createdStudent.telephone_parent || '',
+                emailParent: createdStudent.email_parent || '',
+                dateNaissance: createdStudent.date_naissance || '',
+                lieuNaissance: createdStudent.lieu_naissance || '',
+                dateInscription: createdStudent.date_inscription,
+                anneeScolaireId: createdStudent.annee_scolaire_id || resolvedAnneeScolaireId,
+                statut: createdStudent.statut || 'actif',
+                paiements: paymentsByEleveId.get(createdStudent.id) || [],
+                notes: []
+              };
+              const existingIndex = next.findIndex(s => s.id === finalStudentObj.id);
+              if (existingIndex > -1) {
+                const existingStudent = next[existingIndex];
+                const mergedPaiements = [...(existingStudent.paiements || [])];
+                (finalStudentObj.paiements || []).forEach((newPay: any) => {
+                  const payIndex = mergedPaiements.findIndex(p => p.id === newPay.id || p.reference === newPay.reference);
+                  if (payIndex > -1) mergedPaiements[payIndex] = newPay; else mergedPaiements.push(newPay);
+                });
+                const copy = [...next];
+                copy[existingIndex] = { ...finalStudentObj, paiements: mergedPaiements, notes: existingStudent.notes || [] };
+                next = copy;
+              } else {
+                next = [finalStudentObj, ...next];
+              }
+            });
+            return next;
+          });
         }
 
         if (importedCount > 0) refreshServerViews();
@@ -1182,7 +1297,7 @@ export default function ElevesPage() {
               {(useServerTable || isLoaded) && displayRows.length > 0 ? (
                 displayRows.map((student) => {
                   const { totalDue, totalPaid, status } = student.precomputedStats!;
-                  const progressPct = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
+                  const progressPct = totalDue !== null && totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
                   return (
                     <tr key={student.id} className="border-t border-border-row hover:bg-row-hover transition-colors">
@@ -1220,7 +1335,7 @@ export default function ElevesPage() {
                       <td className="px-4 py-3.5">
                         <div className="w-48">
                           <div className="text-[12px] font-semibold text-ink-soft mb-1.5">
-                            {formatFCFA(totalPaid)} / {formatFCFA(totalDue)}
+                            {formatFCFA(totalPaid)} / {totalDue !== null ? formatFCFA(totalDue) : 'Non configuré'}
                           </div>
                           <div className="w-full bg-chip h-2 rounded-pill overflow-hidden">
                             <div

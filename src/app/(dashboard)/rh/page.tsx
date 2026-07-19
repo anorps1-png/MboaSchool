@@ -55,6 +55,19 @@ const isDateInAcademicYear = (dateStr: string, academicYearName: string): boolea
   return isPeriodInAcademicYear(period, academicYearName);
 };
 
+// Bornes de dates (YYYY-MM-DD) de l'année académique "2025/2026" (septembre
+// de startYear à août de endYear), pour filtrer côté serveur au lieu de
+// charger tout l'historique puis filtrer en mémoire. Retourne des bornes
+// nulles (non filtré) si le format n'est pas reconnu.
+const getAcademicYearBounds = (academicYearName: string): { from: string | null; to: string | null } => {
+  if (!academicYearName || !academicYearName.includes('/')) return { from: null, to: null };
+  const [startYearStr, endYearStr] = academicYearName.split('/');
+  const startYear = parseInt(startYearStr, 10);
+  const endYear = parseInt(endYearStr, 10);
+  if (!Number.isFinite(startYear) || !Number.isFinite(endYear)) return { from: null, to: null };
+  return { from: `${startYear}-09-01`, to: `${endYear}-08-31` };
+};
+
 export default function RHPage() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'personnel' | 'masse' | 'mouvements' | 'evals' | 'comptes'>('dashboard');
 
@@ -223,12 +236,6 @@ export default function RHPage() {
   const filteredEvaluations = React.useMemo(() => {
     return evaluations.filter(e => isDateInAcademicYear(e.dateEvaluation, academicYear));
   }, [evaluations, academicYear]);
-
-  // Filtrer l'historique des fiches de paie par année académique
-  const filteredFichesDePaieHistorique = React.useMemo(() => {
-    return fichesDePaieHistorique.filter(fiche => isPeriodInAcademicYear(fiche.periode, academicYear));
-  }, [fichesDePaieHistorique, academicYear]);
-
 
   const loadProfiles = async () => {
     setProfilesLoading(true);
@@ -517,6 +524,10 @@ export default function RHPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
+      // Borne les fetchs d'historique (absences, mouvements, évaluations,
+      // formations) à l'année académique sélectionnée au lieu de charger
+      // l'intégralité de l'historique multi-année puis filtrer en mémoire.
+      const { from: yearFrom, to: yearTo } = getAcademicYearBounds(academicYear);
       const loadData = async () => {
         try {
           const pers = await getPersonnel(etablissementId);
@@ -542,7 +553,7 @@ export default function RHPage() {
 
         // 2. Absences
         try {
-          const abs = await getAbsences(etablissementId);
+          const abs = await getAbsences(etablissementId, yearFrom, yearTo);
           setAbsences(abs || []);
         } catch (error) {
           captureError(error, { context: "Error loading absences:" });
@@ -551,7 +562,7 @@ export default function RHPage() {
 
         // 3. Mouvements
         try {
-          const mouvs = await getMouvements(etablissementId);
+          const mouvs = await getMouvements(etablissementId, yearFrom, yearTo);
           setMouvements(mouvs || []);
         } catch (error) {
           captureError(error, { context: "Error loading movements:" });
@@ -560,7 +571,7 @@ export default function RHPage() {
 
         // 4. Evaluations
         try {
-          const evs = await getEvaluationsRH(etablissementId);
+          const evs = await getEvaluationsRH(etablissementId, yearFrom, yearTo);
           setEvaluations(evs || []);
         } catch (error) {
           captureError(error, { context: "Error loading evaluations:" });
@@ -569,7 +580,7 @@ export default function RHPage() {
 
         // 5. Formations
         try {
-          const forms = await getFormations(etablissementId);
+          const forms = await getFormations(etablissementId, yearFrom, yearTo);
           setFormations(forms || []);
         } catch (error) {
           captureError(error, { context: "Error loading formations:" });
@@ -595,7 +606,7 @@ export default function RHPage() {
       
       loadData();
     }
-  }, [etablissementId]);
+  }, [etablissementId, academicYear]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -934,6 +945,26 @@ export default function RHPage() {
   const countInterim = activeStaff.filter(e => e.typeContrat === 'Intérimaire').length;
   const countStage = activeStaff.filter(e => e.typeContrat === 'Stagiaire').length;
 
+  // Répartition réelle par type de contrat, pour le donut "Contrats & Effectifs"
+  // (strokeDasharray/strokeDashoffset calculés à partir des effectifs réels,
+  // pas de pourcentages figés).
+  const contractDonut = React.useMemo(() => {
+    const total = activeStaff.length;
+    if (total === 0) {
+      return { cdi: { dash: '0 100', offset: '0' }, cdd: { dash: '0 100', offset: '0' }, interim: { dash: '0 100', offset: '0' }, stage: { dash: '0 100', offset: '0' } };
+    }
+    const pctCDI = (countCDI / total) * 100;
+    const pctCDD = (countCDD / total) * 100;
+    const pctInterim = (countInterim / total) * 100;
+    const pctStage = (countStage / total) * 100;
+    return {
+      cdi: { dash: `${pctCDI} ${100 - pctCDI}`, offset: '0' },
+      cdd: { dash: `${pctCDD} ${100 - pctCDD}`, offset: `${-pctCDI}` },
+      interim: { dash: `${pctInterim} ${100 - pctInterim}`, offset: `${-(pctCDI + pctCDD)}` },
+      stage: { dash: `${pctStage} ${100 - pctStage}`, offset: `${-(pctCDI + pctCDD + pctInterim)}` },
+    };
+  }, [activeStaff.length, countCDI, countCDD, countInterim, countStage]);
+
   const totalMonthlyPayroll = activeStaff.reduce((sum, e) => sum + e.salaireDeBase, 0);
   const avgMonthlySalary = activeStaff.length > 0 ? totalMonthlyPayroll / activeStaff.length : 0;
 
@@ -1264,7 +1295,10 @@ export default function RHPage() {
     setTimeout(() => printWindow.print(), 300);
   };
 
-  // Load payroll history on mount
+  // Charge les fiches de paie de la période sélectionnée uniquement (pas
+  // tout l'historique — get_fiches_de_paie sans filtre grossit linéairement
+  // avec le nombre de salariés × mois, alors que seule la période courante
+  // est réellement utilisée par cet écran).
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
       const storageKey = `mboaschool_fiches_paie_${etablissementId}`;
@@ -1273,7 +1307,7 @@ export default function RHPage() {
         try { setFichesDePaieHistorique(JSON.parse(stored)); } catch (e) {}
       }
       // Also try to load from DB
-      getFichesDePaie(etablissementId).then(data => {
+      getFichesDePaie(etablissementId, payrollPeriod).then(data => {
         if (data && data.length > 0) {
           const mapped: FicheDePaie[] = data.map((d: any) => ({
             id: d.id, personnelId: d.personnel_id, nomPersonnel: d.nom_personnel,
@@ -1289,10 +1323,15 @@ export default function RHPage() {
             netAPayer: Number(d.net_a_payer), statut: d.statut,
           }));
           setFichesDePaieHistorique(mapped);
+        } else {
+          // Aucune fiche en base pour cette période : ne pas laisser un
+          // historique d'une autre période (cache localStorage ou fetch
+          // précédent) faire croire à tort qu'elle a déjà été payée.
+          setFichesDePaieHistorique([]);
         }
       }).catch(() => {});
     }
-  }, [etablissementId]);
+  }, [etablissementId, payrollPeriod]);
 
   // Format money helper
   const formatMoney = (val: number) => {
@@ -1518,25 +1557,23 @@ export default function RHPage() {
                 <p className="text-xs text-ink-soft">Répartition par type de contrat</p>
               </div>
 
-              {/* Simple beautiful SVG representation of donut chart */}
+              {/* Répartition réelle par type de contrat (contractDonut, calculé à partir des effectifs actifs) */}
               <div className="flex flex-col items-center justify-center space-y-6">
                 <div className="relative w-36 h-36">
-                  {/* SVG Circle sectors representing percentages */}
-                  {/* CDI: 7/12 = 58.3% , CDD: 2/12 = 16.7% , Interim: 2/12 = 16.7% , Stage: 1/12 = 8.3% */}
                   <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
                     <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#e2e8f0" strokeWidth="3" />
-                    
-                    {/* CDI: Blue - Stroke-dasharray: 58.3 41.7, Offset: 0 */}
-                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(79, 70, 229)" strokeWidth="3.5" strokeDasharray="58.3 41.7" strokeDashoffset="0" />
-                    
-                    {/* CDD: Emerald - Stroke-dasharray: 16.7 83.3, Offset: -58.3 */}
-                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(16, 185, 129)" strokeWidth="3.5" strokeDasharray="16.7 83.3" strokeDashoffset="-58.3" />
 
-                    {/* Interim: Amber - Stroke-dasharray: 16.7 83.3, Offset: -75 */}
-                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(245, 158, 11)" strokeWidth="3.5" strokeDasharray="16.7 83.3" strokeDashoffset="-75" />
+                    {/* CDI: Blue */}
+                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(79, 70, 229)" strokeWidth="3.5" strokeDasharray={contractDonut.cdi.dash} strokeDashoffset={contractDonut.cdi.offset} />
 
-                    {/* Stage: Violet - Stroke-dasharray: 8.3 91.7, Offset: -91.7 */}
-                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(139, 92, 246)" strokeWidth="3.5" strokeDasharray="8.3 91.7" strokeDashoffset="-91.7" />
+                    {/* CDD: Emerald */}
+                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(16, 185, 129)" strokeWidth="3.5" strokeDasharray={contractDonut.cdd.dash} strokeDashoffset={contractDonut.cdd.offset} />
+
+                    {/* Interim: Amber */}
+                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(245, 158, 11)" strokeWidth="3.5" strokeDasharray={contractDonut.interim.dash} strokeDashoffset={contractDonut.interim.offset} />
+
+                    {/* Stage: Violet */}
+                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgb(139, 92, 246)" strokeWidth="3.5" strokeDasharray={contractDonut.stage.dash} strokeDashoffset={contractDonut.stage.offset} />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <span className="text-[40px] font-extrabold text-ink tracking-[-2px] leading-none">{activeStaff.length}</span>
@@ -1550,28 +1587,28 @@ export default function RHPage() {
                     <span className="w-2.5 h-2.5 rounded-full bg-accent block"></span>
                     <div>
                       <span className="font-bold text-ink">CDI</span>
-                      <span className="text-ink-faint block text-[10px]">{countCDI} salariés ({Math.round(countCDI/activeStaff.length*100)}%)</span>
+                      <span className="text-ink-faint block text-[10px]">{countCDI} salariés ({activeStaff.length > 0 ? Math.round(countCDI/activeStaff.length*100) : 0}%)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-green block"></span>
                     <div>
                       <span className="font-bold text-ink">CDD</span>
-                      <span className="text-ink-faint block text-[10px]">{countCDD} salariés ({Math.round(countCDD/activeStaff.length*100)}%)</span>
+                      <span className="text-ink-faint block text-[10px]">{countCDD} salariés ({activeStaff.length > 0 ? Math.round(countCDD/activeStaff.length*100) : 0}%)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-accent block"></span>
                     <div>
                       <span className="font-bold text-ink">Intérim</span>
-                      <span className="text-ink-faint block text-[10px]">{countInterim} salariés ({Math.round(countInterim/activeStaff.length*100)}%)</span>
+                      <span className="text-ink-faint block text-[10px]">{countInterim} salariés ({activeStaff.length > 0 ? Math.round(countInterim/activeStaff.length*100) : 0}%)</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-ink block"></span>
                     <div>
                       <span className="font-bold text-ink">Stagiaire</span>
-                      <span className="text-ink-faint block text-[10px]">{countStage} salariés ({Math.round(countStage/activeStaff.length*100)}%)</span>
+                      <span className="text-ink-faint block text-[10px]">{countStage} salariés ({activeStaff.length > 0 ? Math.round(countStage/activeStaff.length*100) : 0}%)</span>
                     </div>
                   </div>
                 </div>

@@ -13,34 +13,46 @@ export async function getPersonnel(etablissementId: string) {
   return data || [];
 }
 
-export async function getAbsences(etablissementId: string) {
-  const { data, error } = await supabase
+export async function getAbsences(etablissementId: string, dateFrom?: string | null, dateTo?: string | null) {
+  let query = supabase
     .from('absences_personnel')
     .select('*')
-    .eq('etablissement_id', etablissementId)
-    .order('date_debut', { ascending: false });
+    .eq('etablissement_id', etablissementId);
+
+  if (dateFrom) query = query.gte('date_debut', dateFrom);
+  if (dateTo) query = query.lte('date_debut', dateTo);
+
+  const { data, error } = await query.order('date_debut', { ascending: false });
 
   if (error) throw error;
   return data || [];
 }
 
-export async function getMouvements(etablissementId: string) {
-  const { data, error } = await supabase
+export async function getMouvements(etablissementId: string, dateFrom?: string | null, dateTo?: string | null) {
+  let query = supabase
     .from('mouvements_personnel')
     .select('*')
-    .eq('etablissement_id', etablissementId)
-    .order('date', { ascending: false });
+    .eq('etablissement_id', etablissementId);
+
+  if (dateFrom) query = query.gte('date', dateFrom);
+  if (dateTo) query = query.lte('date', dateTo);
+
+  const { data, error } = await query.order('date', { ascending: false });
 
   if (error) throw error;
   return data || [];
 }
 
-export async function getEvaluationsRH(etablissementId: string) {
-  const { data, error } = await supabase
+export async function getEvaluationsRH(etablissementId: string, dateFrom?: string | null, dateTo?: string | null) {
+  let query = supabase
     .from('evaluations_rh')
     .select('*')
-    .eq('etablissement_id', etablissementId)
-    .order('date_evaluation', { ascending: false });
+    .eq('etablissement_id', etablissementId);
+
+  if (dateFrom) query = query.gte('date_evaluation', dateFrom);
+  if (dateTo) query = query.lte('date_evaluation', dateTo);
+
+  const { data, error } = await query.order('date_evaluation', { ascending: false });
 
   if (error) throw error;
   return data || [];
@@ -89,11 +101,17 @@ export async function insertPersonnel(data: Record<string, any>, etablissementId
   return inserted;
 }
 
-export async function getFormations(etablissementId: string) {
-  const { data, error } = await supabase
+export async function getFormations(etablissementId: string, dateFrom?: string | null, dateTo?: string | null) {
+  let query = supabase
     .from('formations_rh')
     .select('*, formations_beneficiaires(*)')
-    .eq('etablissement_id', etablissementId);
+    .eq('etablissement_id', etablissementId)
+    .limit(500);
+
+  if (dateFrom) query = query.gte('date_debut', dateFrom);
+  if (dateTo) query = query.lte('date_debut', dateTo);
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return data || [];
