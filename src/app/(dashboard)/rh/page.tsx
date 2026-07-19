@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   MembrePersonnel,
@@ -113,6 +113,10 @@ export default function RHPage() {
   const [payrollCalculated, setPayrollCalculated] = useState(false);
   const [payrollProcessing, setPayrollProcessing] = useState(false);
   const [payrollCalculating, setPayrollCalculating] = useState(false);
+  // Verrou synchrone (contrairement à l'état React, disponible immédiatement,
+  // sans attendre un re-render) pour empêcher qu'un double-clic déclenche
+  // deux paiements avant que le bouton ne soit désactivé à l'écran.
+  const payrollValidatingRef = useRef(false);
 
   // Toast notification
   const [toast, setToast] = useState<string | null>(null);
@@ -1158,6 +1162,7 @@ export default function RHPage() {
   };
 
   const handleValiderPaie = async () => {
+    if (payrollValidatingRef.current) return;
     if (fichesDePaieCalculees.length === 0) {
       triggerToast("Veuillez d'abord calculer la paie.");
       return;
@@ -1168,6 +1173,8 @@ export default function RHPage() {
     }
     if (!confirm(`Confirmez-vous le paiement de ${fichesDePaieCalculees.length} employé(s) pour la période ${payrollPeriod} ?`)) return;
 
+    if (payrollValidatingRef.current) return;
+    payrollValidatingRef.current = true;
     setPayrollProcessing(true);
     try {
       const fichesPaye = fichesDePaieCalculees.map(f => ({ ...f, statut: 'paye' as const }));
@@ -1251,6 +1258,7 @@ export default function RHPage() {
     } catch (err: any) {
       alert('Erreur lors de la validation : ' + err.message);
     } finally {
+      payrollValidatingRef.current = false;
       setPayrollProcessing(false);
     }
   };
