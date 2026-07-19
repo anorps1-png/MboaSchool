@@ -821,26 +821,27 @@ export default function SettingsPage() {
               Abonnement SaaS & Licence
             </h3>
 
+            {/* Aucun système de gestion d'abonnement/licence n'existe encore
+                dans l'application (pas de table dédiée) — affichait
+                auparavant "SaaS Élite Pro" / "Licence Validée" / une date
+                d'expiration fixe (11/06/2027) pour tous les établissements. */}
             <div className="bg-chip/50 p-4 rounded-control border border-outline space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="text-ink-soft font-semibold">Formule active</span>
-                <span className="bg-chip text-ink font-bold px-2 py-0.5 rounded-full">SaaS Élite Pro</span>
+                <span className="bg-chip text-ink-faint font-bold px-2 py-0.5 rounded-full">Non disponible</span>
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-ink-soft font-semibold">Statut licence</span>
-                <span className="text-green font-black flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green inline-block"></span>
-                  Licence Validée
-                </span>
+                <span className="text-ink-faint font-black">Non disponible</span>
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-ink-soft font-semibold">Date d'expiration</span>
-                <span className="font-mono font-bold">11/06/2027</span>
+                <span className="font-mono font-bold text-ink-faint">N/A</span>
               </div>
             </div>
 
             <div className="text-[10px] text-ink-faint text-center leading-relaxed">
-              Pour toute mise à niveau de licence, ajout de modules ou modification de quota d'élèves/parents, contactez le support MboaSchool.
+              La gestion des abonnements n'est pas encore disponible dans cette version. Pour toute question sur votre licence, ajout de modules ou modification de quota d'élèves/parents, contactez le support MboaSchool.
             </div>
           </div>
 
