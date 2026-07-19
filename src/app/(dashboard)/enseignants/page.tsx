@@ -7,6 +7,7 @@ import { downloadExcel } from '@/lib/excel';
 import SyncManager from '@/lib/syncManager';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
+import { createEnseignantWithPersonnel } from '@/lib/queries/enseignants';
 
 interface EnseignantDB {
   id: string;
@@ -71,81 +72,107 @@ export default function EnseignantsPage() {
   };
   const handleAddEnseignant = async (e: React.FormEvent) => {
     e.preventDefault();
-    const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-    
-    const enseignantData = {
-      matricule,
-      nom: newEns.nom,
-      prenom: newEns.prenom,
-      sexe: newEns.sexe,
-      telephone: newEns.telephone,
-      email: newEns.email,
-      matiere_principale: newEns.matiere_principale,
-      salaire_mensuel: newEns.salaire_mensuel || 0,
-      statut: newEns.statut || 'actif',
-      type_contrat: newEns.type_contrat || 'CDI',
-      categorie: newEns.categorie || 'Enseignant',
-      date_embauche: newEns.date_embauche || new Date().toISOString().split('T')[0],
-      etablissement_id: etablissementId,
-    };
+    if (!etablissementId) return;
 
-    const { data, error } = await supabase.from('enseignants').insert([enseignantData]).select();
-
-    if (error) {
-      alert("Erreur lors de l'ajout : " + error.message);
-      return;
-    }
-
-    // Link creation to headcount (membres_personnel) & contract
-    const newEmpData = {
-      nom: newEns.nom,
-      prenom: newEns.prenom,
-      email: newEns.email || '',
-      telephone: newEns.telephone || '+237 600 00 00 00',
-      sexe: newEns.sexe,
-      categorie: newEns.categorie || 'Enseignant',
-      type_contrat: newEns.type_contrat || 'CDI',
-      salaire_de_base: Number(newEns.salaire_mensuel || 0),
-      date_embauche: newEns.date_embauche || new Date().toISOString().split('T')[0],
-      statut: 'actif',
-      etablissement_id: etablissementId
-    };
+    let created: EnseignantDB | null = null;
 
     try {
-      const { data: empData, error: empErr } = await supabase
-        .from('membres_personnel')
-        .insert([newEmpData])
-        .select();
+      // Chemin serveur : matricule généré + vérifié unique côté serveur,
+      // les 3 inserts (enseignant, dossier RH, mouvement) faits dans une
+      // seule transaction (voir supabase/migrations/20260720120000_*).
+      created = await createEnseignantWithPersonnel({
+        etablissementId,
+        nom: newEns.nom || '',
+        prenom: newEns.prenom || '',
+        sexe: (newEns.sexe || 'M') as 'M' | 'F',
+        telephone: newEns.telephone,
+        email: newEns.email,
+        matierePrincipale: newEns.matiere_principale,
+        salaireMensuel: newEns.salaire_mensuel || 0,
+        statut: newEns.statut || 'actif',
+        typeContrat: newEns.type_contrat || 'CDI',
+        categorie: newEns.categorie || 'Enseignant',
+        dateEmbauche: newEns.date_embauche || new Date().toISOString().split('T')[0],
+      });
+    } catch (rpcErr) {
+      // Repli : migration pas encore appliquée — même comportement que
+      // l'ancien code (3 inserts séquentiels, non transactionnels).
+      captureMessage('RPC create_enseignant_with_personnel indisponible, repli legacy:', { detail: rpcErr });
 
-      if (!empErr && empData && empData.length > 0) {
-        const insertedEmp = empData[0];
-        // Create recruitment movement log
-        const newMouvData = {
-          personnel_id: insertedEmp.id,
-          nom_personnel: `${insertedEmp.nom} ${insertedEmp.prenom}`,
-          type: 'embauche',
-          date: insertedEmp.date_embauche,
-          details: `Embauche en contrat ${insertedEmp.type_contrat} (${insertedEmp.categorie})`,
-          etablissement_id: etablissementId
-        };
-        await supabase.from('mouvements_personnel').insert([newMouvData]);
+      const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      const enseignantData = {
+        matricule,
+        nom: newEns.nom,
+        prenom: newEns.prenom,
+        sexe: newEns.sexe,
+        telephone: newEns.telephone,
+        email: newEns.email,
+        matiere_principale: newEns.matiere_principale,
+        salaire_mensuel: newEns.salaire_mensuel || 0,
+        statut: newEns.statut || 'actif',
+        type_contrat: newEns.type_contrat || 'CDI',
+        categorie: newEns.categorie || 'Enseignant',
+        date_embauche: newEns.date_embauche || new Date().toISOString().split('T')[0],
+        etablissement_id: etablissementId,
+      };
+
+      const { data, error } = await supabase.from('enseignants').insert([enseignantData]).select();
+      if (error) {
+        alert("Erreur lors de l'ajout : " + error.message);
+        return;
       }
-    } catch (err) {
-      captureMessage("Failed to link teacher creation to headcount/contracts in Supabase:", { detail: err });
+
+      const newEmpData = {
+        nom: newEns.nom,
+        prenom: newEns.prenom,
+        email: newEns.email || '',
+        telephone: newEns.telephone || '+237 600 00 00 00',
+        sexe: newEns.sexe,
+        categorie: newEns.categorie || 'Enseignant',
+        type_contrat: newEns.type_contrat || 'CDI',
+        salaire_de_base: Number(newEns.salaire_mensuel || 0),
+        date_embauche: newEns.date_embauche || new Date().toISOString().split('T')[0],
+        statut: 'actif',
+        etablissement_id: etablissementId
+      };
+
+      try {
+        const { data: empData, error: empErr } = await supabase
+          .from('membres_personnel')
+          .insert([newEmpData])
+          .select();
+
+        if (!empErr && empData && empData.length > 0) {
+          const insertedEmp = empData[0];
+          const newMouvData = {
+            personnel_id: insertedEmp.id,
+            nom_personnel: `${insertedEmp.nom} ${insertedEmp.prenom}`,
+            type: 'embauche',
+            date: insertedEmp.date_embauche,
+            details: `Embauche en contrat ${insertedEmp.type_contrat} (${insertedEmp.categorie})`,
+            etablissement_id: etablissementId
+          };
+          await supabase.from('mouvements_personnel').insert([newMouvData]);
+        }
+      } catch (err) {
+        captureMessage("Failed to link teacher creation to headcount/contracts in Supabase:", { detail: err });
+      }
+
+      created = (data && data[0]) as EnseignantDB;
     }
 
-    if (data && data.length > 0) {
-      setEnseignants([data[0] as EnseignantDB, ...enseignants]);
+    if (created) {
+      setEnseignants([created, ...enseignants]);
       setShowAddModal(false);
-      setNewEns({ 
-        sexe: 'M', 
-        statut: 'actif', 
+      setNewEns({
+        sexe: 'M',
+        statut: 'actif',
         salaire_mensuel: 0,
         categorie: 'Enseignant',
         type_contrat: 'CDI',
         date_embauche: new Date().toISOString().split('T')[0]
       });
-      triggerToast(`L'enseignant ${data[0].nom} a été ajouté avec succès et enregistré dans l'effectif.`);
+      triggerToast(`L'enseignant ${created.nom} a été ajouté avec succès et enregistré dans l'effectif.`);
     }
   };
   const handleExportExcel = () => {
@@ -164,8 +191,14 @@ export default function EnseignantsPage() {
     triggerToast('Export Excel généré avec succès !');
   };
 
-  const filteredEnseignants = enseignants.filter(e => 
+  const filteredEnseignants = enseignants.filter(e =>
     `${e.nom} ${e.prenom} ${e.matricule} ${e.matiere_principale}`.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const activeEnseignants = useMemo(() => enseignants.filter(e => e.statut === 'actif'), [enseignants]);
+  const activeMasseSalariale = useMemo(
+    () => activeEnseignants.reduce((sum, e) => sum + Number(e.salaire_mensuel), 0),
+    [activeEnseignants]
   );
 
   const formatFCFA = (amount: number) => {
@@ -224,12 +257,12 @@ export default function EnseignantsPage() {
         </div>
         <div className="bg-surface border border-border p-4 rounded-control shadow-sm">
           <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Actifs</span>
-          <span className="text-2xl font-extrabold text-green mt-1 block">{enseignants.filter(e => e.statut === 'actif').length}</span>
+          <span className="text-2xl font-extrabold text-green mt-1 block">{activeEnseignants.length}</span>
         </div>
         <div className="bg-surface border border-border p-4 rounded-control shadow-sm">
           <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Masse Salariale Mensuelle</span>
           <span className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight mt-1 block">
-            {formatFCFA(enseignants.filter(e => e.statut === 'actif').reduce((sum, e) => sum + Number(e.salaire_mensuel), 0))}
+            {formatFCFA(activeMasseSalariale)}
           </span>
         </div>
       </div>
