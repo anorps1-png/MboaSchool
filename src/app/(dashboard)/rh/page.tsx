@@ -8,7 +8,8 @@ import {
   MouvementPersonnel,
   EvaluationRH,
   FormationRH,
-  FicheDePaie
+  FicheDePaie,
+  Eleve
 } from '@/types/domain';
 import {
   getPersonnel,
@@ -26,6 +27,7 @@ import {
   getMasseSalarialeHistorique,
   MasseSalarialeHistoriquePoint
 } from '@/lib/queries/rh';
+import { getStudents } from '@/lib/queries/eleves';
 import { addEcritureComptable } from '@/lib/queries/finance';
 import { calculerFicheDePaie, calculerPrimeAnciennete, getAnneesService, getTauxFromLocalStorage, genererEcrituresComptablesPaie, PLAFOND_CNPS } from '@/lib/payroll';
 import { validatePasswordStrength } from '@/lib/validation/password';
@@ -148,6 +150,8 @@ export default function RHPage() {
   const [newAccEmail, setNewAccEmail] = useState('');
   const [newAccPassword, setNewAccPassword] = useState('');
   const [newAccRole, setNewAccRole] = useState<'directeur' | 'enseignant' | 'parent'>('enseignant');
+  const [selectedEleveIds, setSelectedEleveIds] = useState<string[]>([]);
+  const [elevesForParent, setElevesForParent] = useState<any[]>([]);
   const [newAccPermissions, setNewAccPermissions] = useState<Record<string, boolean>>({
     dashboard: true,
     sections: false,
@@ -309,6 +313,10 @@ export default function RHPage() {
       triggerToast(pwdError);
       return;
     }
+    if (newAccRole === 'parent' && selectedEleveIds.length === 0) {
+      triggerToast("Pour un compte parent, veuillez sélectionner au moins un enfant.");
+      return;
+    }
     setCreateAccLoading(true);
 
     try {
@@ -367,6 +375,22 @@ export default function RHPage() {
 
         triggerToast(`Compte créé avec succès pour ${newAccEmail} !`);
         setProfiles([newProfile, ...profiles]);
+
+        // Link parent to children if role is parent
+        if (newAccRole === 'parent' && selectedEleveIds.length > 0 && signUpData.user) {
+          const parentId = signUpData.user.id;
+          const links = selectedEleveIds.map(eleveId => ({
+            parent_id: parentId,
+            eleve_id: eleveId
+          }));
+          const { error: linkError } = await supabase
+            .from('parent_eleves')
+            .insert(links);
+          if (linkError) {
+            captureMessage("Warning: parent account created but failed to link children:", { detail: linkError });
+          }
+        }
+        setSelectedEleveIds([]);
       } else {
         throw new Error("La création d'utilisateur auth n'a pas retourné de données.");
       }
@@ -419,6 +443,7 @@ export default function RHPage() {
       localStorage.setItem('mboaschool_profiles', JSON.stringify(updatedProfiles));
       setProfiles(updatedProfiles.filter((p: any) => p.etablissement_id === etablissementId || !p.etablissement_id));
       
+      setSelectedEleveIds([]);
       triggerToast(`Compte (Local/Simulé) créé pour ${newAccEmail} !`);
       setNewAccNom('');
       setNewAccEmail('');
@@ -602,8 +627,17 @@ export default function RHPage() {
           captureError(error, { context: "Error loading masse salariale historique:" });
           setMasseHistorique([]);
         }
+
+        // 8. Charger élèves pour création de comptes parents
+        try {
+          const students = await getStudents(etablissementId);
+          setElevesForParent(students || []);
+        } catch (error) {
+          captureError(error, { context: "Error loading eleves for parent accounts:" });
+          setElevesForParent([]);
+        }
       };
-      
+
       loadData();
     }
   }, [etablissementId, academicYear]);
@@ -2423,6 +2457,38 @@ export default function RHPage() {
               </div>
 
               <div>
+              {/* Enfants du parent - show only if role is 'parent' */}
+              {newAccRole === 'parent' && (
+                <div>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">
+                    Enfants à associer ({selectedEleveIds.length})
+                  </label>
+                  <div className="max-h-40 overflow-y-auto border border-border rounded-control bg-bg p-3 space-y-2">
+                    {elevesForParent.length === 0 ? (
+                      <p className="text-xs text-ink-faint italic">Aucun élève dans l'établissement</p>
+                    ) : (
+                      elevesForParent.map(eleve => (
+                        <label key={eleve.id} className="flex items-center gap-2 cursor-pointer hover:bg-surface/50 p-1.5 rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedEleveIds.includes(eleve.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedEleveIds([...selectedEleveIds, eleve.id]);
+                              } else {
+                                setSelectedEleveIds(selectedEleveIds.filter(id => id !== eleve.id));
+                              }
+                            }}
+                            className="rounded border-border text-ink"
+                          />
+                          <span className="text-sm text-ink font-medium">{eleve.nom} {eleve.prenom}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
                 <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Modules autorisés (Habilitations)</label>
                 <div className="grid grid-cols-2 gap-3 mt-2 bg-bg p-4 rounded-control border border-border">
                   {Object.entries({
