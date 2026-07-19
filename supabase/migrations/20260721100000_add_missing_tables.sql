@@ -5,7 +5,7 @@
 
 -- 6. Discipline et QHSE
 CREATE TABLE IF NOT EXISTS public.discipline_incidents (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   eleve_id UUID NOT NULL REFERENCES public.eleves(id) ON DELETE CASCADE,
   date_incident DATE NOT NULL,
   type_incident TEXT NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.discipline_incidents (
 );
 
 CREATE TABLE IF NOT EXISTS public.qhse_incidents (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL,
   lieu TEXT NOT NULL,
   gravite TEXT CHECK (gravite IN ('Faible', 'Moyenne', 'Grave')),
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.qhse_incidents (
 );
 
 CREATE TABLE IF NOT EXISTS public.qhse_reunions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL,
   titre TEXT NOT NULL,
   participants INTEGER NOT NULL,
@@ -34,14 +34,14 @@ CREATE TABLE IF NOT EXISTS public.qhse_reunions (
 );
 
 CREATE TABLE IF NOT EXISTS public.qhse_depenses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL,
   libelle TEXT NOT NULL,
   montant NUMERIC NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.qhse_evaluations (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   mois TEXT NOT NULL,
   score NUMERIC NOT NULL,
   remarques TEXT
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS public.qhse_evaluations (
 
 -- 7. Satisfaction et Enquêtes
 CREATE TABLE IF NOT EXISTS public.enquetes (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   titre TEXT NOT NULL,
   categorie TEXT CHECK (categorie IN ('Parents', 'Employés', 'Communauté')),
   sous_categorie TEXT NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS public.enquetes (
 );
 
 CREATE TABLE IF NOT EXISTS public.enquetes_historique (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   enquete_id UUID REFERENCES public.enquetes(id) ON DELETE CASCADE,
   annee INTEGER NOT NULL,
   score NUMERIC NOT NULL
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS public.enquetes_historique (
 
 -- 9. Ressources Humaines (RH) et Personnel
 CREATE TABLE IF NOT EXISTS public.membres_personnel (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nom TEXT NOT NULL,
   prenom TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS public.membres_personnel (
 );
 
 CREATE TABLE IF NOT EXISTS public.absences_personnel (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   personnel_id UUID NOT NULL REFERENCES public.membres_personnel(id) ON DELETE CASCADE,
   nom_personnel TEXT NOT NULL,
   date_debut DATE NOT NULL,
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS public.absences_personnel (
 );
 
 CREATE TABLE IF NOT EXISTS public.mouvements_personnel (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   personnel_id UUID NOT NULL REFERENCES public.membres_personnel(id) ON DELETE CASCADE,
   nom_personnel TEXT NOT NULL,
   type TEXT CHECK (type IN ('embauche', 'depart_volontaire', 'mutation', 'licenciement')),
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS public.mouvements_personnel (
 );
 
 CREATE TABLE IF NOT EXISTS public.evaluations_rh (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   enseignant_id UUID NOT NULL REFERENCES public.enseignants(id) ON DELETE CASCADE,
   nom_enseignant TEXT NOT NULL,
   note_moyenne NUMERIC DEFAULT 0,
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS public.evaluations_rh (
 );
 
 CREATE TABLE IF NOT EXISTS public.formations_rh (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   theme TEXT NOT NULL,
   date_debut DATE NOT NULL,
   date_fin DATE NOT NULL,
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS public.formations_beneficiaires (
 
 -- 12. EMPLOI DU TEMPS
 CREATE TABLE IF NOT EXISTS public.emploi_du_temps (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   etablissement_id UUID REFERENCES public.etablissements(id) ON DELETE CASCADE,
   classe_id UUID REFERENCES public.classes(id) ON DELETE CASCADE,
   jour_semaine INTEGER NOT NULL CHECK (jour_semaine BETWEEN 1 AND 6),
@@ -149,13 +149,7 @@ ALTER TABLE public.emploi_du_temps ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
     CREATE POLICY "Emploi du temps scope access" ON public.emploi_du_temps TO authenticated
       USING (
-        classe_id IN (
-          SELECT id FROM public.classes WHERE niveau_id IN (
-            SELECT id FROM public.niveaux_classes WHERE section_id IN (
-              SELECT id FROM public.sections WHERE etablissement_id = public.current_user_etablissement_id()
-            )
-          )
-        )
+        etablissement_id = public.current_user_etablissement_id()
       );
 EXCEPTION
     WHEN duplicate_object THEN null;
