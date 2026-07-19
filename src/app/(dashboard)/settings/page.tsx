@@ -690,28 +690,28 @@ export default function SettingsPage() {
                     <div>
                       <label className="block text-[10px] text-ink-soft mb-1">0 - 2M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux1} onChange={(e) => setIrppTaux1(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <input type="number" step="0.1" min="0" max="100" value={irppTaux1} onChange={(e) => setIrppTaux1(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
                         <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
                     <div>
                       <label className="block text-[10px] text-ink-soft mb-1">2M - 3M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux2} onChange={(e) => setIrppTaux2(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <input type="number" step="0.1" min="0" max="100" value={irppTaux2} onChange={(e) => setIrppTaux2(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
                         <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
                     <div>
                       <label className="block text-[10px] text-ink-soft mb-1">3M - 5M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux3} onChange={(e) => setIrppTaux3(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <input type="number" step="0.1" min="0" max="100" value={irppTaux3} onChange={(e) => setIrppTaux3(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
                         <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
                     <div>
                       <label className="block text-[10px] text-ink-soft mb-1">&gt; 5M FCFA</label>
                       <div className="relative">
-                        <input type="number" step="0.1" value={irppTaux4} onChange={(e) => setIrppTaux4(parseFloat(e.target.value) || 0)} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
+                        <input type="number" step="0.1" min="0" max="100" value={irppTaux4} onChange={(e) => setIrppTaux4(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))} className="w-full px-3 py-1.5 border border-border rounded text-sm outline-none focus:border-accent font-mono" />
                         <span className="absolute right-3 top-1.5 text-xs text-ink-faint font-bold">%</span>
                       </div>
                     </div>
