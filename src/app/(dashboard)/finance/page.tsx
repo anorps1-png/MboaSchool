@@ -64,6 +64,7 @@ export default function FinancePage() {
   const [accountingSubTab, setAccountingSubTab] = useState<'journal' | 'balance' | 'bilan' | 'dsf'>('journal');
   const [userRole, setUserRole] = useState<string>('directeur');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [journalSearchTerm, setJournalSearchTerm] = useState('');
 
   // BSC years state
 
@@ -787,6 +788,16 @@ export default function FinancePage() {
 
   const isAdmin = userRole && (userRole.toLowerCase() === 'admin' || userRole.toLowerCase() === 'administrateur');
 
+  const filteredEcritures = journalSearchTerm.trim() === ''
+    ? ecritures
+    : ecritures.filter(ecr =>
+        ecr.reference.toLowerCase().includes(journalSearchTerm.toLowerCase()) ||
+        ecr.libelle.toLowerCase().includes(journalSearchTerm.toLowerCase()) ||
+        ecr.date.toLowerCase().includes(journalSearchTerm.toLowerCase()) ||
+        ecr.partenaire?.toLowerCase().includes(journalSearchTerm.toLowerCase()) ||
+        ecr.lignes.some(l => l.compteNumero.includes(journalSearchTerm))
+      );
+
   // Calculées une fois : null si la section correspondante n'est pas
   // configurée en base (voir getSectionProductivity).
   const secFrProductivity = getSectionProductivity('sec-fr');
@@ -1230,6 +1241,128 @@ export default function FinancePage() {
     return sum + e.lignes.reduce((lSum, l) => l.compteNumero === '445' ? lSum + (l.debit - l.credit) : lSum, 0);
   }, 0);
   const tvaNetReverser = Math.max(0, tvaCollectee - tvaDeductible);
+
+  const exportJournalToExcel = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const data: any[][] = [
+        ["JOURNAL COMPTABLE OHADA"],
+        ["Établissement", etablissementId || "Non défini"],
+        ["Date d'exportation", new Date().toLocaleDateString('fr-FR')],
+        ["Nombre d'écritures", ecritures.length],
+        [],
+        ["Date", "Référence", "Compte", "Tiers", "Libellé", "Débit", "Crédit"]
+      ];
+
+      let totalDebit = 0;
+      let totalCredit = 0;
+
+      ecritures.forEach(ecr => {
+        ecr.lignes.forEach((ligne, idx) => {
+          const compteDef = planComptable.find(c => c.numero === ligne.compteNumero);
+          data.push([
+            idx === 0 ? new Date(ecr.date).toLocaleDateString('fr-FR') : '',
+            idx === 0 ? ecr.reference : '',
+            ligne.compteNumero,
+            idx === 0 && ligne.compteNumero.startsWith('4') && ecr.partenaire ? ecr.partenaire : '',
+            idx === 0 ? ecr.libelle : '',
+            ligne.debit,
+            ligne.credit
+          ]);
+          totalDebit += ligne.debit;
+          totalCredit += ligne.credit;
+        });
+      });
+
+      data.push([]);
+      data.push(["TOTAUX", "", "", "", "", totalDebit, totalCredit]);
+
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 20 },
+        { wch: 35 },
+        { wch: 15 },
+        { wch: 15 }
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, "Journal");
+      XLSX.writeFile(wb, `journal_comptable_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      triggerToast("Journal comptable exporté avec succès !");
+    } catch (error) {
+      captureError(error, { context: "Failed to export journal:" });
+      alert("Erreur lors de l'exportation du journal.");
+    }
+  };
+
+  const exportBalanceToExcel = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const data: any[][] = [
+        ["BALANCE COMPTABLE OHADA"],
+        ["Établissement", etablissementId || "Non défini"],
+        ["Date d'exportation", new Date().toLocaleDateString('fr-FR')],
+        [],
+        ["Compte", "Intitulé", "Mouvement Débit", "Mouvement Crédit", "Solde Débiteur", "Solde Créditeur"]
+      ];
+
+      let totalMovDebit = 0;
+      let totalMovCredit = 0;
+      let totalSoldeDebiteur = 0;
+      let totalSoldeCredit = 0;
+
+      planComptable
+        .filter(c => accountBalances[c.numero]?.debit > 0 || accountBalances[c.numero]?.credit > 0)
+        .forEach(compte => {
+          const b = accountBalances[compte.numero];
+          const soldeDebiteur = b.solde > 0 ? b.solde : 0;
+          const soldeCredit = b.solde < 0 ? Math.abs(b.solde) : 0;
+
+          data.push([
+            compte.numero,
+            compte.libelle,
+            b.debit,
+            b.credit,
+            soldeDebiteur,
+            soldeCredit
+          ]);
+
+          totalMovDebit += b.debit;
+          totalMovCredit += b.credit;
+          totalSoldeDebiteur += soldeDebiteur;
+          totalSoldeCredit += soldeCredit;
+        });
+
+      data.push([]);
+      data.push([
+        "TOTAUX",
+        "",
+        totalMovDebit,
+        totalMovCredit,
+        totalSoldeDebiteur,
+        totalSoldeCredit
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [
+        { wch: 12 },
+        { wch: 35 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 16 }
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, "Balance");
+      XLSX.writeFile(wb, `balance_comptable_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      triggerToast("Balance comptable exportée avec succès !");
+    } catch (error) {
+      captureError(error, { context: "Failed to export balance:" });
+      alert("Erreur lors de l'exportation de la balance.");
+    }
+  };
 
   // exportDSFToExcel: generate and download the statistical & fiscal liasse
   const exportDSFToExcel = () => {
@@ -1912,8 +2045,28 @@ export default function FinancePage() {
 
           {/* Subtab content: Journal */}
           {accountingSubTab === 'journal' && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3 items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-ink-soft mb-2">Rechercher une écriture</label>
+                  <input
+                    type="text"
+                    placeholder="Référence, libellé, compte, tiers, date..."
+                    value={journalSearchTerm}
+                    onChange={(e) => setJournalSearchTerm(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-control text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  />
+                </div>
+                <button
+                  onClick={exportJournalToExcel}
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Exporter
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
                 <thead>
                   <tr className="border-b border-border text-xs font-bold uppercase bg-bg/20">
                     <th className="px-4 py-3">Date</th>
@@ -1927,55 +2080,74 @@ export default function FinancePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-row">
-                  {ecritures.map(ecr => (
-                    <React.Fragment key={ecr.id}>
-                      {ecr.lignes.map((ligne, idx) => {
-                        const compteDef = planComptable.find(c => c.numero === ligne.compteNumero);
-                        return (
-                          <tr key={`${ecr.id}-${idx}`} className="hover:bg-bg/50">
-                            {idx === 0 && (
-                              <>
-                                <td className="px-4 py-3 font-mono text-xs whitespace-nowrap align-top font-semibold" rowSpan={ecr.lignes.length}>{new Date(ecr.date).toLocaleDateString('fr-FR')}</td>
-                                <td className="px-4 py-3 font-mono text-xs font-semibold align-top" rowSpan={ecr.lignes.length}>{ecr.reference}</td>
-                              </>
-                            )}
-                            <td className="px-4 py-3 font-bold text-ink">{ligne.compteNumero}</td>
-                            <td className="px-4 py-3 text-ink-soft font-semibold">
-                              {ligne.compteNumero.startsWith('4') && ecr.partenaire ? ecr.partenaire : ''}
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="font-bold flex items-center gap-2 flex-wrap">
-                                <span>{ecr.libelle}</span>
-                              </div>
-                              <div className="text-xs text-ink-faint">{compteDef?.libelle || 'Compte inconnu'}</div>
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono font-bold">{ligne.debit > 0 ? formatMoney(ligne.debit) : ''}</td>
-                            <td className="px-4 py-3 text-right font-mono font-bold">{ligne.credit > 0 ? formatMoney(ligne.credit) : ''}</td>
-                            {idx === 0 && isAdmin && (
-                              <td className="px-4 py-3 text-center align-middle" rowSpan={ecr.lignes.length}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteEcriture(ecr.id)}
-                                  className="px-2 py-1 bg-red-bg hover:bg-red-bg text-accent hover:text-accent rounded font-bold text-xs transition-all border border-transparent"
-                                >
-                                  Supprimer
-                                </button>
+                  {filteredEcritures.length > 0 ? (
+                    filteredEcritures.map(ecr => (
+                      <React.Fragment key={ecr.id}>
+                        {ecr.lignes.map((ligne, idx) => {
+                          const compteDef = planComptable.find(c => c.numero === ligne.compteNumero);
+                          return (
+                            <tr key={`${ecr.id}-${idx}`} className="hover:bg-bg/50">
+                              {idx === 0 && (
+                                <>
+                                  <td className="px-4 py-3 font-mono text-xs whitespace-nowrap align-top font-semibold" rowSpan={ecr.lignes.length}>{new Date(ecr.date).toLocaleDateString('fr-FR')}</td>
+                                  <td className="px-4 py-3 font-mono text-xs font-semibold align-top" rowSpan={ecr.lignes.length}>{ecr.reference}</td>
+                                </>
+                              )}
+                              <td className="px-4 py-3 font-bold text-ink">{ligne.compteNumero}</td>
+                              <td className="px-4 py-3 text-ink-soft font-semibold">
+                                {ligne.compteNumero.startsWith('4') && ecr.partenaire ? ecr.partenaire : ''}
                               </td>
-                            )}
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
+                              <td className="px-4 py-3">
+                                <div className="font-bold flex items-center gap-2 flex-wrap">
+                                  <span>{ecr.libelle}</span>
+                                </div>
+                                <div className="text-xs text-ink-faint">{compteDef?.libelle || 'Compte inconnu'}</div>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono font-bold">{ligne.debit > 0 ? formatMoney(ligne.debit) : ''}</td>
+                              <td className="px-4 py-3 text-right font-mono font-bold">{ligne.credit > 0 ? formatMoney(ligne.credit) : ''}</td>
+                              {idx === 0 && isAdmin && (
+                                <td className="px-4 py-3 text-center align-middle" rowSpan={ecr.lignes.length}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteEcriture(ecr.id)}
+                                    className="px-2 py-1 bg-red-bg hover:bg-red-bg text-accent hover:text-accent rounded font-bold text-xs transition-all border border-transparent"
+                                  >
+                                    Supprimer
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={isAdmin ? 8 : 7} className="px-4 py-6 text-center text-ink-soft">
+                        Aucune écriture ne correspond à votre recherche
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
+            </div>
             </div>
           )}
 
           {/* Subtab content: Balance */}
           {accountingSubTab === 'balance' && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <button
+                  onClick={exportBalanceToExcel}
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-bold shadow-md transition-colors flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Exporter
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
                 <thead>
                   <tr className="border-b border-border text-xs font-bold uppercase bg-bg/20">
                     <th className="px-4 py-3 w-24">Compte</th>
@@ -2005,9 +2177,8 @@ export default function FinancePage() {
                 </tbody>
               </table>
             </div>
+            </div>
           )}
-
-
 
           {/* Subtab content: Bilan */}
           {accountingSubTab === 'bilan' && (
