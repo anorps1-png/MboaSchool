@@ -13,9 +13,14 @@ function createDesktopLocalBuilder(table: string): any {
     table,
     action: 'select',
     payload: null,
-    filters: [] as { field: string; value: any }[],
+    filters: [] as { field: string; op: string; value: any }[],
     isSingle: false,
-    upsertOptions: null as any
+    upsertOptions: null as any,
+    orderBy: null as string | null,
+    orderDirection: 'asc' as 'asc' | 'desc',
+    limitCount: null as number | null,
+    rangeStart: 0,
+    rangeEnd: null as number | null
   };
 
   const proxy: any = new Proxy(queryState, {
@@ -23,8 +28,22 @@ function createDesktopLocalBuilder(table: string): any {
       if (prop === 'then') {
         return (onfulfilled: any, onrejected: any) => {
           if (target.action === 'select') {
-            const filtersParam = encodeURIComponent(JSON.stringify(target.filters));
-            const url = `/api/local-db?table=${target.table}&filters=${filtersParam}&isSingle=${target.isSingle}`;
+            const params = new URLSearchParams();
+            params.append('table', target.table);
+            params.append('filters', JSON.stringify(target.filters));
+            params.append('isSingle', String(target.isSingle));
+            if (target.orderBy) {
+              params.append('orderBy', target.orderBy);
+              params.append('orderDirection', target.orderDirection);
+            }
+            if (target.limitCount !== null) {
+              params.append('limitCount', String(target.limitCount));
+            }
+            if (target.rangeEnd !== null) {
+              params.append('rangeStart', String(target.rangeStart));
+              params.append('rangeEnd', String(target.rangeEnd));
+            }
+            const url = `/api/local-db?${params.toString()}`;
             return fetch(url)
               .then(res => res.json())
               .then(onfulfilled)
@@ -102,17 +121,45 @@ function createDesktopLocalBuilder(table: string): any {
       }
       if (prop === 'eq') {
         return (column: string, value: any) => {
-          target.filters.push({ field: column, value });
+          target.filters.push({ field: column, op: 'eq', value });
+          return proxy;
+        };
+      }
+      if (prop === 'gte') {
+        return (column: string, value: any) => {
+          target.filters.push({ field: column, op: 'gte', value });
+          return proxy;
+        };
+      }
+      if (prop === 'lte') {
+        return (column: string, value: any) => {
+          target.filters.push({ field: column, op: 'lte', value });
+          return proxy;
+        };
+      }
+      if (prop === 'in') {
+        return (column: string, values: any[]) => {
+          target.filters.push({ field: column, op: 'in', value: values });
           return proxy;
         };
       }
       if (prop === 'order') {
-        return () => {
+        return (column: string, options?: { ascending?: boolean }) => {
+          target.orderBy = column;
+          target.orderDirection = options?.ascending === false ? 'desc' : 'asc';
           return proxy;
         };
       }
       if (prop === 'limit') {
-        return () => {
+        return (n: number) => {
+          target.limitCount = n;
+          return proxy;
+        };
+      }
+      if (prop === 'range') {
+        return (from: number, to: number) => {
+          target.rangeStart = from;
+          target.rangeEnd = to;
           return proxy;
         };
       }

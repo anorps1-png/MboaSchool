@@ -146,16 +146,57 @@ export async function GET(req: NextRequest) {
 
     const filtersStr = searchParams.get('filters');
     const isSingle = searchParams.get('isSingle') === 'true';
+    const orderBy = searchParams.get('orderBy');
+    const orderDirection = (searchParams.get('orderDirection') as 'asc' | 'desc') || 'asc';
+    const limitCountStr = searchParams.get('limitCount');
+    const rangeStartStr = searchParams.get('rangeStart');
+    const rangeEndStr = searchParams.get('rangeEnd');
 
     const db = readDb();
     let records = db[table] || [];
 
     // Apply filters
     if (filtersStr) {
-      const filters = JSON.parse(filtersStr) as { field: string; value: any }[];
+      const filters = JSON.parse(filtersStr) as { field: string; op: string; value: any }[];
       for (const filter of filters) {
-        records = records.filter(item => item[filter.field] === filter.value);
+        const fieldValue = (item: any) => item[filter.field];
+        records = records.filter((item: any) => {
+          const val = fieldValue(item);
+          switch (filter.op) {
+            case 'eq':
+              return val === filter.value;
+            case 'gte':
+              return val >= filter.value;
+            case 'lte':
+              return val <= filter.value;
+            case 'in':
+              return Array.isArray(filter.value) && filter.value.includes(val);
+            default:
+              return true;
+          }
+        });
       }
+    }
+
+    // Apply ordering
+    if (orderBy) {
+      records.sort((a: any, b: any) => {
+        const aVal = a[orderBy];
+        const bVal = b[orderBy];
+        if (aVal < bVal) return orderDirection === 'asc' ? -1 : 1;
+        if (aVal > bVal) return orderDirection === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    // Apply range/limit
+    if (rangeEndStr !== null) {
+      const rangeStart = parseInt(rangeStartStr || '0');
+      const rangeEnd = parseInt(rangeEndStr);
+      records = records.slice(rangeStart, rangeEnd + 1);
+    } else if (limitCountStr !== null) {
+      const limitCount = parseInt(limitCountStr);
+      records = records.slice(0, limitCount);
     }
 
     // Resolve nested relations
