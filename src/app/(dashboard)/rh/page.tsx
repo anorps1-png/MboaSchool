@@ -112,6 +112,7 @@ export default function RHPage() {
   const [selectedPayslip, setSelectedPayslip] = useState<FicheDePaie | null>(null);
   const [payrollCalculated, setPayrollCalculated] = useState(false);
   const [payrollProcessing, setPayrollProcessing] = useState(false);
+  const [payrollCalculating, setPayrollCalculating] = useState(false);
 
   // Toast notification
   const [toast, setToast] = useState<string | null>(null);
@@ -1087,63 +1088,73 @@ export default function RHPage() {
     setPayrollCalculated(false);
   };
 
-  const handleCalculerPaie = () => {
+  const handleCalculerPaie = async () => {
     if (selectedForPayroll.size === 0) {
       triggerToast("Veuillez sélectionner au moins un employé.");
       return;
     }
 
-    const alreadyPaidEmps = fichesDePaieHistorique.filter(
-      f => f.periode === payrollPeriod && f.statut === 'paye'
-    );
-    const selectedAlreadyPaid = Array.from(selectedForPayroll).filter(empId =>
-      alreadyPaidEmps.some(f => f.personnelId === empId)
-    );
+    if (!etablissementId) return;
 
-    if (selectedAlreadyPaid.length > 0) {
-      const names = selectedAlreadyPaid
-        .map(id => activeStaff.find(e => e.id === id)?.nom || id)
-        .join(', ');
-      triggerToast(`❌ ${names} déjà payé(s) ce mois. Impossible de recalculer.`);
-      return;
+    setPayrollCalculating(true);
+    try {
+      const rawFiches = await getFichesDePaie(etablissementId, payrollPeriod);
+      const alreadyPaidEmps = rawFiches.filter((f: any) => f.statut === 'paye');
+      const selectedAlreadyPaid = Array.from(selectedForPayroll).filter(empId =>
+        alreadyPaidEmps.some((f: any) => f.personnel_id === empId)
+      );
+
+      if (selectedAlreadyPaid.length > 0) {
+        const names = selectedAlreadyPaid
+          .map(id => activeStaff.find(e => e.id === id)?.nom || id)
+          .join(', ');
+        triggerToast(`❌ ${names} déjà payé(s) ce mois. Impossible de recalculer.`);
+        setPayrollCalculating(false);
+        return;
+      }
+
+      const taux = getTauxFromLocalStorage();
+      const fiches: FicheDePaie[] = [];
+      const alreadyExistingIds = new Set(rawFiches.map((f: any) => f.personnel_id));
+
+      activeStaff.filter(e => selectedForPayroll.has(e.id) && !alreadyExistingIds.has(e.id)).forEach(emp => {
+        const primes = payrollPrimes[emp.id] || { transport: 0, logement: 0, autres: 0 };
+        const primeAnc = calculerPrimeAnciennete(emp.salaireDeBase, emp.dateEmbauche);
+
+        const resultat = calculerFicheDePaie({
+          salaireDeBase: emp.salaireDeBase,
+          primeTransport: primes.transport,
+          primeLogement: primes.logement,
+          primeAnciennete: primeAnc,
+          autresPrimes: primes.autres,
+          taux,
+        });
+
+        fiches.push({
+          id: `paie-${emp.id}-${payrollPeriod}`,
+          personnelId: emp.id,
+          nomPersonnel: `${emp.prenom} ${emp.nom}`,
+          periode: payrollPeriod,
+          datePaiement: new Date().toISOString().split('T')[0],
+          salaireDeBase: emp.salaireDeBase,
+          primeTransport: primes.transport,
+          primeLogement: primes.logement,
+          primeAnciennete: primeAnc,
+          autresPrimes: primes.autres,
+          modePaiement: emp.modePaiementPreferentiel || 'Banque',
+          ...resultat,
+          statut: 'brouillon',
+        });
+      });
+
+      setFichesDePaieCalculees(fiches);
+      setPayrollCalculated(true);
+      triggerToast(`Paie calculée pour ${fiches.length} employé(s) !`);
+    } catch (e) {
+      triggerToast("Erreur lors de la vérification des paies existantes.");
+    } finally {
+      setPayrollCalculating(false);
     }
-
-    const taux = getTauxFromLocalStorage();
-    const fiches: FicheDePaie[] = [];
-
-    unpaidStaff.filter(e => selectedForPayroll.has(e.id)).forEach(emp => {
-      const primes = payrollPrimes[emp.id] || { transport: 0, logement: 0, autres: 0 };
-      const primeAnc = calculerPrimeAnciennete(emp.salaireDeBase, emp.dateEmbauche);
-
-      const resultat = calculerFicheDePaie({
-        salaireDeBase: emp.salaireDeBase,
-        primeTransport: primes.transport,
-        primeLogement: primes.logement,
-        primeAnciennete: primeAnc,
-        autresPrimes: primes.autres,
-        taux,
-      });
-
-      fiches.push({
-        id: `paie-${emp.id}-${payrollPeriod}`,
-        personnelId: emp.id,
-        nomPersonnel: `${emp.prenom} ${emp.nom}`,
-        periode: payrollPeriod,
-        datePaiement: new Date().toISOString().split('T')[0],
-        salaireDeBase: emp.salaireDeBase,
-        primeTransport: primes.transport,
-        primeLogement: primes.logement,
-        primeAnciennete: primeAnc,
-        autresPrimes: primes.autres,
-        modePaiement: emp.modePaiementPreferentiel || 'Banque',
-        ...resultat,
-        statut: 'brouillon',
-      });
-    });
-
-    setFichesDePaieCalculees(fiches);
-    setPayrollCalculated(true);
-    triggerToast(`Paie calculée pour ${fiches.length} employé(s) !`);
   };
 
   const handleValiderPaie = async () => {
@@ -1891,10 +1902,11 @@ export default function RHPage() {
               </button>
               <button
                 onClick={handleCalculerPaie}
-                className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-md transition-colors flex items-center gap-1.5"
+                disabled={payrollCalculating}
+                className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-md transition-colors disabled:opacity-50 flex items-center gap-1.5"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                Calculer la paie
+                {payrollCalculating ? 'Vérification...' : 'Calculer la paie'}
               </button>
               {payrollCalculated && (
                 <>
