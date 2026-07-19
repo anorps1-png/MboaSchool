@@ -408,7 +408,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { name: 'Évaluations', href: '/evaluations', icon: AcademicIcon, key: 'evaluations' },
     { name: 'Finance', href: '/finance', icon: ChartIcon, key: 'finance' },
     { name: 'Ressources Humaines', href: '/rh', icon: UsersIcon, key: 'rh' },
-    { name: 'Comptes & Habilitations', href: '/accounts', icon: UsersIcon, key: 'accounts' },
     { name: 'Paramètres', href: '/settings', icon: SettingsIcon, key: 'settings' },
   ];
 
