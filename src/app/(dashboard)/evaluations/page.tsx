@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Classe } from '@/types/domain';
@@ -15,7 +15,7 @@ export default function EvaluationsHome() {
   const [isLoading, setIsLoading] = useState(true);
 
   const { etablissementId } = useEtablissement();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     if (!etablissementId) return;
@@ -41,7 +41,7 @@ export default function EvaluationsHome() {
       }
     };
     fetchClasses();
-  }, [etablissementId]);
+  }, [etablissementId, supabase]);
 
   const handleStart = (e: React.FormEvent) => {
     e.preventDefault();

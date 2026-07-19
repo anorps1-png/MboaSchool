@@ -1,7 +1,7 @@
 'use client';
 import { captureError, captureMessage } from '@/lib/observability/logger';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient, isRunningInElectron } from '@/lib/supabase/client';
 import { hashPassword, verifyPassword } from '@/lib/utils/offlineAuth';
@@ -58,7 +58,7 @@ function LoginContent() {
   const [schoolSystem, setSchoolSystem] = useState('Francophone');
   const [schoolYear, setSchoolYear] = useState('2025/2026');
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     const isSignupUrl = searchParams.get('signup') === 'true';

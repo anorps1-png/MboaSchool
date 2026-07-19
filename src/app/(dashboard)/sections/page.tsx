@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
@@ -12,7 +12,7 @@ export default function SectionsPage() {
   const [serverSectionsSummary, setServerSectionsSummary] = useState<Record<string, SectionSummary> | null>(null);
   const { etablissementId } = useEtablissement();
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchSectionsData = useCallback(async () => {
     if (!etablissementId) return;

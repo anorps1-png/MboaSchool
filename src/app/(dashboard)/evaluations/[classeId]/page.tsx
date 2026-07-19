@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, useMemo, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Eleve, Classe, NoteMatiere } from '@/types/domain';
@@ -37,7 +37,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
   // Buffer for currently edited grades in Saisie
   const [gradesBuffer, setGradesBuffer] = useState<Record<string, string | number>>({});
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     if (!etablissementId) return;
@@ -110,7 +110,12 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     };
 
     loadData();
-  }, [classeId, term, selectedSubject, etablissementId]);
+    // selectedSubject est à la fois lu et écrit ici : au montage il vaut '',
+    // ce qui déclenche un setSelectedSubject(subjToUse) qui reprovoque cet
+    // effet une seconde fois (puisque selectedSubject est dans ses propres
+    // dépendances) — un seul refetch redondant, auto-limité par le
+    // `if (!selectedSubject)` ci-dessus, pas une boucle infinie.
+  }, [classeId, term, selectedSubject, etablissementId, supabase]);
 
   useEffect(() => {
     if (studentsList.length > 0) {

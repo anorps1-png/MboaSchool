@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, useMemo, use } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Classe, Eleve } from '@/types/domain';
 import Link from 'next/link';
@@ -15,7 +15,7 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
   const [students, setStudents] = useState<Eleve[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     if (!etablissementId) return;
@@ -39,7 +39,7 @@ export default function ClasseDetailPage({ params }: { params: Promise<{ id: str
       }
     };
     fetchData();
-  }, [classeId, etablissementId]);
+  }, [classeId, etablissementId, supabase]);
 
   if (!isLoaded) return <div className="p-8 text-center text-ink-soft">Chargement...</div>;
   if (!classe) return <div className="p-8 text-center text-accent font-bold">Classe introuvable</div>;

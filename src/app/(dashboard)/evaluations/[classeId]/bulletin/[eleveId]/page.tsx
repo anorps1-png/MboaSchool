@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, useMemo, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
@@ -31,7 +31,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
   const [yearName, setYearName] = useState('2025/2026');
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     if (!etablissementId) return;
@@ -138,7 +138,7 @@ export default function BulletinImpressionPage({ params }: PageProps) {
       }
     };
     loadData();
-  }, [resolvedParams.classeId, resolvedParams.eleveId, term, etablissementId]);
+  }, [resolvedParams.classeId, resolvedParams.eleveId, term, etablissementId, supabase]);
 
   if (!isLoaded || !student || !classInfo || !etabInfo) {
     return <div className="fixed inset-0 z-[100] bg-surface flex items-center justify-center text-ink font-semibold">Préparation du bulletin officiel MINESEC...</div>;

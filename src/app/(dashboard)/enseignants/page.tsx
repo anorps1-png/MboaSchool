@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { SearchIcon, PlusIcon, DownloadIcon } from '@/components/icons';
 import { createClient } from '@/lib/supabase/client';
 import { downloadExcel } from '@/lib/excel';
@@ -42,7 +42,11 @@ export default function EnseignantsPage() {
   });
 
   const { etablissementId } = useEtablissement();
-  const supabase = createClient();
+  // useMemo : createClient() renvoie un nouvel objet à chaque appel — sans
+  // mémoïsation, l'inclure un jour dans un tableau de dépendances (comme ça
+  // s'est déjà produit sur sections.tsx) recrée les callbacks à chaque rendu
+  // et peut provoquer une boucle infinie de fetch.
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     if (etablissementId) fetchEnseignants();
