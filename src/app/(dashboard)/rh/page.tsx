@@ -1093,6 +1093,21 @@ export default function RHPage() {
       return;
     }
 
+    const alreadyPaidEmps = fichesDePaieHistorique.filter(
+      f => f.periode === payrollPeriod && f.statut === 'paye'
+    );
+    const selectedAlreadyPaid = Array.from(selectedForPayroll).filter(empId =>
+      alreadyPaidEmps.some(f => f.personnelId === empId)
+    );
+
+    if (selectedAlreadyPaid.length > 0) {
+      const names = selectedAlreadyPaid
+        .map(id => activeStaff.find(e => e.id === id)?.nom || id)
+        .join(', ');
+      triggerToast(`❌ ${names} déjà payé(s) ce mois. Impossible de recalculer.`);
+      return;
+    }
+
     const taux = getTauxFromLocalStorage();
     const fiches: FicheDePaie[] = [];
 
@@ -1136,11 +1151,31 @@ export default function RHPage() {
       triggerToast("Veuillez d'abord calculer la paie.");
       return;
     }
+    if (!etablissementId) {
+      triggerToast("Établissement non trouvé.");
+      return;
+    }
     if (!confirm(`Confirmez-vous le paiement de ${fichesDePaieCalculees.length} employé(s) pour la période ${payrollPeriod} ?`)) return;
 
     setPayrollProcessing(true);
     try {
       const fichesPaye = fichesDePaieCalculees.map(f => ({ ...f, statut: 'paye' as const }));
+
+      const existingPaidFiches = await getFichesDePaie(etablissementId, payrollPeriod);
+      const alreadyPaid = existingPaidFiches.filter(f => f.statut === 'paye');
+
+      const conflictingFiches = fichesPaye.filter(fp =>
+        alreadyPaid.some(ap => ap.personnel_id === fp.personnelId)
+      );
+
+      if (conflictingFiches.length > 0) {
+        const names = conflictingFiches
+          .map(f => f.nomPersonnel)
+          .join(', ');
+        triggerToast(`❌ ${names} déjà payé(s) en base de données. Paiement annulé.`);
+        setPayrollProcessing(false);
+        return;
+      }
 
       // 1. Sauvegarder les fiches de paie en base
       try {
