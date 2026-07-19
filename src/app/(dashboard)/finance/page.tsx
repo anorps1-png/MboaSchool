@@ -10,8 +10,7 @@ import {
   FormationRH 
 } from '@/types/domain';
 import { planComptableOHADA, mockEcrituresInitiales } from '@/mock/comptabilite';
-import { mockStudents } from '@/mock/students';
-import { mockBudget2026, BudgetPrevisionnel } from '@/mock/finance';
+import type { BudgetPrevisionnel } from '@/mock/finance';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
