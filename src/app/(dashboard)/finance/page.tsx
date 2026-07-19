@@ -972,7 +972,7 @@ export default function FinancePage() {
           const { error: linesErr } = await supabase
             .from('lignes_ecritures')
             .insert(linesToInsert);
-          
+
           if (linesErr) throw linesErr;
         }
       }
@@ -986,8 +986,39 @@ export default function FinancePage() {
     const existing = stored ? JSON.parse(stored) : mockEcrituresInitiales;
     const updated = [...newEcrituresList, ...existing];
     localStorage.setItem('mboaschool_ecritures', JSON.stringify(updated));
-    
-    setEcritures([...ecritures, ...newEcrituresList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+
+    // Reload ecritures from Supabase to get real IDs (don't use temporary IDs)
+    if (savedToSupabase) {
+      try {
+        const { data: ecrData } = await supabase
+          .from('ecritures_comptables')
+          .select('*, lignes_ecritures(*)')
+          .eq('etablissement_id', etablissementId);
+
+        if (ecrData && ecrData.length > 0) {
+          const reloadedEcritures = ecrData.map((e: any) => ({
+            id: e.id,
+            date: e.date,
+            libelle: e.libelle,
+            reference: e.reference,
+            partenaire: e.partenaire,
+            lignes: (e.lignes_ecritures || []).map((l: any) => ({
+              compteNumero: l.compte_numero,
+              debit: Number(l.debit || 0),
+              credit: Number(l.credit || 0)
+            }))
+          }));
+          setEcritures(reloadedEcritures.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        }
+      } catch (err) {
+        captureError(err, { context: "Error reloading ecritures after save:" });
+        // Fallback: update with temporary IDs if reload fails
+        setEcritures([...ecritures, ...newEcrituresList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      }
+    } else {
+      // If not saved to Supabase, just update with local state
+      setEcritures([...ecritures, ...newEcrituresList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+    }
     setShowExpenseModal(false);
     setExpLibelle('');
     setExpReference('');
