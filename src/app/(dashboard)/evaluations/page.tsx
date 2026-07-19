@@ -13,21 +13,35 @@ export default function EvaluationsHome() {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedTerm, setSelectedTerm] = useState('Trimestre 1');
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const { etablissementId } = useEtablissement();
   const supabase = useMemo(() => createClient(), []);
+
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
 
   useEffect(() => {
     if (!etablissementId) return;
     const fetchClasses = async () => {
       setIsLoading(true);
+      setLoadError(null);
       try {
         const { data, error } = await supabase
           .from('classes')
           .select('*')
           .eq('etablissement_id', etablissementId)
-          .order('nom', { ascending: true });
-        
+          .order('nom', { ascending: true })
+          .limit(1000);
+
+        if (error) {
+          throw error;
+        }
         if (data) {
           setClassesList(data);
           if (data.length > 0) {
@@ -35,6 +49,8 @@ export default function EvaluationsHome() {
           }
         }
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Erreur réseau lors du chargement des classes';
+        setLoadError(errorMsg);
         captureError(err, { context: "Error fetching classes for evaluations:" });
       } finally {
         setIsLoading(false);
@@ -46,7 +62,7 @@ export default function EvaluationsHome() {
   const handleStart = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedClass) {
-      alert('Veuillez sélectionner une classe.');
+      triggerToast('Veuillez sélectionner une classe.');
       return;
     }
     router.push(`/evaluations/${selectedClass}?term=${encodeURIComponent(selectedTerm)}`);
@@ -68,6 +84,18 @@ export default function EvaluationsHome() {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
+          </div>
+        ) : loadError ? (
+          <div className="bg-red-50 border border-red-200 rounded-card p-4 text-red-700">
+            <div className="font-semibold mb-2">Erreur réseau</div>
+            <div className="text-sm mb-4">{loadError}</div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-accent text-cream rounded font-semibold hover:bg-accent-hover transition-colors text-sm"
+            >
+              Réessayer
+            </button>
           </div>
         ) : classesList.length === 0 ? (
           <div className="text-center py-6 text-ink-soft font-semibold">
@@ -116,6 +144,12 @@ export default function EvaluationsHome() {
           </form>
         )}
       </div>
+
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 bg-ink text-cream px-6 py-3 rounded-lg shadow-lg animate-in fade-in slide-in-from-bottom-4 duration-300">
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 }

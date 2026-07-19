@@ -33,18 +33,18 @@ export function EtablissementProvider({ children }: { children: React.ReactNode 
     if (typeof window !== 'undefined') {
       let stored = localStorage.getItem('mboaschool_etablissement_id');
       if (!stored) {
-        let defaultId = 'd3b07384-d113-4ee7-a496-c67b8a74e50d';
         const offlineSession = localStorage.getItem('mboaschool_offline_session');
         if (offlineSession) {
           try {
             const parsed = JSON.parse(offlineSession);
-            defaultId = parsed.etablissement_id || defaultId;
+            stored = parsed.etablissement_id || null;
+            if (stored) {
+              localStorage.setItem('mboaschool_etablissement_id', stored);
+            }
           } catch (e) {
             // ignore
           }
         }
-        stored = defaultId;
-        localStorage.setItem('mboaschool_etablissement_id', defaultId);
       }
       setEtablissementIdState(stored);
 
