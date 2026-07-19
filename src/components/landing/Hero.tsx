@@ -2,10 +2,10 @@ import React from 'react';
 import Link from 'next/link';
 
 export default function Hero() {
-  const stats = [
-    { value: '+120', label: 'écoles équipées', accent: false },
-    { value: '-38%', label: "d'impayés en moyenne", accent: true },
-    { value: '48h', label: 'pour générer tous les bulletins', accent: false },
+  const features = [
+    { icon: '👥', label: 'Gestion complète des élèves' },
+    { icon: '📊', label: 'Notes et bulletins automatisés' },
+    { icon: '💰', label: 'Suivi des paiements intégré' },
   ];
 
   return (
@@ -33,10 +33,10 @@ export default function Hero() {
       </div>
 
       <div className="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-px bg-border border border-border rounded-card overflow-hidden max-w-3xl w-full animate-fade-up [animation-delay:0.32s]">
-        {stats.map((s) => (
-          <div key={s.label} className="bg-surface px-7 py-7">
-            <div className={`text-[40px] font-extrabold tracking-[-1.5px] ${s.accent ? 'text-accent' : 'text-ink'}`}>{s.value}</div>
-            <div className="text-sm font-semibold text-ink-faint mt-1">{s.label}</div>
+        {features.map((f) => (
+          <div key={f.label} className="bg-surface px-7 py-7 flex flex-col items-center gap-3">
+            <span className="text-[40px]">{f.icon}</span>
+            <div className="text-sm font-semibold text-ink-faint">{f.label}</div>
           </div>
         ))}
       </div>
