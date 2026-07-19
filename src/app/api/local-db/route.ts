@@ -210,7 +210,7 @@ export async function POST(req: NextRequest) {
       const payloadArray = Array.isArray(payload) ? payload : [payload];
       for (const item of payloadArray) {
         if (!item.id) {
-          item.id = `local_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+          item.id = crypto.randomUUID();
         }
         db[table].push(item);
         
@@ -295,7 +295,7 @@ export async function POST(req: NextRequest) {
           updatedItems.push(updated);
         } else {
           if (!item.id) {
-            item.id = `local_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+            item.id = crypto.randomUUID();
           }
           db[table].push(item);
           insertedItems.push(item);

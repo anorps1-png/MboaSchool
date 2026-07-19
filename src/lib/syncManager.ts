@@ -18,7 +18,7 @@ class SyncManager {
    */
   static async addToQueue(table: string, action: 'insert' | 'update' | 'delete', payload: any) {
     const task: SyncTask = {
-      id: `task_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      id: crypto.randomUUID(),
       table,
       action,
       payload,
@@ -43,6 +43,7 @@ class SyncManager {
 
   /**
    * Tente de synchroniser toute la file d'attente avec Supabase.
+   * Chaque tâche réussie est retirée immédiatement de la queue stockée.
    */
   static async syncAll() {
     if (!navigator.onLine) return;
@@ -52,7 +53,7 @@ class SyncManager {
 
     console.log(`[SyncManager] Démarrage de la synchronisation (${queue.length} tâches)...`);
     const supabase = createClient();
-    const failedTasks: SyncTask[] = [];
+    let remainingQueue = [...queue];
 
     for (const task of queue) {
       try {
@@ -67,19 +68,19 @@ class SyncManager {
           if (error) throw error;
         }
         console.log(`[SyncManager] Tâche ${task.id} synchronisée avec succès.`);
+        // Retirer immédiatement la tâche réussie de la queue persistée
+        remainingQueue = remainingQueue.filter(t => t.id !== task.id);
+        await set(SYNC_QUEUE_KEY, remainingQueue);
       } catch (err) {
         captureError(err, { layer: 'sync', taskId: task.id, table: task.table, action: task.action });
-        failedTasks.push(task); // On garde la tâche en cas d'erreur
+        // La tâche échouée reste dans remainingQueue
       }
     }
 
-    // Mettre à jour la file avec uniquement les tâches échouées
-    await set(SYNC_QUEUE_KEY, failedTasks);
-
-    if (failedTasks.length === 0) {
+    if (remainingQueue.length === 0) {
       console.log('[SyncManager] Synchronisation terminée à 100%.');
     } else {
-      captureMessage('[SyncManager] Tâches en échec restent en file d\'attente.', { failedCount: failedTasks.length });
+      captureMessage('[SyncManager] Tâches en échec restent en file d\'attente.', { failedCount: remainingQueue.length });
     }
   }
 }

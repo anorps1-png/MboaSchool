@@ -439,10 +439,11 @@ export default function ElevesPage() {
     };
 
     if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
-      await SyncManager.addToQueue('eleves', 'insert', studentData);
-      
+      const tempId = crypto.randomUUID();
+      await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: tempId });
+
       const localStudent = {
-        id: `temp_${Date.now()}`,
+        id: tempId,
         ...studentData,
         classeId: studentData.classe_id,
         anneeScolaireId: studentData.annee_scolaire_id,
@@ -482,9 +483,10 @@ export default function ElevesPage() {
           };
 
           if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
-             await SyncManager.addToQueue('paiements', 'insert', paymentData);
+             const tempPayId = crypto.randomUUID();
+             await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: tempPayId });
              newPaymentObj = {
-               id: `temp_pay_${Date.now()}`,
+               id: tempPayId,
                ...paymentData,
                eleveId: d.id,
                typeFrais: 'Scolarité',
@@ -679,7 +681,7 @@ export default function ElevesPage() {
     const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
 
     if (isOffline) {
-      const tempId = `temp_cls_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+      const tempId = crypto.randomUUID();
       const newLocalClass: Classe = {
         id: tempId,
         nom: classNameStr,
@@ -889,7 +891,7 @@ export default function ElevesPage() {
               lieu_naissance: r.lieuNaissance, date_inscription: r.dateInscriptionVal, statut: 'actif'
             };
 
-            const studentId = `temp_stud_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+            const studentId = crypto.randomUUID();
             await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
             const finalStudentObj: any = {
               id: studentId, ...studentData, classeId: classId, anneeScolaireId: resolvedAnneeScolaireId,
@@ -899,7 +901,7 @@ export default function ElevesPage() {
             };
 
             if (r.amountPaidVal > 0) {
-              const localPayId = `temp_pay_${Date.now()}_${Math.floor(Math.random() * 100)}`;
+              const localPayId = crypto.randomUUID();
               const paymentData = {
                 eleve_id: studentId, montant: r.amountPaidVal, date: new Date().toISOString().split('T')[0],
                 type_frais: 'Scolarité', mode_paiement: r.mode, statut: 'paid', reference: r.reference
