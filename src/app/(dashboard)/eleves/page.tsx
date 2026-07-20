@@ -303,7 +303,7 @@ export default function ElevesPage() {
     classeId: string;
     nomParent: string | null | undefined;
     classeNomOverride: string | null;
-    precomputedStats: { totalDue: number | null; totalPaid: number; status: 'paid' | 'partial' | 'unpaid' } | null;
+    precomputedStats: { totalDue: number | null; totalPaid: number; status: 'paid' | 'partial' | 'unpaid' | 'late'; resteAPayerEchu?: number } | null;
   }
 
   const displayRows: DisplayRow[] = useMemo(() => {
@@ -317,7 +317,7 @@ export default function ElevesPage() {
         classeId: s.classe_id,
         nomParent: s.nom_parent,
         classeNomOverride: s.classe_nom,
-        precomputedStats: { totalDue: Number(s.total_due), totalPaid: Number(s.total_paid), status: s.statut_paiement },
+        precomputedStats: { totalDue: Number(s.total_due), totalPaid: Number(s.total_paid), status: s.statut_paiement, resteAPayerEchu: s.reste_a_payer_echu !== undefined && s.reste_a_payer_echu !== null ? Number(s.reste_a_payer_echu) : undefined },
       }));
     }
     return legacyPaginatedStudents.map((s) => ({
@@ -1377,7 +1377,7 @@ export default function ElevesPage() {
                         <div className="w-48">
                           <div className="text-[12px] font-semibold text-ink-soft mb-1.5 flex justify-between">
                             <span>{formatFCFA(totalPaid)} / {totalDue !== null ? formatFCFA(totalDue) : 'Non configuré'}</span>
-                            {student.precomputedStats.resteAPayerEchu !== undefined && student.precomputedStats.resteAPayerEchu > 0 && (
+                            {student.precomputedStats?.resteAPayerEchu !== undefined && student.precomputedStats.resteAPayerEchu > 0 && (
                               <span className="text-accent text-[10px] font-bold">Arriéré: {formatFCFA(student.precomputedStats.resteAPayerEchu)}</span>
                             )}
                           </div>
