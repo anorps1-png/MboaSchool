@@ -1195,39 +1195,48 @@ export default function RHPage() {
         return;
       }
 
-      // 1. Sauvegarder les fiches de paie en base
+      // 1. Sauvegarder les fiches de paie en base. Si ça échoue, on arrête
+      // tout ici : pas de fallback silencieux vers le localStorage, et
+      // surtout pas d'écriture comptable pour un paiement qui n'a pas été
+      // réellement persisté (ça créerait une écriture fantôme sans fiche
+      // de paie correspondante en base).
+      const fichesDB = fichesPaye.map(f => ({
+        id: f.id,
+        personnel_id: f.personnelId,
+        nom_personnel: f.nomPersonnel,
+        periode: f.periode,
+        date_paiement: f.datePaiement,
+        salaire_de_base: f.salaireDeBase,
+        prime_transport: f.primeTransport,
+        prime_logement: f.primeLogement,
+        prime_anciennete: f.primeAnciennete,
+        autres_primes: f.autresPrimes,
+        salaire_brut: f.salaireBrut,
+        cnps_salariale: f.cnpsSalariale,
+        cfc_salariale: f.cfcSalariale,
+        irpp: f.irpp,
+        cac: f.cac,
+        rav: f.rav,
+        total_retenues: f.totalRetenues,
+        cnps_patronale: f.cnpsPatronale,
+        cfc_patronale: f.cfcPatronale,
+        fne: f.fne,
+        total_charges_patronales: f.totalChargesPatronales,
+        net_a_payer: f.netAPayer,
+        mode_paiement: f.modePaiement,
+        statut: 'paye',
+      }));
       try {
-        const fichesDB = fichesPaye.map(f => ({
-          personnel_id: f.personnelId,
-          nom_personnel: f.nomPersonnel,
-          periode: f.periode,
-          date_paiement: f.datePaiement,
-          salaire_de_base: f.salaireDeBase,
-          prime_transport: f.primeTransport,
-          prime_logement: f.primeLogement,
-          prime_anciennete: f.primeAnciennete,
-          autres_primes: f.autresPrimes,
-          salaire_brut: f.salaireBrut,
-          cnps_salariale: f.cnpsSalariale,
-          cfc_salariale: f.cfcSalariale,
-          irpp: f.irpp,
-          cac: f.cac,
-          rav: f.rav,
-          total_retenues: f.totalRetenues,
-          cnps_patronale: f.cnpsPatronale,
-          cfc_patronale: f.cfcPatronale,
-          fne: f.fne,
-          total_charges_patronales: f.totalChargesPatronales,
-          net_a_payer: f.netAPayer,
-          mode_paiement: f.modePaiement,
-          statut: 'paye',
-        }));
         await insertFichesDePaie(fichesDB, etablissementId!);
-      } catch (dbErr) {
-        captureMessage('Sauvegarde DB fiches de paie échouée, fallback localStorage:', { detail: dbErr });
+      } catch (dbErr: any) {
+        captureMessage('Sauvegarde DB fiches de paie échouée:', { detail: dbErr });
+        const errMsg = dbErr?.message || (typeof dbErr === 'object' ? JSON.stringify(dbErr) : String(dbErr));
+        triggerToast(`❌ Échec de l'enregistrement en base. Paiement annulé : ${errMsg}`);
+        return;
       }
 
-      // 2. Sauvegarder en localStorage (fallback + historique local)
+      // 2. Sauvegarder en localStorage (cache local + historique, une fois
+      // la persistance en base confirmée)
       const storageKey = `mboaschool_fiches_paie_${etablissementId}`;
       const stored = localStorage.getItem(storageKey);
       const existingFiches: FicheDePaie[] = stored ? JSON.parse(stored) : [];
