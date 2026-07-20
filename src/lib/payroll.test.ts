@@ -126,6 +126,7 @@ describe('calculerFicheDePaie', () => {
 describe('genererEcrituresComptablesPaie', () => {
   const fiche = {
     periode: '2026-06',
+    nomPersonnel: 'Jean Dupont',
     salaireBrut: 300000,
     totalRetenues: 40711,
     netAPayer: 259289,
@@ -169,9 +170,21 @@ describe('genererEcrituresComptablesPaie', () => {
     expect(l661?.debit).toBe(300000);
   });
 
-  it('libelle et référence reflètent la période payée, pas la date de validation', () => {
+  it('référence reflète la période payée, pas la date de validation', () => {
     const { ecriture } = genererEcrituresComptablesPaie([{ ...fiche, periode: '2026-01' }]);
-    expect(ecriture.libelle).toBe('Paie du personnel — janvier 2026');
     expect(ecriture.reference.startsWith('PAIE-2026-01-')).toBe(true);
+  });
+
+  it('libelle nomme le salarié pour un paiement individuel', () => {
+    const { ecriture } = genererEcrituresComptablesPaie([{ ...fiche, periode: '2026-01', nomPersonnel: 'Jean Dupont' }]);
+    expect(ecriture.libelle).toBe('Paie — Jean Dupont — janvier 2026');
+  });
+
+  it('libelle reste générique pour un paiement groupé', () => {
+    const { ecriture } = genererEcrituresComptablesPaie([
+      { ...fiche, periode: '2026-01', nomPersonnel: 'Jean Dupont' },
+      { ...fiche, periode: '2026-01', nomPersonnel: 'Marie Curie' },
+    ]);
+    expect(ecriture.libelle).toBe('Paie du personnel — janvier 2026');
   });
 });

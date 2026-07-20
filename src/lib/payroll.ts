@@ -277,6 +277,7 @@ export function calculerFicheDePaie(params: {
 export function genererEcrituresComptablesPaie(
   fiches: Array<{
     periode: string;
+    nomPersonnel: string;
     salaireBrut: number;
     totalRetenues: number;
     netAPayer: number;
@@ -339,6 +340,9 @@ export function genererEcrituresComptablesPaie(
   const NOMS_MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
   const nomMoisPeriode = NOMS_MOIS[parseInt(moisPeriode, 10) - 1] ?? moisPeriode;
   const reference = `PAIE-${periode}-${Date.now().toString(36).toUpperCase()}`;
+  const libelle = fiches.length === 1
+    ? `Paie — ${fiches[0].nomPersonnel} — ${nomMoisPeriode} ${anneePeriode}`
+    : `Paie du personnel — ${nomMoisPeriode} ${anneePeriode}`;
 
   const lignes: LigneComptable[] = [
     // DÉBITS
@@ -365,7 +369,7 @@ export function genererEcrituresComptablesPaie(
 
   return {
     ecriture: {
-      libelle: `Paie du personnel — ${nomMoisPeriode} ${anneePeriode}`,
+      libelle,
       reference,
     },
     lignes,
