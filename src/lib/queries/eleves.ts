@@ -50,7 +50,8 @@ export interface StudentPage {
   statut: string;
   total_due: number;
   total_paid: number;
-  statut_paiement: 'paid' | 'partial' | 'unpaid';
+  statut_paiement: 'paid' | 'partial' | 'unpaid' | 'late';
+  reste_a_payer_echu: number;
 }
 
 export interface StudentsWidgetStats {
@@ -73,7 +74,7 @@ export async function getStudentsPaginated(params: {
   anneeScolaireId?: string | null;
   search?: string;
   classeId?: string | null;
-  statutPaiement?: 'paid' | 'partial' | 'unpaid' | null;
+  statutPaiement?: 'paid' | 'partial' | 'unpaid' | 'late' | null;
   sexe?: 'M' | 'F' | null;
   page: number;
   pageSize: number;

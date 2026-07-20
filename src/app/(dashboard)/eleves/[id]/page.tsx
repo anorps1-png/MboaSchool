@@ -25,6 +25,7 @@ export default function FicheElevePage({ params }: PageProps) {
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [teachersMap, setTeachersMap] = useState<Record<string, string>>({});
+  const [tranches, setTranches] = useState<any[]>([]);
   const [student, setStudent] = useState<Eleve | undefined>(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'finance' | 'grades' | 'discipline'>('info');
@@ -83,6 +84,18 @@ export default function FicheElevePage({ params }: PageProps) {
             })) || []
           }));
           setStudents(mappedClassmates as any);
+        }
+
+        // Fetch tranches scolarite
+        if (studentData.annee_scolaire_id) {
+          const { data: tranchesData } = await supabase
+            .from('tranches_scolarite')
+            .select('*')
+            .eq('etablissement_id', etablissementId)
+            .eq('annee_scolaire_id', studentData.annee_scolaire_id);
+          if (tranchesData) {
+            setTranches(tranchesData);
+          }
         }
 
         const mappedStudent = {
@@ -245,6 +258,23 @@ export default function FicheElevePage({ params }: PageProps) {
     .reduce((sum, p) => sum + p.montant, 0);
   const pendingAmount = totalDue !== null ? totalDue - totalPaid : null;
   const paymentProgressPct = totalDue !== null && totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
+
+  // Calcul des tranches échues
+  const currentDate = new Date().toISOString().split('T')[0];
+  const tranchesEchues = tranches.filter(t => t.date_limite < currentDate);
+  const pctEchu = tranchesEchues.reduce((sum, t) => sum + Number(t.pourcentage), 0) / 100;
+  
+  const expectedPaid = totalDue !== null ? totalDue * pctEchu : 0;
+  const resteAPayerEchu = Math.max(0, expectedPaid - totalPaid);
+  
+  let financialStatus: 'paid' | 'partial' | 'late' | 'unpaid' = 'unpaid';
+  if (totalDue !== null && totalPaid >= totalDue && totalDue > 0) {
+    financialStatus = 'paid';
+  } else if (totalDue !== null && totalPaid < expectedPaid && totalDue > 0) {
+    financialStatus = 'late';
+  } else if (totalPaid > 0) {
+    financialStatus = 'partial';
+  }
 
   // Grade calculations
   const firstTermGrades = (student.notes || []).filter(g => g.trimestre === 'Trimestre 1');
@@ -664,9 +694,14 @@ export default function FicheElevePage({ params }: PageProps) {
               <div className="flex justify-between items-center sm:block">
                 <div>
                   <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Reste à recouvrer</span>
-                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount !== null && pendingAmount > 0 ? 'text-accent' : 'text-ink-soft'}`}>
+                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount !== null && pendingAmount > 0 ? 'text-ink' : 'text-ink-soft'}`}>
                     {pendingAmount !== null ? formatFCFA(pendingAmount) : <span className="text-ink-faint italic text-sm">Non configuré</span>}
                   </span>
+                  {resteAPayerEchu > 0 && (
+                    <span className="text-[10px] font-bold text-accent mt-1 block">
+                      Arriérés (tranches échues): {formatFCFA(resteAPayerEchu)}
+                    </span>
+                  )}
                 </div>
                 {(pendingAmount === null || pendingAmount > 0) && (
                   <button

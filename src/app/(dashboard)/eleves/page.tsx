@@ -1299,6 +1299,7 @@ export default function ElevesPage() {
               <option value="All">Tous les statuts</option>
               <option value="paid">Payé</option>
               <option value="partial">Partiel</option>
+              <option value="late">En retard</option>
               <option value="unpaid">Non payé</option>
             </select>
 
@@ -1374,15 +1375,18 @@ export default function ElevesPage() {
                       {/* Barre de scolarité */}
                       <td className="px-4 py-3.5">
                         <div className="w-48">
-                          <div className="text-[12px] font-semibold text-ink-soft mb-1.5">
-                            {formatFCFA(totalPaid)} / {totalDue !== null ? formatFCFA(totalDue) : 'Non configuré'}
+                          <div className="text-[12px] font-semibold text-ink-soft mb-1.5 flex justify-between">
+                            <span>{formatFCFA(totalPaid)} / {totalDue !== null ? formatFCFA(totalDue) : 'Non configuré'}</span>
+                            {student.precomputedStats.resteAPayerEchu !== undefined && student.precomputedStats.resteAPayerEchu > 0 && (
+                              <span className="text-accent text-[10px] font-bold">Arriéré: {formatFCFA(student.precomputedStats.resteAPayerEchu)}</span>
+                            )}
                           </div>
                           <div className="w-full bg-chip h-2 rounded-pill overflow-hidden">
                             <div
                               className="h-full rounded-pill transition-all duration-300"
                               style={{
                                 width: `${progressPct}%`,
-                                background: status === 'paid' ? 'var(--color-green)' : status === 'partial' ? 'var(--color-ink)' : 'var(--color-accent)',
+                                background: status === 'paid' ? 'var(--color-green)' : status === 'partial' ? 'var(--color-ink)' : status === 'late' ? 'var(--color-warning)' : 'var(--color-accent)',
                               }}
                             ></div>
                           </div>
@@ -1394,11 +1398,13 @@ export default function ElevesPage() {
                         <span className={`inline-flex items-center px-3 py-1 rounded-pill text-[12px] font-extrabold ${
                           status === 'paid'
                             ? 'bg-green-bg text-green'
+                            : status === 'late'
+                            ? 'bg-warning/10 text-warning-dark'
                             : status === 'partial'
                             ? 'bg-chip text-ink-soft'
                             : 'bg-red-bg text-accent'
                         }`}>
-                          {status === 'paid' ? 'Payé' : status === 'partial' ? 'Partiel' : 'Non payé'}
+                          {status === 'paid' ? 'Payé' : status === 'late' ? 'En retard' : status === 'partial' ? 'Partiel' : 'Non payé'}
                         </span>
                       </td>
 
