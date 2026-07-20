@@ -221,7 +221,7 @@ export default function ElevesPage() {
     const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
     const totalDue: number | null = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
     const totalPaid = (student.paiements || [])
-      .filter(p => p.statut === 'paid')
+      .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
       .reduce((sum, p) => sum + p.montant, 0);
 
     let status: 'paid' | 'partial' | 'unpaid' = 'unpaid';

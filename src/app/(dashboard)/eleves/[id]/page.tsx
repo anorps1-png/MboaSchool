@@ -254,9 +254,9 @@ export default function FicheElevePage({ params }: PageProps) {
   const feeConfigured = rawTotalDue !== null && rawTotalDue > 0;
   const totalDue = feeConfigured ? rawTotalDue : null;
   const totalPaid = ((student.paiements || []) || [])
-    .filter(p => p.statut === 'paid')
+    .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
     .reduce((sum, p) => sum + p.montant, 0);
-  const pendingAmount = totalDue !== null ? totalDue - totalPaid : null;
+  const pendingAmount = totalDue !== null ? Math.max(0, totalDue - totalPaid) : null;
   const paymentProgressPct = totalDue !== null && totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
   // Calcul des tranches échues
