@@ -534,10 +534,12 @@ export default function SettingsPage() {
             </div>
 
             {/* Tranches de scolarité */}
-            <TranchesConfig 
-              etablissementId={etablissementId} 
-              anneeScolaireId={activeYearId} 
-            />
+            {etablissementId && activeYearId && (
+              <TranchesConfig 
+                etablissementId={etablissementId} 
+                anneeScolaireId={activeYearId} 
+              />
+            )}
           </div>
 
           {/* Card 3: Financial Defaults */}
