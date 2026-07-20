@@ -795,7 +795,14 @@ export default function FinancePage() {
         ecr.libelle.toLowerCase().includes(journalSearchTerm.toLowerCase()) ||
         ecr.date.toLowerCase().includes(journalSearchTerm.toLowerCase()) ||
         ecr.partenaire?.toLowerCase().includes(journalSearchTerm.toLowerCase()) ||
-        ecr.lignes.some(l => l.compteNumero.includes(journalSearchTerm))
+        ecr.lignes.some(l => {
+          const compteDef = planComptable.find(c => c.numero === l.compteNumero);
+          const rawSearch = journalSearchTerm.toLowerCase();
+          return l.compteNumero.includes(journalSearchTerm) ||
+                 compteDef?.libelle.toLowerCase().includes(rawSearch) ||
+                 l.debit.toString().includes(journalSearchTerm) ||
+                 l.credit.toString().includes(journalSearchTerm);
+        })
       );
 
   // Calculées une fois : null si la section correspondante n'est pas
@@ -2051,7 +2058,7 @@ export default function FinancePage() {
                   <label className="block text-xs font-bold text-ink-soft mb-2">Rechercher une écriture</label>
                   <input
                     type="text"
-                    placeholder="Référence, libellé, compte, tiers, date..."
+                    placeholder="Référence, libellé, compte, tiers, date, montant..."
                     value={journalSearchTerm}
                     onChange={(e) => setJournalSearchTerm(e.target.value)}
                     className="w-full px-3 py-2 border border-border rounded-control text-sm focus:outline-none focus:ring-2 focus:ring-accent"
