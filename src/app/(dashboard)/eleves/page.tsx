@@ -745,8 +745,22 @@ export default function ElevesPage() {
     }
     const str = val.toString().trim();
     if (!str) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-      return str;
+    // Le format ISO peut matcher syntaxiquement (ex: "2012-05-32", artefact
+    // de formule Excel) sans être une date calendaire réelle. Un jour/mois
+    // hors plage envoyé tel quel à Postgres fait échouer tout le lot
+    // d'insertion (une seule instruction INSERT multi-lignes) sans qu'aucune
+    // ligne ne soit importée, sans message clair pour l'admin. On valide donc
+    // que la date construite correspond bien aux composants saisis (Date en
+    // JS "roule" silencieusement les jours/mois hors plage vers le mois/l'année
+    // suivante au lieu de rejeter).
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      const candidate = new Date(Number(y), Number(m) - 1, Number(d));
+      const isValid = candidate.getFullYear() === Number(y)
+        && candidate.getMonth() === Number(m) - 1
+        && candidate.getDate() === Number(d);
+      return isValid ? str : null;
     }
     const parsedDate = new Date(str);
     if (!isNaN(parsedDate.getTime())) {
@@ -826,6 +840,7 @@ export default function ElevesPage() {
         let importedCount = 0;
         let errorsCount = 0;
         let skippedEmptyRows = 0;
+        let firstBatchErrorMessage: string | null = null;
 
         const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
         const supabase = createClient();
@@ -1043,7 +1058,24 @@ export default function ElevesPage() {
               .select();
             if (createErr) {
               captureError(createErr, { context: "Batch student upsert failed during Excel import" });
-              errorsCount += batch.length;
+              if (!firstBatchErrorMessage) firstBatchErrorMessage = createErr.message;
+              // Repli ligne par ligne : un INSERT multi-lignes est tout ou
+              // rien côté Postgres, donc une seule ligne invalide (ex: date
+              // hors plage) faisait perdre TOUT le lot de 500. On réessaie
+              // chaque ligne individuellement pour ne perdre que les lignes
+              // réellement fautives.
+              for (const row of batch) {
+                const { data: rowData, error: rowErr } = await supabase
+                  .from('eleves')
+                  .upsert([row], { onConflict: 'etablissement_id,matricule' })
+                  .select();
+                if (rowErr) {
+                  errorsCount++;
+                  continue;
+                }
+                (rowData || []).forEach((s: any) => createdStudentsByMatricule.set(s.matricule, s));
+                importedCount += (rowData || []).length;
+              }
               continue;
             }
             (createdData || []).forEach((s: any) => createdStudentsByMatricule.set(s.matricule, s));
@@ -1073,18 +1105,32 @@ export default function ElevesPage() {
               .from('paiements')
               .upsert(batch, { onConflict: 'etablissement_id,reference' })
               .select();
+            const applyPaymentResults = (rows: any[]) => {
+              rows.forEach((p: any) => {
+                const list = paymentsByEleveId.get(p.eleve_id) || [];
+                list.push({
+                  id: p.id, eleveId: p.eleve_id, montant: Number(p.montant), date: p.date,
+                  typeFrais: p.type_frais, modePaiement: p.mode_paiement, statut: p.statut, reference: p.reference
+                });
+                paymentsByEleveId.set(p.eleve_id, list);
+              });
+            };
             if (payErr) {
               captureError(payErr, { context: "Batch payment upsert failed during Excel import" });
+              if (!firstBatchErrorMessage) firstBatchErrorMessage = payErr.message;
+              // Même repli ligne par ligne que pour les élèves : un seul
+              // paiement invalide ne doit pas faire perdre tout le lot.
+              for (const row of batch) {
+                const { data: rowData, error: rowErr } = await supabase
+                  .from('paiements')
+                  .upsert([row], { onConflict: 'etablissement_id,reference' })
+                  .select();
+                if (rowErr) continue;
+                applyPaymentResults(rowData || []);
+              }
               continue;
             }
-            (payCreated || []).forEach((p: any) => {
-              const list = paymentsByEleveId.get(p.eleve_id) || [];
-              list.push({
-                id: p.id, eleveId: p.eleve_id, montant: Number(p.montant), date: p.date,
-                typeFrais: p.type_frais, modePaiement: p.mode_paiement, statut: p.statut, reference: p.reference
-              });
-              paymentsByEleveId.set(p.eleve_id, list);
-            });
+            applyPaymentResults(payCreated || []);
           }
 
           setStudents(prev => {
@@ -1131,7 +1177,7 @@ export default function ElevesPage() {
         const notes: string[] = [];
         if (skippedEmptyRows > 0) notes.push(`${skippedEmptyRows} ligne(s) vide(s) ignorée(s)`);
         if (disambiguatedCount > 0) notes.push(`${disambiguatedCount} élève(s) sans matricule partageaient un nom identique et ont reçu un identifiant distinct`);
-        if (errorsCount > 0) notes.push(`${errorsCount} ligne(s) en erreur`);
+        if (errorsCount > 0) notes.push(`${errorsCount} ligne(s) en erreur${firstBatchErrorMessage ? ` : ${firstBatchErrorMessage}` : ''}`);
         const suffix = notes.length > 0 ? ` (${notes.join(' · ')})` : '';
         triggerToast(`Importation réussie : ${importedCount} élèves importés.${suffix}`);
       } catch (err) {
