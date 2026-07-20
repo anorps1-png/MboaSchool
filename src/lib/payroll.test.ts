@@ -125,6 +125,7 @@ describe('calculerFicheDePaie', () => {
 
 describe('genererEcrituresComptablesPaie', () => {
   const fiche = {
+    periode: '2026-06',
     salaireBrut: 300000,
     totalRetenues: 40711,
     netAPayer: 259289,
@@ -166,5 +167,11 @@ describe('genererEcrituresComptablesPaie', () => {
     const { lignes } = genererEcrituresComptablesPaie([fiche]);
     const l661 = lignes.find((l) => l.compteNumero === '661');
     expect(l661?.debit).toBe(300000);
+  });
+
+  it('libelle et référence reflètent la période payée, pas la date de validation', () => {
+    const { ecriture } = genererEcrituresComptablesPaie([{ ...fiche, periode: '2026-01' }]);
+    expect(ecriture.libelle).toBe('Paie du personnel — janvier 2026');
+    expect(ecriture.reference.startsWith('PAIE-2026-01-')).toBe(true);
   });
 });

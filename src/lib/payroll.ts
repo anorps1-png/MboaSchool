@@ -276,6 +276,7 @@ export function calculerFicheDePaie(params: {
  */
 export function genererEcrituresComptablesPaie(
   fiches: Array<{
+    periode: string;
     salaireBrut: number;
     totalRetenues: number;
     netAPayer: number;
@@ -330,8 +331,14 @@ export function genererEcrituresComptablesPaie(
   const totalImpots = totalIRPP + totalCAC + totalRAV;
   const totalNet = totalNetBanque + totalNetCaisse;
 
-  const now = new Date();
-  const reference = `PAIE-${now.toISOString().slice(0, 7)}-${Date.now().toString(36).toUpperCase()}`;
+  // Le libellé et la référence doivent refléter le mois réellement payé
+  // (periode), pas la date de validation — un rattrapage de paie effectué
+  // en retard ne doit pas afficher le mois de saisie.
+  const periode = fiches[0].periode;
+  const [anneePeriode, moisPeriode] = periode.split('-');
+  const NOMS_MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  const nomMoisPeriode = NOMS_MOIS[parseInt(moisPeriode, 10) - 1] ?? moisPeriode;
+  const reference = `PAIE-${periode}-${Date.now().toString(36).toUpperCase()}`;
 
   const lignes: LigneComptable[] = [
     // DÉBITS
@@ -358,7 +365,7 @@ export function genererEcrituresComptablesPaie(
 
   return {
     ecriture: {
-      libelle: `Paie du personnel — ${now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}`,
+      libelle: `Paie du personnel — ${nomMoisPeriode} ${anneePeriode}`,
       reference,
     },
     lignes,
