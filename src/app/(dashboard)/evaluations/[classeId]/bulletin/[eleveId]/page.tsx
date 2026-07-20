@@ -106,8 +106,12 @@ export default function BulletinImpressionPage({ params }: PageProps) {
         }
 
         // 5. Fetch discipline incidents
+        // Table réelle 'discipline' (pas 'discipline_incidents' — nom présent
+        // dans schema.sql mais jamais celui utilisé par l'écriture applicative,
+        // src/app/(dashboard)/eleves/[id]/page.tsx). Lire le mauvais nom faisait
+        // que le bulletin n'affichait jamais les incidents réellement enregistrés.
         const { data: discData } = await supabase
-          .from('discipline_incidents')
+          .from('discipline')
           .select('*')
           .eq('eleve_id', eleveId);
         if (discData) {

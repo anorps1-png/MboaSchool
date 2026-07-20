@@ -825,6 +825,7 @@ export default function ElevesPage() {
 
         let importedCount = 0;
         let errorsCount = 0;
+        let skippedEmptyRows = 0;
 
         const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
         const supabase = createClient();
@@ -835,7 +836,8 @@ export default function ElevesPage() {
           nom: string; prenom: string; sexe: 'M' | 'F'; classNameStr: string; sectionStr: string;
           nomParent: string; telephoneParent: string; emailParent: string;
           dateNaissance: string | null; lieuNaissance: string; dateInscriptionVal: string;
-          matriculeVal: string; amountPaidVal: number; mode: string; reference: string;
+          matriculeVal: string; usedFallbackMatricule: boolean; usedFallbackReference: boolean;
+          amountPaidVal: number; mode: string; reference: string;
         }
         const parsedRows: ParsedImportRow[] = [];
         for (const row of data) {
@@ -843,7 +845,7 @@ export default function ElevesPage() {
           const prenom = (row.Prénom || row.prenom || row.Prenom || row.PRENOM || '').toString().trim();
 
           // Skip completely empty rows
-          if (!nom && !prenom) continue;
+          if (!nom && !prenom) { skippedEmptyRows++; continue; }
 
           const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toString().toUpperCase().trim() === 'F' ? 'F' : 'M';
           const classNameStr = (row.Classe || row.classe || row.CLASSE || 'Non classé').toString().trim();
@@ -859,22 +861,53 @@ export default function ElevesPage() {
           const rawMatricule = row.Matricule || row.matricule || row.MATRICULE || row["N° Matricule"];
           const cleanNom = nom.toUpperCase().replace(/[^A-Z0-9]/g, '');
           const cleanPrenom = prenom.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const usedFallbackMatricule = !rawMatricule;
           const fallbackMatricule = `MBOA-${cleanNom}-${cleanPrenom}`.substring(0, 50);
           const matriculeVal = (rawMatricule ? rawMatricule.toString().trim() : fallbackMatricule);
 
           const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
           const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
-          const reference = row.Reference || row.reference || row.REFERENCE || `REC-${matriculeVal}-SCOL`;
+          const rawReference = row.Reference || row.reference || row.REFERENCE;
+          const usedFallbackReference = !rawReference;
+          const reference = rawReference ? rawReference.toString().trim() : `REC-${matriculeVal}-SCOL`;
 
           parsedRows.push({
             nom, prenom, sexe, classNameStr, sectionStr, nomParent, telephoneParent, emailParent,
-            dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, amountPaidVal, mode, reference
+            dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, usedFallbackMatricule, usedFallbackReference,
+            amountPaidVal, mode, reference
           });
         }
 
         if (parsedRows.length === 0) {
           alert("Aucune ligne valide trouvée dans le fichier.");
           return;
+        }
+
+        // 1b) Désambiguïsation des matricules de repli en collision. Sans fichier
+        // fournissant de vrai Matricule, plusieurs élèves DISTINCTS partageant le
+        // même nom+prénom généraient le même matricule de repli et s'écrasaient
+        // silencieusement les uns les autres (perte de données sans aucune erreur
+        // remontée) avant même l'envoi réseau. Un seul élève par nom conserve son
+        // matricule de repli exact (réimport idempotent inchangé) ; à partir de la
+        // 2ᵉ occurrence, un suffixe numérique rend chaque élève distinct.
+        let disambiguatedCount = 0;
+        {
+          const seenFallback = new Map<string, number>();
+          for (const r of parsedRows) {
+            if (!r.usedFallbackMatricule) continue;
+            const occurrence = seenFallback.get(r.matriculeVal) || 0;
+            seenFallback.set(r.matriculeVal, occurrence + 1);
+            if (occurrence > 0) {
+              r.matriculeVal = `${r.matriculeVal}-${occurrence + 1}`;
+              // Ne régénère la référence de paiement que si elle était elle-même
+              // auto-générée : une référence fournie explicitement par le client
+              // ne doit jamais être réécrite.
+              if (r.usedFallbackReference) {
+                r.reference = `REC-${r.matriculeVal}-SCOL`;
+              }
+              disambiguatedCount++;
+            }
+          }
         }
 
         if (isOffline) {
@@ -1095,7 +1128,12 @@ export default function ElevesPage() {
         }
 
         if (importedCount > 0) refreshServerViews();
-        triggerToast(`Importation réussie : ${importedCount} élèves importés. (${errorsCount} lignes ignorées)`);
+        const notes: string[] = [];
+        if (skippedEmptyRows > 0) notes.push(`${skippedEmptyRows} ligne(s) vide(s) ignorée(s)`);
+        if (disambiguatedCount > 0) notes.push(`${disambiguatedCount} élève(s) sans matricule partageaient un nom identique et ont reçu un identifiant distinct`);
+        if (errorsCount > 0) notes.push(`${errorsCount} ligne(s) en erreur`);
+        const suffix = notes.length > 0 ? ` (${notes.join(' · ')})` : '';
+        triggerToast(`Importation réussie : ${importedCount} élèves importés.${suffix}`);
       } catch (err) {
         captureError(err, { context: "Error parsing excel:" });
         alert("Erreur lors de l'analyse du fichier Excel.");

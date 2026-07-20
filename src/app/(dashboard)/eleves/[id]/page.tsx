@@ -232,7 +232,14 @@ export default function FicheElevePage({ params }: PageProps) {
 
   // Financial calculations
   const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
-  const totalDue = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
+  // Un frais de classe à 0 correspond en pratique à une classe dont les
+  // frais n'ont jamais été saisis (colonne `prix` par défaut à 0 en base) :
+  // on le traite comme "non configuré", sinon le bouton "Enregistrer un
+  // paiement" restait invisible sans aucune indication pour les nouveaux
+  // établissements n'ayant pas encore paramétré leurs frais de scolarité.
+  const rawTotalDue = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
+  const feeConfigured = rawTotalDue !== null && rawTotalDue > 0;
+  const totalDue = feeConfigured ? rawTotalDue : null;
   const totalPaid = ((student.paiements || []) || [])
     .filter(p => p.statut === 'paid')
     .reduce((sum, p) => sum + p.montant, 0);
@@ -661,7 +668,7 @@ export default function FicheElevePage({ params }: PageProps) {
                     {pendingAmount !== null ? formatFCFA(pendingAmount) : <span className="text-ink-faint italic text-sm">Non configuré</span>}
                   </span>
                 </div>
-                {pendingAmount !== null && pendingAmount > 0 && (
+                {(pendingAmount === null || pendingAmount > 0) && (
                   <button
                     onClick={() => setShowAddPaymentModal(true)}
                     className="mt-3.5 px-4 py-2 bg-accent hover:bg-accent-hover text-cream text-xs font-bold rounded-control shadow-cta transition-colors"

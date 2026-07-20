@@ -1,6 +1,46 @@
 # État de préparation à la production — MboaSchool / APON
 
-Suivi des chantiers de robustesse et de scalabilité. Mis à jour le 2026-07-13.
+Suivi des chantiers de robustesse et de scalabilité. Mis à jour le 2026-07-22.
+
+---
+
+## 🔴 Incident critique corrigé — 2026-07-22
+
+**Fuite RLS inter-tenant** introduite par `20260721140000_parent_accounts_system.sql` :
+les politiques RLS ajoutées pour restreindre les comptes parents à leurs enfants
+contenaient des branches admin/directeur/enseignant **sans filtre
+`etablissement_id`**. Les politiques RLS permissives se combinant par OR, cela
+donnait à tout admin/directeur/enseignant, de n'importe quel établissement,
+un accès en lecture à **tous les élèves et paiements de toutes les écoles**.
+Un second défaut lié rendait par ailleurs la restriction parent inopérante :
+un compte parent avait accès en lecture **et écriture** à toute l'école de son
+enfant, la politique de base ne pouvant pas être restreinte par une politique
+additionnelle (les politiques RLS permissives ne font qu'ajouter de la
+visibilité, jamais en retirer).
+
+**Confirmé actif en production** avant correction : un admin réel (école à
+3000 élèves) voyait les 5677 élèves de la plateforme entière (12
+établissements) au lieu des 3000 de sa propre école. Seuls 9 comptes `admin`
+existaient en base au moment du correctif (aucun `directeur`/`enseignant`/
+`parent`) — la fuite était donc exploitable par ces 9 comptes ; le volet
+parent n'avait pas encore été exposé à un utilisateur réel.
+
+**Corrigé et vérifié** par `20260722100000_fix_parent_rls_cross_tenant_leak.sql` :
+- Suppression des branches non scopées (admin/directeur/enseignant retrouvent
+  leur accès via la politique tenant existante, déjà correcte).
+- La politique de base exclut désormais explicitement le rôle `parent`
+  (lecture et écriture) ; seule la politique dédiée `parent_eleves` gouverne
+  la visibilité d'un compte parent, en lecture seule.
+- Vérifié en base : un admin ne voit plus que son établissement (3000/5677
+  élèves, 2393/5212 paiements — comptage exact, plus de fuite).
+- Trouvaille annexe corrigée dans la même migration : `discipline_incidents`
+  existait sans RLS (table vide, créée par une migration précédente,
+  jamais réellement utilisée par le code — celui-ci écrit dans `discipline`).
+  RLS activée par défense en profondeur ; le bulletin (qui lisait la mauvaise
+  table) a été corrigé pour lire `discipline`.
+
+**Reste à faire** : roter le mot de passe DB (transité en clair une seconde
+fois pendant l'incident) et le token GitHub déjà signalé précédemment.
 
 ---
 
