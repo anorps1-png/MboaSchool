@@ -845,14 +845,29 @@ export default function ElevesPage() {
         const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
         const supabase = createClient();
 
+        const normalizePaymentMode = (modeStr: string): string => {
+          const cleaned = (modeStr || '').toString().toLowerCase().trim();
+          if (cleaned.includes('orange')) return 'Orange Money';
+          if (cleaned.includes('mtn') || cleaned.includes('momo') || cleaned.includes('mobile')) return 'MTN Mobile Money';
+          if (cleaned.includes('virement') || cleaned.includes('banque')) return 'Virement Bancaire';
+          return 'Espèces';
+        };
+
         // 1) Parsing pur des lignes (aucun appel réseau ici) — évite de refaire
         // le parsing à chaque étape du traitement en lot ci-dessous.
+        interface ParsedImportPayment {
+          amount: number;
+          date: string;
+          mode: string;
+          reference: string;
+          usedFallbackReference: boolean;
+        }
         interface ParsedImportRow {
           nom: string; prenom: string; sexe: 'M' | 'F'; classNameStr: string; sectionStr: string;
           nomParent: string; telephoneParent: string; emailParent: string;
           dateNaissance: string | null; lieuNaissance: string; dateInscriptionVal: string;
-          matriculeVal: string; usedFallbackMatricule: boolean; usedFallbackReference: boolean;
-          amountPaidVal: number; mode: string; reference: string;
+          matriculeVal: string; usedFallbackMatricule: boolean;
+          payments: ParsedImportPayment[];
         }
         const parsedRows: ParsedImportRow[] = [];
         for (const row of data) {
@@ -880,16 +895,48 @@ export default function ElevesPage() {
           const fallbackMatricule = `MBOA-${cleanNom}-${cleanPrenom}`.substring(0, 50);
           const matriculeVal = (rawMatricule ? rawMatricule.toString().trim() : fallbackMatricule);
 
-          const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
-          const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
-          const rawReference = row.Reference || row.reference || row.REFERENCE;
-          const usedFallbackReference = !rawReference;
-          const reference = rawReference ? rawReference.toString().trim() : `REC-${matriculeVal}-SCOL`;
+          const payments: ParsedImportPayment[] = [];
+          for (let i = 1; i <= 5; i++) {
+            const amountKey = `Paiement ${i} - Montant`;
+            const dateKey = `Paiement ${i} - Date`;
+            const modeKey = `Paiement ${i} - Mode`;
+            const refKey = `Paiement ${i} - Référence`;
+
+            const rawAmount = row[amountKey] || row[amountKey.toLowerCase()] || row[`Paiement ${i} - Montant`.normalize('NFD').replace(/[\u0300-\u036f]/g, "")];
+            const amount = Number(rawAmount || 0);
+
+            if (amount > 0) {
+              const rawDate = row[dateKey] || row[dateKey.toLowerCase()] || row[`Paiement ${i} - Date`.normalize('NFD').replace(/[\u0300-\u036f]/g, "")];
+              const date = parseImportDate(rawDate) || new Date().toISOString().split('T')[0];
+
+              const rawMode = (row[modeKey] || row[modeKey.toLowerCase()] || 'Espèces').toString().trim();
+              const mode = normalizePaymentMode(rawMode);
+
+              const rawRef = row[refKey] || row[refKey.toLowerCase()] || row[`Paiement ${i} - Reference`] || row[`paiement ${i} - reference`];
+              const usedFallbackReference = !rawRef;
+              const reference = rawRef ? rawRef.toString().trim() : `REC-${matriculeVal}-P${i}`;
+
+              payments.push({ amount, date, mode, reference, usedFallbackReference });
+            }
+          }
+
+          // Backward compatibility for old single payment columns
+          if (payments.length === 0) {
+            const oldAmount = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
+            if (oldAmount > 0) {
+              const oldDate = parseImportDate(row["Date Paiement"] || row.date_paiement || row["Date Payment"] || row.date_payment) || new Date().toISOString().split('T')[0];
+              const oldMode = normalizePaymentMode(row["Mode Paiement"] || row.mode_paiement || 'Espèces');
+              const oldRawRef = row.Reference || row.reference || row.REFERENCE;
+              const usedFallbackReference = !oldRawRef;
+              const oldRef = oldRawRef ? oldRawRef.toString().trim() : `REC-${matriculeVal}-SCOL`;
+              payments.push({ amount: oldAmount, date: oldDate, mode: oldMode, reference: oldRef, usedFallbackReference });
+            }
+          }
 
           parsedRows.push({
             nom, prenom, sexe, classNameStr, sectionStr, nomParent, telephoneParent, emailParent,
-            dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, usedFallbackMatricule, usedFallbackReference,
-            amountPaidVal, mode, reference
+            dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, usedFallbackMatricule,
+            payments
           });
         }
 
@@ -917,9 +964,11 @@ export default function ElevesPage() {
               // Ne régénère la référence de paiement que si elle était elle-même
               // auto-générée : une référence fournie explicitement par le client
               // ne doit jamais être réécrite.
-              if (r.usedFallbackReference) {
-                r.reference = `REC-${r.matriculeVal}-SCOL`;
-              }
+              r.payments.forEach((p, idx) => {
+                if (p.usedFallbackReference) {
+                  p.reference = `REC-${r.matriculeVal}-P${idx + 1}`;
+                }
+              });
               disambiguatedCount++;
             }
           }
@@ -948,16 +997,16 @@ export default function ElevesPage() {
               paiements: [] as any[], notes: []
             };
 
-            if (r.amountPaidVal > 0) {
+            for (const p of r.payments) {
               const localPayId = crypto.randomUUID();
               const paymentData = {
-                eleve_id: studentId, montant: r.amountPaidVal, date: new Date().toISOString().split('T')[0],
-                type_frais: 'Scolarité', mode_paiement: r.mode, statut: 'paid', reference: r.reference
+                eleve_id: studentId, montant: p.amount, date: p.date,
+                type_frais: 'Scolarité', mode_paiement: p.mode, statut: 'paid', reference: p.reference
               };
               await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
               finalStudentObj.paiements.push({
-                id: localPayId, eleveId: studentId, montant: r.amountPaidVal, date: paymentData.date,
-                typeFrais: 'Scolarité', modePaiement: r.mode, statut: 'paid', reference: r.reference
+                id: localPayId, eleveId: studentId, montant: p.amount, date: p.date,
+                typeFrais: 'Scolarité', modePaiement: p.mode, statut: 'paid', reference: p.reference
               });
             }
 
@@ -992,9 +1041,25 @@ export default function ElevesPage() {
           // (upsert), tout en évitant l'erreur Postgres "ON CONFLICT... cannot
           // affect row a second time" si un même matricule/reference apparaît
           // plusieurs fois dans le même lot upsert.
-          const dedupedRows = Array.from(
-            parsedRows.reduce((map, r) => map.set(r.matriculeVal, r), new Map<string, ParsedImportRow>()).values()
-          );
+          const studentMap = new Map<string, ParsedImportRow>();
+          for (const r of parsedRows) {
+            const existing = studentMap.get(r.matriculeVal);
+            if (existing) {
+              existing.payments.push(...r.payments);
+            } else {
+              studentMap.set(r.matriculeVal, r);
+            }
+          }
+          const dedupedRows = Array.from(studentMap.values());
+
+          // Re-generate references for fallback payments to ensure unique references (P1, P2...)
+          dedupedRows.forEach(r => {
+            r.payments.forEach((p, idx) => {
+              if (p.usedFallbackReference) {
+                p.reference = `REC-${r.matriculeVal}-P${idx + 1}`;
+              }
+            });
+          });
 
           const localClasses = [...classesList];
           const distinctClasses = new Map<string, { classNameStr: string; sectionStr: string }>();
@@ -1082,22 +1147,23 @@ export default function ElevesPage() {
             importedCount += (createdData || []).length;
           }
 
-          const paymentPayload = dedupedRows
-            .filter(r => r.amountPaidVal > 0 && createdStudentsByMatricule.has(r.matriculeVal))
-            .reduce((map, r) => {
-              const s = createdStudentsByMatricule.get(r.matriculeVal);
-              map.set(r.reference, {
+          const paymentPayload = new Map<string, any>();
+          dedupedRows.forEach(r => {
+            if (!createdStudentsByMatricule.has(r.matriculeVal)) return;
+            const s = createdStudentsByMatricule.get(r.matriculeVal);
+            r.payments.forEach(p => {
+              paymentPayload.set(p.reference, {
                 eleve_id: s.id,
-                montant: r.amountPaidVal,
-                date: new Date().toISOString().split('T')[0],
+                montant: p.amount,
+                date: p.date,
                 type_frais: 'Scolarité',
-                mode_paiement: r.mode,
+                mode_paiement: p.mode,
                 statut: 'paid',
-                reference: r.reference,
+                reference: p.reference,
                 etablissement_id: etablissementId
               });
-              return map;
-            }, new Map<string, any>());
+            });
+          });
 
           const paymentsByEleveId = new Map<string, any[]>();
           for (const batch of chunkArray(Array.from(paymentPayload.values()), CHUNK_SIZE)) {
@@ -1204,9 +1270,18 @@ export default function ElevesPage() {
         'Nom Parent': 'Emmanuel Fouda',
         'Téléphone Parent': '+237 677 88 99 00',
         'Email Parent': 'parent.fouda@gmail.com',
-        'Frais Payes': 150000,
-        'Mode Paiement': 'Espèces',
-        Reference: 'REC-INS-001'
+        'Paiement 1 - Montant': 150000,
+        'Paiement 1 - Date': '2026-09-01',
+        'Paiement 1 - Mode': 'Espèces',
+        'Paiement 1 - Référence': 'REC-INS-001',
+        'Paiement 2 - Montant': 75000,
+        'Paiement 2 - Date': '2026-11-15',
+        'Paiement 2 - Mode': 'MTN Mobile Money',
+        'Paiement 2 - Référence': 'REC-SCOL-002',
+        'Paiement 3 - Montant': 50000,
+        'Paiement 3 - Date': '2027-02-05',
+        'Paiement 3 - Mode': 'Virement Bancaire',
+        'Paiement 3 - Référence': 'REC-SCOL-003'
       }
     ];
     const wb = XLSX.utils.book_new();

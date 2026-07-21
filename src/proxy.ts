@@ -47,13 +47,21 @@ export async function proxy(request: NextRequest) {
           },
         });
 
-        const {
-          data: { user: supabaseUser },
-        } = await supabase.auth.getUser();
-        user = supabaseUser;
+        const { data, error: authErr } = await supabase.auth.getUser();
+        if (!authErr && data?.user) {
+          user = data.user;
+        } else if (authErr) {
+          // Si le refresh token est invalide ou expiré, supprimer les cookies d'authentification
+          // Supabase obsolètes pour stopper la boucle de rafraîchissement infinie.
+          request.cookies.getAll().forEach((cookie) => {
+            if (cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token')) {
+              response.cookies.set(cookie.name, '', { maxAge: 0, path: '/' });
+            }
+          });
+        }
       }
     } catch (err) {
-      captureError(err, { context: "Proxy Supabase auth error:" });
+      user = null;
     }
   }
 

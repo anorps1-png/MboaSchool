@@ -264,7 +264,7 @@ function LoginContent() {
       if (isElectron) {
         await handleOfflineLogin();
       } else {
-        setErrorMsg("Erreur de connexion : impossible de joindre le serveur. Veuillez vérifier votre connexion internet.");
+        setErrorMsg(`Erreur de connexion : impossible de joindre le serveur. Veuillez vérifier votre connexion internet. (Détail: ${err.message || 'Erreur inconnue'})`);
       }
     } finally {
       setIsLoading(false);
