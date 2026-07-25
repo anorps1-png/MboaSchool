@@ -9,6 +9,24 @@ import { downloadExcel } from '@/lib/excel';
 import { captureError } from '@/lib/observability/logger';
 import { SearchIcon, ChevronLeftIcon, DownloadIcon } from '@/components/icons';
 
+interface TrancheConfig {
+  id: string;
+  nom: string;
+  pourcentage: number;
+  ordre: number;
+  dateLimite: string;
+  cumulativePct: number;
+}
+
+interface TrancheStatus {
+  trancheId: string;
+  nom: string;
+  paid: boolean;
+  overdue: boolean;
+  cumulativeAmount: number;
+  dateLimite: string;
+}
+
 interface TrancheStudent {
   id: string;
   matricule: string;
@@ -22,20 +40,14 @@ interface TrancheStudent {
   telephoneParent: string;
   totalDue: number;
   totalPaid: number;
-  tranche1Paid: boolean;
-  tranche1Amount: number;
-  tranche2Paid: boolean;
-  tranche2Amount: number;
-  tranche3Paid: boolean;
-  tranche3Amount: number;
+  tranches: TrancheStatus[];
   pctToPay: number;
 }
 
 export default function RapportTranchesPage() {
   const { etablissementId, academicYearId } = useEtablissement();
   const [students, setStudents] = useState<TrancheStudent[]>([]);
-  const [classesList, setClassesList] = useState<any[]>([]);
-  const [sectionsList, setSectionsList] = useState<any[]>([]);
+  const [trancheConfigs, setTrancheConfigs] = useState<TrancheConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -44,9 +56,6 @@ export default function RapportTranchesPage() {
   const [selectedSection, setSelectedSection] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [relanceOnly, setRelanceOnly] = useState<boolean>(false);
-
-  // Modal relance
-  const [relanceTarget, setRelanceTarget] = useState<TrancheStudent | null>(null);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -61,23 +70,37 @@ export default function RapportTranchesPage() {
       const supabase = createClient();
 
       try {
-        // 1. Fetch Sections
-        const { data: sectionsData } = await supabase
-          .from('sections')
-          .select('*')
-          .eq('etablissement_id', etablissementId);
+        // 1. Tranches configurées pour cet établissement/année (Réglages →
+        // Tranches de scolarité) — c'est la seule source de vérité pour le
+        // nombre de tranches et leurs pourcentages, plus de découpage
+        // forfaitaire 33/66 déconnecté de la configuration réelle.
+        let trancheConfigsLoaded: TrancheConfig[] = [];
+        if (academicYearId) {
+          const { data: tranchesData, error: tranchesErr } = await supabase
+            .from('tranches_scolarite')
+            .select('*')
+            .eq('etablissement_id', etablissementId)
+            .eq('annee_scolaire_id', academicYearId)
+            .order('ordre', { ascending: true });
 
-        setSectionsList(sectionsData || []);
+          if (tranchesErr) throw tranchesErr;
 
-        // 2. Fetch Classes
-        const { data: classesData } = await supabase
-          .from('classes')
-          .select('*, niveaus:niveaux_classes(section_id, sections(nom))')
-          .eq('etablissement_id', etablissementId);
+          let cumul = 0;
+          trancheConfigsLoaded = (tranchesData || []).map((t: any) => {
+            cumul += Number(t.pourcentage);
+            return {
+              id: t.id,
+              nom: t.nom,
+              pourcentage: Number(t.pourcentage),
+              ordre: t.ordre,
+              dateLimite: t.date_limite,
+              cumulativePct: cumul,
+            };
+          });
+        }
+        setTrancheConfigs(trancheConfigsLoaded);
 
-        setClassesList(classesData || []);
-
-        // 3. Fetch Students & Payments
+        // 2. Élèves + paiements réels
         let query = supabase
           .from('eleves')
           .select('*, classes(id, nom, prix, niveaus:niveaux_classes(sections(nom))), paiements(id, montant, statut, type_frais)')
@@ -92,20 +115,35 @@ export default function RapportTranchesPage() {
         if (elevesErr) throw elevesErr;
 
         if (elevesData) {
+          const today = new Date();
+
           const mapped: TrancheStudent[] = elevesData.map((e: any) => {
             const classObj = e.classes || {};
             const sectionObj = classObj.niveaus?.sections || {};
-            
-            const totalDue = Number(classObj.prix) || 150000;
-            const t1Limit = Math.round(totalDue * 0.33);
-            const t2Limit = Math.round(totalDue * 0.66);
 
-            const paidPayments = (e.paiements || []).filter((p: any) => p.statut === 'paid');
+            const totalDue = Number(classObj.prix) || 150000;
+
+            // Seuls les règlements de Scolarité comptent pour la progression
+            // des tranches — un paiement d'Inscription ou de Cantine ne doit
+            // pas faire apparaître une tranche de scolarité comme soldée.
+            const paidPayments = (e.paiements || []).filter(
+              (p: any) => p.statut === 'paid' && p.type_frais === 'Scolarité'
+            );
             const totalPaid = paidPayments.reduce((sum: number, p: any) => sum + Number(p.montant), 0);
 
-            const tranche1Paid = totalPaid >= t1Limit;
-            const tranche2Paid = totalPaid >= t2Limit;
-            const tranche3Paid = totalPaid >= totalDue;
+            const tranches: TrancheStatus[] = trancheConfigsLoaded.map((tc) => {
+              const cumulativeAmount = Math.round(totalDue * tc.cumulativePct / 100);
+              const paid = totalPaid >= cumulativeAmount;
+              const overdue = !paid && !!tc.dateLimite && new Date(tc.dateLimite) < today;
+              return {
+                trancheId: tc.id,
+                nom: tc.nom,
+                paid,
+                overdue,
+                cumulativeAmount,
+                dateLimite: tc.dateLimite,
+              };
+            });
 
             const remaining = Math.max(0, totalDue - totalPaid);
             const pctToPay = totalDue > 0 ? Math.round((remaining / totalDue) * 100) : 0;
@@ -123,13 +161,8 @@ export default function RapportTranchesPage() {
               telephoneParent: e.telephone_parent || '',
               totalDue,
               totalPaid,
-              tranche1Paid,
-              tranche1Amount: t1Limit,
-              tranche2Paid,
-              tranche2Amount: Math.round(totalDue * 0.33),
-              tranche3Paid,
-              tranche3Amount: totalDue - (t1Limit + Math.round(totalDue * 0.33)),
-              pctToPay
+              tranches,
+              pctToPay,
             };
           });
 
@@ -174,28 +207,32 @@ export default function RapportTranchesPage() {
     const totalDue = filteredStudents.reduce((sum, s) => sum + s.totalDue, 0);
     const totalPaid = filteredStudents.reduce((sum, s) => sum + s.totalPaid, 0);
     const totalRemaining = totalDue - totalPaid;
-    const t1NokCount = filteredStudents.filter(s => !s.tranche1Paid).length;
-    const t2NokCount = filteredStudents.filter(s => !s.tranche2Paid && s.tranche1Paid).length;
+    // "En retard" = au moins une tranche dont la date limite est dépassée
+    // sans être soldée — remplace l'ancien comptage figé T1/T2.
+    const overdueCount = filteredStudents.filter(s => s.tranches.some(t => t.overdue)).length;
 
-    return { totalCount, totalDue, totalPaid, totalRemaining, t1NokCount, t2NokCount };
+    return { totalCount, totalDue, totalPaid, totalRemaining, overdueCount };
   }, [filteredStudents]);
 
   const handleExportExcelReport = () => {
-    const dataToExport = filteredStudents.map(s => ({
-      'FULL NAME': `${s.nom} ${s.prenom}`,
-      'CLASS': s.classeNom,
-      'SECTION': s.sectionNom,
-      'MATRICULE': s.matricule,
-      'TRANCHE 1': s.tranche1Paid ? 'OK' : 'T1 NOK',
-      'TRANCHE 2': s.tranche2Paid ? 'OK' : 'T2 NOK',
-      'TRANCHE 3': s.tranche3Paid ? 'OK' : 'T3 NOK',
-      'SCOLARITÉ TOTALE': s.totalDue,
-      'MONTANT PAYÉ': s.totalPaid,
-      'RESTE À PAYER': s.totalDue - s.totalPaid,
-      '% TO PAY': `${s.pctToPay}%`,
-      'PARENT': s.nomParent,
-      'TÉLÉPHONE': s.telephoneParent
-    }));
+    const dataToExport = filteredStudents.map(s => {
+      const row: Record<string, string | number> = {
+        'FULL NAME': `${s.nom} ${s.prenom}`,
+        'CLASS': s.classeNom,
+        'SECTION': s.sectionNom,
+        'MATRICULE': s.matricule,
+      };
+      s.tranches.forEach(t => {
+        row[t.nom.toUpperCase()] = t.paid ? 'OK' : (t.overdue ? 'EN RETARD' : 'À VENIR');
+      });
+      row['SCOLARITÉ TOTALE'] = s.totalDue;
+      row['MONTANT PAYÉ'] = s.totalPaid;
+      row['RESTE À PAYER'] = s.totalDue - s.totalPaid;
+      row['% TO PAY'] = `${s.pctToPay}%`;
+      row['PARENT'] = s.nomParent;
+      row['TÉLÉPHONE'] = s.telephoneParent;
+      return row;
+    });
 
     downloadExcel(dataToExport, `Rapport_Suivi_Paiements_Tranches_${new Date().toISOString().split('T')[0]}`);
     triggerToast("Rapport Excel officiel généré !");
@@ -208,7 +245,15 @@ export default function RapportTranchesPage() {
     }
     const cleanPhone = student.telephoneParent.replace(/[^0-9]/g, '');
     const formattedPhone = cleanPhone.startsWith('237') ? cleanPhone : `237${cleanPhone}`;
-    const msg = `Bonjour M./Mme ${student.nomParent}, nous vous rappellons que le solde de scolarité pour l'élève ${student.nom} ${student.prenom} (Matricule: ${student.matricule}, Classe: ${student.classeNom}) présente un reste à payer de ${new Intl.NumberFormat('fr-FR').format(student.totalDue - student.totalPaid)} FCFA (${student.pctToPay}% restant). Merci de régulariser la tranche en trésorerie.`;
+
+    // Cible la première tranche impayée (en retard en priorité) pour que la
+    // relance soit concrète plutôt que générique.
+    const targetTranche = student.tranches.find(t => t.overdue) || student.tranches.find(t => !t.paid);
+    const trancheMsg = targetTranche
+      ? ` La ${targetTranche.nom} (échéance du ${new Date(targetTranche.dateLimite).toLocaleDateString('fr-FR')}) n'est pas encore soldée.`
+      : '';
+
+    const msg = `Bonjour M./Mme ${student.nomParent}, nous vous rappellons que le solde de scolarité pour l'élève ${student.nom} ${student.prenom} (Matricule: ${student.matricule}, Classe: ${student.classeNom}) présente un reste à payer de ${new Intl.NumberFormat('fr-FR').format(student.totalDue - student.totalPaid)} FCFA (${student.pctToPay}% restant).${trancheMsg} Merci de régulariser en trésorerie.`;
 
     window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
@@ -243,7 +288,9 @@ export default function RapportTranchesPage() {
             Rapport de Suivi des Paiements par Tranche
           </h1>
           <p className="text-sm text-ink-soft mt-1">
-            Visualisation matricielle par élève, classe et section — Indicateurs de relance T1 / T2 / T3.
+            {trancheConfigs.length > 0
+              ? `${trancheConfigs.length} tranche(s) configurée(s) : ${trancheConfigs.map(t => `${t.nom} (${t.pourcentage}%)`).join(', ')}.`
+              : 'Aucune tranche configurée pour cette année scolaire.'}
           </p>
         </div>
 
@@ -263,6 +310,15 @@ export default function RapportTranchesPage() {
           </button>
         </div>
       </div>
+
+      {trancheConfigs.length === 0 && (
+        <div className="bg-warning/10 border border-warning/30 text-warning-dark p-4 rounded-card text-sm font-semibold flex items-center justify-between gap-4">
+          <span>Aucune tranche de scolarité n'est configurée pour l'année active — le suivi par tranche ne peut pas s'afficher.</span>
+          <Link href="/settings" className="px-3 py-1.5 bg-ink text-cream rounded-control text-xs font-bold whitespace-nowrap hover:bg-ink/90">
+            Configurer les tranches
+          </Link>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -286,16 +342,16 @@ export default function RapportTranchesPage() {
         </div>
 
         <div className="bg-surface p-5 rounded-card border border-border shadow-sm">
-          <span className="text-[11px] font-bold text-ink-faint uppercase tracking-wider block">Relances Prio (T1 / T2 NOK)</span>
-          <span className="text-[32px] font-extrabold text-ink tracking-tight mt-1 block">
-            {stats.t1NokCount} <span className="text-xs font-bold text-accent">(T1)</span> / {stats.t2NokCount} <span className="text-xs font-bold text-ink-soft">(T2)</span>
+          <span className="text-[11px] font-bold text-ink-faint uppercase tracking-wider block">Élèves en retard (échéance dépassée)</span>
+          <span className="text-[32px] font-extrabold text-accent tracking-tight mt-1 block">
+            {stats.overdueCount}
           </span>
         </div>
       </div>
 
       {/* Main Content Layout with Excel Slicers */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        
+
         {/* Left Side: Excel Style Slicers / Filters */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-surface p-5 rounded-card border border-border shadow-sm space-y-5">
@@ -418,7 +474,7 @@ export default function RapportTranchesPage() {
                 Tableau de Suivi par Tranche ({filteredStudents.length} Élève(s))
               </span>
               <span className="text-[11px] text-ink-faint">
-                Format matrice Excel — Coloration dynamique Tranches 1-2-3
+                Coloration dynamique — basée sur les tranches réellement configurées et les paiements Scolarité enregistrés
               </span>
             </div>
 
@@ -430,9 +486,11 @@ export default function RapportTranchesPage() {
                     <th className="px-3 py-3">CLASS</th>
                     <th className="px-3 py-3">SECTION</th>
                     <th className="px-3 py-3">MATRICULE</th>
-                    <th className="px-3 py-3 text-center">TRANCHE 1</th>
-                    <th className="px-3 py-3 text-center">TRANCHE 2</th>
-                    <th className="px-3 py-3 text-center">TRANCHE 3</th>
+                    {trancheConfigs.map(tc => (
+                      <th key={tc.id} className="px-3 py-3 text-center whitespace-nowrap" title={`${tc.pourcentage}% — échéance ${new Date(tc.dateLimite).toLocaleDateString('fr-FR')}`}>
+                        {tc.nom.toUpperCase()}
+                      </th>
+                    ))}
                     <th className="px-3 py-3 text-right">% TO PAY</th>
                     <th className="px-4 py-3 text-right">RELANCE</th>
                   </tr>
@@ -461,44 +519,24 @@ export default function RapportTranchesPage() {
                           {s.matricule}
                         </td>
 
-                        {/* TRANCHE 1 */}
-                        <td className="px-3 py-3 text-center">
-                          {s.tranche1Paid ? (
-                            <span className="inline-block w-full py-1 px-2 rounded bg-green-bg text-green font-bold text-[11px]">
-                              OK
-                            </span>
-                          ) : (
-                            <span className="inline-block w-full py-1 px-2 rounded bg-red-bg text-accent font-bold text-[11px]">
-                              T1 NOK
-                            </span>
-                          )}
-                        </td>
-
-                        {/* TRANCHE 2 */}
-                        <td className="px-3 py-3 text-center">
-                          {s.tranche2Paid ? (
-                            <span className="inline-block w-full py-1 px-2 rounded bg-green-bg text-green font-bold text-[11px]">
-                              OK
-                            </span>
-                          ) : (
-                            <span className="inline-block w-full py-1 px-2 rounded bg-red-bg text-accent font-bold text-[11px]">
-                              T2 NOK
-                            </span>
-                          )}
-                        </td>
-
-                        {/* TRANCHE 3 */}
-                        <td className="px-3 py-3 text-center">
-                          {s.tranche3Paid ? (
-                            <span className="inline-block w-full py-1 px-2 rounded bg-green-bg text-green font-bold text-[11px]">
-                              OK
-                            </span>
-                          ) : (
-                            <span className="inline-block w-full py-1 px-2 rounded bg-chip text-ink-soft font-bold text-[11px]">
-                              T3 NOK
-                            </span>
-                          )}
-                        </td>
+                        {/* TRANCHES (dynamiques) */}
+                        {s.tranches.map(t => (
+                          <td key={t.trancheId} className="px-3 py-3 text-center">
+                            {t.paid ? (
+                              <span className="inline-block w-full py-1 px-2 rounded bg-green-bg text-green font-bold text-[11px]">
+                                OK
+                              </span>
+                            ) : t.overdue ? (
+                              <span className="inline-block w-full py-1 px-2 rounded bg-red-bg text-accent font-bold text-[11px]">
+                                EN RETARD
+                              </span>
+                            ) : (
+                              <span className="inline-block w-full py-1 px-2 rounded bg-chip text-ink-soft font-bold text-[11px]">
+                                À VENIR
+                              </span>
+                            )}
+                          </td>
+                        ))}
 
                         {/* % TO PAY */}
                         <td className="px-3 py-3 text-right font-mono font-extrabold">
@@ -531,7 +569,7 @@ export default function RapportTranchesPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="px-6 py-12 text-center text-ink-faint italic text-sm">
+                      <td colSpan={6 + trancheConfigs.length} className="px-6 py-12 text-center text-ink-faint italic text-sm">
                         Aucun élève ne correspond aux critères des slicers/filtres sélectionnés.
                       </td>
                     </tr>
