@@ -25,6 +25,7 @@ export default function FicheElevePage({ params }: PageProps) {
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [teachersMap, setTeachersMap] = useState<Record<string, string>>({});
+  const [tranches, setTranches] = useState<any[]>([]);
   const [student, setStudent] = useState<Eleve | undefined>(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'finance' | 'grades' | 'discipline'>('info');
@@ -85,6 +86,18 @@ export default function FicheElevePage({ params }: PageProps) {
           setStudents(mappedClassmates as any);
         }
 
+        // Fetch tranches scolarite
+        if (studentData.annee_scolaire_id) {
+          const { data: tranchesData } = await supabase
+            .from('tranches_scolarite')
+            .select('*')
+            .eq('etablissement_id', etablissementId)
+            .eq('annee_scolaire_id', studentData.annee_scolaire_id);
+          if (tranchesData) {
+            setTranches(tranchesData);
+          }
+        }
+
         const mappedStudent = {
           id: studentData.id,
           matricule: studentData.matricule,
@@ -143,6 +156,9 @@ export default function FicheElevePage({ params }: PageProps) {
   const [payType, setPayType] = useState<Paiement['typeFrais']>('Scolarité');
   const [payMethod, setPayMethod] = useState('Orange Money');
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [payDate, setPayDate] = useState('');
+  const [payReference, setPayReference] = useState('');
 
   // Form states for editing/adding grades
   const [showAddGradeModal, setShowAddGradeModal] = useState(false);
@@ -232,12 +248,36 @@ export default function FicheElevePage({ params }: PageProps) {
 
   // Financial calculations
   const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
-  const totalDue = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
+  // Un frais de classe à 0 correspond en pratique à une classe dont les
+  // frais n'ont jamais été saisis (colonne `prix` par défaut à 0 en base) :
+  // on le traite comme "non configuré", sinon le bouton "Enregistrer un
+  // paiement" restait invisible sans aucune indication pour les nouveaux
+  // établissements n'ayant pas encore paramétré leurs frais de scolarité.
+  const rawTotalDue = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
+  const feeConfigured = rawTotalDue !== null && rawTotalDue > 0;
+  const totalDue = feeConfigured ? rawTotalDue : null;
   const totalPaid = ((student.paiements || []) || [])
-    .filter(p => p.statut === 'paid')
+    .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
     .reduce((sum, p) => sum + p.montant, 0);
-  const pendingAmount = totalDue !== null ? totalDue - totalPaid : null;
+  const pendingAmount = totalDue !== null ? Math.max(0, totalDue - totalPaid) : null;
   const paymentProgressPct = totalDue !== null && totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
+
+  // Calcul des tranches échues
+  const currentDate = new Date().toISOString().split('T')[0];
+  const tranchesEchues = tranches.filter(t => t.date_limite < currentDate);
+  const pctEchu = tranchesEchues.reduce((sum, t) => sum + Number(t.pourcentage), 0) / 100;
+  
+  const expectedPaid = totalDue !== null ? totalDue * pctEchu : 0;
+  const resteAPayerEchu = Math.max(0, expectedPaid - totalPaid);
+  
+  let financialStatus: 'paid' | 'partial' | 'late' | 'unpaid' = 'unpaid';
+  if (totalDue !== null && totalPaid >= totalDue && totalDue > 0) {
+    financialStatus = 'paid';
+  } else if (totalDue !== null && totalPaid < expectedPaid && totalDue > 0) {
+    financialStatus = 'late';
+  } else if (totalPaid > 0) {
+    financialStatus = 'partial';
+  }
 
   // Grade calculations
   const firstTermGrades = (student.notes || []).filter(g => g.trimestre === 'Trimestre 1');
@@ -268,6 +308,53 @@ export default function FicheElevePage({ params }: PageProps) {
     } else {
       triggerToast("Classe de l'élève introuvable.");
     }
+  };
+
+  // Handle adding/editing payment initialization
+  const handleOpenAddPayment = () => {
+    setEditingPaymentId(null);
+    setPayAmount('');
+    setPayType('Scolarité');
+    setPayMethod('Orange Money');
+    setPayDate(new Date().toISOString().split('T')[0]);
+    setPayReference(`REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
+    setShowAddPaymentModal(true);
+  };
+
+  const handleStartEditPayment = (pay: Paiement) => {
+    setEditingPaymentId(pay.id);
+    setPayAmount(String(pay.montant));
+    setPayType(pay.typeFrais);
+    setPayMethod(pay.modePaiement);
+    setPayDate(pay.date);
+    setPayReference(pay.reference);
+    setShowAddPaymentModal(true);
+  };
+
+  const handleDeletePayment = async (payId: string) => {
+    if (!confirm("Voulez-vous vraiment supprimer ce paiement ? Cette action est irréversible.")) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from('paiements')
+      .delete()
+      .eq('id', payId);
+
+    if (error) {
+      alert("Erreur lors de la suppression du paiement: " + error.message);
+      return;
+    }
+
+    if (student) {
+      const updatedPayments = (student.paiements || []).filter(p => p.id !== payId);
+      setStudent({
+        ...student,
+        paiements: updatedPayments
+      });
+    }
+
+    triggerToast("Paiement supprimé avec succès.");
   };
 
   // Handle adding payment
@@ -321,8 +408,65 @@ export default function FicheElevePage({ params }: PageProps) {
 
     // Cleanup form and close modal
     setPayAmount('');
+    setPayDate('');
+    setPayReference('');
     setShowAddPaymentModal(false);
     triggerToast(`Paiement de ${new Intl.NumberFormat('fr-FR').format(amountVal)} FCFA validé.`);
+  };
+
+  // Handle editing payment
+  const handleEditPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!student || !editingPaymentId) return;
+
+    const amountVal = Number(payAmount);
+    if (!amountVal || amountVal <= 0) {
+      alert("Veuillez saisir un montant valide.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('paiements')
+      .update({
+        montant: amountVal,
+        type_frais: payType,
+        mode_paiement: payMethod,
+        date: payDate,
+        reference: payReference
+      })
+      .eq('id', editingPaymentId);
+
+    if (error) {
+      alert("Erreur lors de la modification du paiement: " + error.message);
+      return;
+    }
+
+    const updatedPayments = (student.paiements || []).map(p => {
+      if (p.id === editingPaymentId) {
+        return {
+          ...p,
+          montant: amountVal,
+          typeFrais: payType,
+          modePaiement: payMethod as any,
+          date: payDate,
+          reference: payReference
+        };
+      }
+      return p;
+    });
+
+    setStudent({
+      ...student,
+      paiements: updatedPayments
+    });
+
+    // Cleanup form and close modal
+    setPayAmount('');
+    setPayDate('');
+    setPayReference('');
+    setEditingPaymentId(null);
+    setShowAddPaymentModal(false);
+    triggerToast("Paiement modifié avec succès.");
   };
 
   // Handle adding grade
@@ -657,13 +801,18 @@ export default function FicheElevePage({ params }: PageProps) {
               <div className="flex justify-between items-center sm:block">
                 <div>
                   <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Reste à recouvrer</span>
-                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount !== null && pendingAmount > 0 ? 'text-accent' : 'text-ink-soft'}`}>
+                  <span className={`text-xl font-extrabold block mt-1 ${pendingAmount !== null && pendingAmount > 0 ? 'text-ink' : 'text-ink-soft'}`}>
                     {pendingAmount !== null ? formatFCFA(pendingAmount) : <span className="text-ink-faint italic text-sm">Non configuré</span>}
                   </span>
+                  {resteAPayerEchu > 0 && (
+                    <span className="text-[10px] font-bold text-accent mt-1 block">
+                      Arriérés (tranches échues): {formatFCFA(resteAPayerEchu)}
+                    </span>
+                  )}
                 </div>
-                {pendingAmount !== null && pendingAmount > 0 && (
+                {(pendingAmount === null || pendingAmount > 0) && (
                   <button
-                    onClick={() => setShowAddPaymentModal(true)}
+                    onClick={handleOpenAddPayment}
                     className="mt-3.5 px-4 py-2 bg-accent hover:bg-accent-hover text-cream text-xs font-bold rounded-control shadow-cta transition-colors"
                   >
                     Enregistrer un paiement
@@ -687,6 +836,7 @@ export default function FicheElevePage({ params }: PageProps) {
                       <th className="px-6 py-3">Montant</th>
                       <th className="px-6 py-3">Mode</th>
                       <th className="px-6 py-3">Statut</th>
+                      <th className="px-6 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y divide-border-row">
@@ -714,11 +864,33 @@ export default function FicheElevePage({ params }: PageProps) {
                               {pay.statut === 'paid' ? 'Validé' : 'En attente'}
                             </span>
                           </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleStartEditPayment(pay)}
+                                className="text-ink-soft hover:text-ink hover:bg-chip p-1.5 rounded-control transition-colors cursor-pointer"
+                                title="Modifier"
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => handleDeletePayment(pay.id)}
+                                className="text-accent hover:text-accent-hover hover:bg-chip p-1.5 rounded-control transition-colors cursor-pointer"
+                                title="Supprimer"
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-ink-faint text-sm">
+                        <td colSpan={7} className="px-6 py-12 text-center text-ink-faint text-sm">
                           Aucun paiement enregistré pour le moment.
                         </td>
                       </tr>
@@ -980,24 +1152,24 @@ export default function FicheElevePage({ params }: PageProps) {
         )}
       </div>
 
-      {/* Simulated Add Payment Modal */}
+      {/* Simulated Add/Edit Payment Modal */}
       {showAddPaymentModal && (
         <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-surface rounded-card w-full max-w-md border border-border shadow-login p-6 relative animate-in zoom-in-95 duration-200">
             <button
-              onClick={() => setShowAddPaymentModal(false)}
+              onClick={() => { setShowAddPaymentModal(false); setEditingPaymentId(null); }}
               className="absolute right-4 top-4 p-1.5 rounded-control text-ink-faint hover:text-ink-soft hover:bg-chip transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-
+ 
             <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">
-              Enregistrer un paiement
+              {editingPaymentId ? "Modifier le paiement" : "Enregistrer un paiement"}
             </h3>
-
-            <form onSubmit={handleAddPayment} className="space-y-4">
+ 
+            <form onSubmit={editingPaymentId ? handleEditPayment : handleAddPayment} className="space-y-4">
               <div>
                 <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Montant (FCFA)
@@ -1011,7 +1183,7 @@ export default function FicheElevePage({ params }: PageProps) {
                   required
                 />
               </div>
-
+ 
               <div>
                 <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Type de frais
@@ -1026,7 +1198,7 @@ export default function FicheElevePage({ params }: PageProps) {
                   <option value="Examen">Frais d&apos;Examen</option>
                 </select>
               </div>
-
+ 
               <div>
                 <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Mode de règlement
@@ -1043,10 +1215,41 @@ export default function FicheElevePage({ params }: PageProps) {
                 </select>
               </div>
 
+              {editingPaymentId && (
+                <>
+                  <div>
+                    <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
+                      Date de paiement
+                    </label>
+                    <input
+                      type="date"
+                      value={payDate}
+                      onChange={(e) => setPayDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
+                      Référence du reçu
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Référence unique"
+                      value={payReference}
+                      onChange={(e) => setPayReference(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent focus:bg-surface"
+                      required
+                    />
+                  </div>
+                </>
+              )}
+ 
               <div className="flex gap-3 pt-4 border-t border-border">
                 <button
                   type="button"
-                  onClick={() => setShowAddPaymentModal(false)}
+                  onClick={() => { setShowAddPaymentModal(false); setEditingPaymentId(null); }}
                   className="flex-1 px-4 py-2 border border-border hover:bg-bg rounded-control text-xs font-bold text-ink-soft transition-colors"
                 >
                   Annuler
@@ -1055,7 +1258,7 @@ export default function FicheElevePage({ params }: PageProps) {
                   type="submit"
                   className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-cream rounded-control text-xs font-bold shadow-cta transition-colors"
                 >
-                  Enregistrer
+                  {editingPaymentId ? "Modifier" : "Enregistrer"}
                 </button>
               </div>
             </form>

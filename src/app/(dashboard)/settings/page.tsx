@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
+import TranchesConfig from '@/components/settings/TranchesConfig';
 
 interface AcademicYear {
   id: string;
@@ -545,6 +546,14 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+
+            {/* Tranches de scolarité */}
+            {etablissementId && activeYearId && (
+              <TranchesConfig 
+                etablissementId={etablissementId} 
+                anneeScolaireId={activeYearId} 
+              />
+            )}
           </div>
 
           {/* Card 3: Financial Defaults */}

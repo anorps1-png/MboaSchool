@@ -41,6 +41,7 @@ export default function FinancePage() {
   const [classes, setClasses] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
+  const [tranches, setTranches] = useState<any[]>([]);
 
   // Modals for accounting
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -559,6 +560,19 @@ export default function FinancePage() {
       } catch (err) {
         captureError(err, { context: 'Error fetching sections:' });
       }
+
+      // 10. Fetch Tranches
+      try {
+        const { data: tranchesData } = await supabase
+          .from('tranches_scolarite')
+          .select('*')
+          .eq('etablissement_id', etablissementId);
+        if (tranchesData) {
+          setTranches(tranchesData);
+        }
+      } catch (err) {
+        captureError(err, { context: 'Error fetching tranches:' });
+      }
     };
 
     loadData();
@@ -701,6 +715,21 @@ export default function FinancePage() {
   // constantes étaient incohérentes entre elles ; on les aligne.
   const totalFeesDue2026 = totalCA2026;
   const totalRecoveryRate2026 = totalFeesDue2026 > 0 ? (totalTresoreriePercue / totalFeesDue2026) * 100 : 0;
+
+  const currentDate = new Date().toISOString().split('T')[0];
+  const totalArrieresEchus2026 = students.reduce((sum, s) => {
+    const matchedClass = classes.find((c: any) => c.id === s.classeId || c.nom === s.classeId);
+    const classPrice = matchedClass ? Number(matchedClass.prix || 0) : 0;
+    const totalPaid = (s.paiements || []).filter(p => p.statut === 'paid').reduce((acc, p) => acc + p.montant, 0);
+
+    const studentTranches = tranches.filter(t => t.annee_scolaire_id === s.anneeScolaireId);
+    const tranchesEchues = studentTranches.filter(t => t.date_limite < currentDate);
+    const pctEchu = tranchesEchues.reduce((acc, t) => acc + Number(t.pourcentage), 0) / 100;
+    
+    const expectedPaid = classPrice * pctEchu;
+    const resteEchu = Math.max(0, expectedPaid - totalPaid);
+    return sum + resteEchu;
+  }, 0);
 
   // --- Internal Process Perspective ---
   const avgMoyenneGenerale2026 = serverMoyenneGenerale;
@@ -1549,6 +1578,10 @@ export default function FinancePage() {
                   <tr>
                     <td className="py-3 font-semibold">Satisfaction Parents</td>
                     <td className="text-right font-bold text-ink-soft">N/A</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 font-semibold">Arriérés Échus (Retards)</td>
+                    <td className="text-right font-bold text-accent">{formatMoney(totalArrieresEchus2026)}</td>
                   </tr>
                 </tbody>
               </table>

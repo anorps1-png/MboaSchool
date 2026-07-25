@@ -246,7 +246,7 @@ export default function ElevesPage() {
     const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
     const totalDue: number | null = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
     const totalPaid = (student.paiements || [])
-      .filter(p => p.statut === 'paid')
+      .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
       .reduce((sum, p) => sum + p.montant, 0);
 
     let status: 'paid' | 'partial' | 'unpaid' = 'unpaid';
@@ -328,7 +328,7 @@ export default function ElevesPage() {
     classeId: string;
     nomParent: string | null | undefined;
     classeNomOverride: string | null;
-    precomputedStats: { totalDue: number | null; totalPaid: number; status: 'paid' | 'partial' | 'unpaid' } | null;
+    precomputedStats: { totalDue: number | null; totalPaid: number; status: 'paid' | 'partial' | 'unpaid' | 'late'; resteAPayerEchu?: number } | null;
   }
 
   const displayRows: DisplayRow[] = useMemo(() => {
@@ -342,7 +342,7 @@ export default function ElevesPage() {
         classeId: s.classe_id,
         nomParent: s.nom_parent,
         classeNomOverride: s.classe_nom,
-        precomputedStats: { totalDue: Number(s.total_due), totalPaid: Number(s.total_paid), status: s.statut_paiement },
+        precomputedStats: { totalDue: Number(s.total_due), totalPaid: Number(s.total_paid), status: s.statut_paiement, resteAPayerEchu: s.reste_a_payer_echu !== undefined && s.reste_a_payer_echu !== null ? Number(s.reste_a_payer_echu) : undefined },
       }));
     }
     return legacyPaginatedStudents.map((s) => ({
@@ -892,8 +892,22 @@ export default function ElevesPage() {
     }
     const str = val.toString().trim();
     if (!str) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-      return str;
+    // Le format ISO peut matcher syntaxiquement (ex: "2012-05-32", artefact
+    // de formule Excel) sans être une date calendaire réelle. Un jour/mois
+    // hors plage envoyé tel quel à Postgres fait échouer tout le lot
+    // d'insertion (une seule instruction INSERT multi-lignes) sans qu'aucune
+    // ligne ne soit importée, sans message clair pour l'admin. On valide donc
+    // que la date construite correspond bien aux composants saisis (Date en
+    // JS "roule" silencieusement les jours/mois hors plage vers le mois/l'année
+    // suivante au lieu de rejeter).
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      const candidate = new Date(Number(y), Number(m) - 1, Number(d));
+      const isValid = candidate.getFullYear() === Number(y)
+        && candidate.getMonth() === Number(m) - 1
+        && candidate.getDate() === Number(d);
+      return isValid ? str : null;
     }
     const parsedDate = new Date(str);
     if (!isNaN(parsedDate.getTime())) {
@@ -972,17 +986,35 @@ export default function ElevesPage() {
 
         let importedCount = 0;
         let errorsCount = 0;
+        let skippedEmptyRows = 0;
+        let firstBatchErrorMessage: string | null = null;
 
         const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
         const supabase = createClient();
 
+        const normalizePaymentMode = (modeStr: string): string => {
+          const cleaned = (modeStr || '').toString().toLowerCase().trim();
+          if (cleaned.includes('orange')) return 'Orange Money';
+          if (cleaned.includes('mtn') || cleaned.includes('momo') || cleaned.includes('mobile')) return 'MTN Mobile Money';
+          if (cleaned.includes('virement') || cleaned.includes('banque')) return 'Virement Bancaire';
+          return 'Espèces';
+        };
+
         // 1) Parsing pur des lignes (aucun appel réseau ici) — évite de refaire
         // le parsing à chaque étape du traitement en lot ci-dessous.
+        interface ParsedImportPayment {
+          amount: number;
+          date: string;
+          mode: string;
+          reference: string;
+          usedFallbackReference: boolean;
+        }
         interface ParsedImportRow {
           nom: string; prenom: string; sexe: 'M' | 'F'; classNameStr: string; sectionStr: string;
           nomParent: string; telephoneParent: string; emailParent: string;
           dateNaissance: string | null; lieuNaissance: string; dateInscriptionVal: string;
-          matriculeVal: string; amountPaidVal: number; mode: string; reference: string;
+          matriculeVal: string; usedFallbackMatricule: boolean;
+          payments: ParsedImportPayment[];
         }
         const parsedRows: ParsedImportRow[] = [];
         for (const row of data) {
@@ -990,7 +1022,7 @@ export default function ElevesPage() {
           const prenom = (row.Prénom || row.prenom || row.Prenom || row.PRENOM || '').toString().trim();
 
           // Skip completely empty rows
-          if (!nom && !prenom) continue;
+          if (!nom && !prenom) { skippedEmptyRows++; continue; }
 
           const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toString().toUpperCase().trim() === 'F' ? 'F' : 'M';
           const classNameStr = (row.Classe || row.classe || row.CLASSE || 'Non classé').toString().trim();
@@ -1006,22 +1038,87 @@ export default function ElevesPage() {
           const rawMatricule = row.Matricule || row.matricule || row.MATRICULE || row["N° Matricule"];
           const cleanNom = nom.toUpperCase().replace(/[^A-Z0-9]/g, '');
           const cleanPrenom = prenom.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const usedFallbackMatricule = !rawMatricule;
           const fallbackMatricule = `MBOA-${cleanNom}-${cleanPrenom}`.substring(0, 50);
           const matriculeVal = (rawMatricule ? rawMatricule.toString().trim() : fallbackMatricule);
 
-          const amountPaidVal = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
-          const mode = row["Mode Paiement"] || row.mode_paiement || 'Espèces';
-          const reference = row.Reference || row.reference || row.REFERENCE || `REC-${matriculeVal}-SCOL`;
+          const payments: ParsedImportPayment[] = [];
+          for (let i = 1; i <= 5; i++) {
+            const amountKey = `Paiement ${i} - Montant`;
+            const dateKey = `Paiement ${i} - Date`;
+            const modeKey = `Paiement ${i} - Mode`;
+            const refKey = `Paiement ${i} - Référence`;
+
+            const rawAmount = row[amountKey] || row[amountKey.toLowerCase()] || row[`Paiement ${i} - Montant`.normalize('NFD').replace(/[\u0300-\u036f]/g, "")];
+            const amount = Number(rawAmount || 0);
+
+            if (amount > 0) {
+              const rawDate = row[dateKey] || row[dateKey.toLowerCase()] || row[`Paiement ${i} - Date`.normalize('NFD').replace(/[\u0300-\u036f]/g, "")];
+              const date = parseImportDate(rawDate) || new Date().toISOString().split('T')[0];
+
+              const rawMode = (row[modeKey] || row[modeKey.toLowerCase()] || 'Espèces').toString().trim();
+              const mode = normalizePaymentMode(rawMode);
+
+              const rawRef = row[refKey] || row[refKey.toLowerCase()] || row[`Paiement ${i} - Reference`] || row[`paiement ${i} - reference`];
+              const usedFallbackReference = !rawRef;
+              const reference = rawRef ? rawRef.toString().trim() : `REC-${matriculeVal}-P${i}`;
+
+              payments.push({ amount, date, mode, reference, usedFallbackReference });
+            }
+          }
+
+          // Backward compatibility for old single payment columns
+          if (payments.length === 0) {
+            const oldAmount = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
+            if (oldAmount > 0) {
+              const oldDate = parseImportDate(row["Date Paiement"] || row.date_paiement || row["Date Payment"] || row.date_payment) || new Date().toISOString().split('T')[0];
+              const oldMode = normalizePaymentMode(row["Mode Paiement"] || row.mode_paiement || 'Espèces');
+              const oldRawRef = row.Reference || row.reference || row.REFERENCE;
+              const usedFallbackReference = !oldRawRef;
+              const oldRef = oldRawRef ? oldRawRef.toString().trim() : `REC-${matriculeVal}-SCOL`;
+              payments.push({ amount: oldAmount, date: oldDate, mode: oldMode, reference: oldRef, usedFallbackReference });
+            }
+          }
 
           parsedRows.push({
             nom, prenom, sexe, classNameStr, sectionStr, nomParent, telephoneParent, emailParent,
-            dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, amountPaidVal, mode, reference
+            dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, usedFallbackMatricule,
+            payments
           });
         }
 
         if (parsedRows.length === 0) {
           alert("Aucune ligne valide trouvée dans le fichier.");
           return;
+        }
+
+        // 1b) Désambiguïsation des matricules de repli en collision. Sans fichier
+        // fournissant de vrai Matricule, plusieurs élèves DISTINCTS partageant le
+        // même nom+prénom généraient le même matricule de repli et s'écrasaient
+        // silencieusement les uns les autres (perte de données sans aucune erreur
+        // remontée) avant même l'envoi réseau. Un seul élève par nom conserve son
+        // matricule de repli exact (réimport idempotent inchangé) ; à partir de la
+        // 2ᵉ occurrence, un suffixe numérique rend chaque élève distinct.
+        let disambiguatedCount = 0;
+        {
+          const seenFallback = new Map<string, number>();
+          for (const r of parsedRows) {
+            if (!r.usedFallbackMatricule) continue;
+            const occurrence = seenFallback.get(r.matriculeVal) || 0;
+            seenFallback.set(r.matriculeVal, occurrence + 1);
+            if (occurrence > 0) {
+              r.matriculeVal = `${r.matriculeVal}-${occurrence + 1}`;
+              // Ne régénère la référence de paiement que si elle était elle-même
+              // auto-générée : une référence fournie explicitement par le client
+              // ne doit jamais être réécrite.
+              r.payments.forEach((p, idx) => {
+                if (p.usedFallbackReference) {
+                  p.reference = `REC-${r.matriculeVal}-P${idx + 1}`;
+                }
+              });
+              disambiguatedCount++;
+            }
+          }
         }
 
         if (isOffline) {
@@ -1047,16 +1144,16 @@ export default function ElevesPage() {
               paiements: [] as any[], notes: []
             };
 
-            if (r.amountPaidVal > 0) {
+            for (const p of r.payments) {
               const localPayId = crypto.randomUUID();
               const paymentData = {
-                eleve_id: studentId, montant: r.amountPaidVal, date: new Date().toISOString().split('T')[0],
-                type_frais: 'Scolarité', mode_paiement: r.mode, statut: 'paid', reference: r.reference
+                eleve_id: studentId, montant: p.amount, date: p.date,
+                type_frais: 'Scolarité', mode_paiement: p.mode, statut: 'paid', reference: p.reference
               };
               await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
               finalStudentObj.paiements.push({
-                id: localPayId, eleveId: studentId, montant: r.amountPaidVal, date: paymentData.date,
-                typeFrais: 'Scolarité', modePaiement: r.mode, statut: 'paid', reference: r.reference
+                id: localPayId, eleveId: studentId, montant: p.amount, date: p.date,
+                typeFrais: 'Scolarité', modePaiement: p.mode, statut: 'paid', reference: p.reference
               });
             }
 
@@ -1091,9 +1188,25 @@ export default function ElevesPage() {
           // (upsert), tout en évitant l'erreur Postgres "ON CONFLICT... cannot
           // affect row a second time" si un même matricule/reference apparaît
           // plusieurs fois dans le même lot upsert.
-          const dedupedRows = Array.from(
-            parsedRows.reduce((map, r) => map.set(r.matriculeVal, r), new Map<string, ParsedImportRow>()).values()
-          );
+          const studentMap = new Map<string, ParsedImportRow>();
+          for (const r of parsedRows) {
+            const existing = studentMap.get(r.matriculeVal);
+            if (existing) {
+              existing.payments.push(...r.payments);
+            } else {
+              studentMap.set(r.matriculeVal, r);
+            }
+          }
+          const dedupedRows = Array.from(studentMap.values());
+
+          // Re-generate references for fallback payments to ensure unique references (P1, P2...)
+          dedupedRows.forEach(r => {
+            r.payments.forEach((p, idx) => {
+              if (p.usedFallbackReference) {
+                p.reference = `REC-${r.matriculeVal}-P${idx + 1}`;
+              }
+            });
+          });
 
           const localClasses = [...classesList];
           const distinctClasses = new Map<string, { classNameStr: string; sectionStr: string }>();
@@ -1157,29 +1270,47 @@ export default function ElevesPage() {
               .select();
             if (createErr) {
               captureError(createErr, { context: "Batch student upsert failed during Excel import" });
-              errorsCount += batch.length;
+              if (!firstBatchErrorMessage) firstBatchErrorMessage = createErr.message;
+              // Repli ligne par ligne : un INSERT multi-lignes est tout ou
+              // rien côté Postgres, donc une seule ligne invalide (ex: date
+              // hors plage) faisait perdre TOUT le lot de 500. On réessaie
+              // chaque ligne individuellement pour ne perdre que les lignes
+              // réellement fautives.
+              for (const row of batch) {
+                const { data: rowData, error: rowErr } = await supabase
+                  .from('eleves')
+                  .upsert([row], { onConflict: 'etablissement_id,matricule' })
+                  .select();
+                if (rowErr) {
+                  errorsCount++;
+                  continue;
+                }
+                (rowData || []).forEach((s: any) => createdStudentsByMatricule.set(s.matricule, s));
+                importedCount += (rowData || []).length;
+              }
               continue;
             }
             (createdData || []).forEach((s: any) => createdStudentsByMatricule.set(s.matricule, s));
             importedCount += (createdData || []).length;
           }
 
-          const paymentPayload = dedupedRows
-            .filter(r => r.amountPaidVal > 0 && createdStudentsByMatricule.has(r.matriculeVal))
-            .reduce((map, r) => {
-              const s = createdStudentsByMatricule.get(r.matriculeVal);
-              map.set(r.reference, {
+          const paymentPayload = new Map<string, any>();
+          dedupedRows.forEach(r => {
+            if (!createdStudentsByMatricule.has(r.matriculeVal)) return;
+            const s = createdStudentsByMatricule.get(r.matriculeVal);
+            r.payments.forEach(p => {
+              paymentPayload.set(p.reference, {
                 eleve_id: s.id,
-                montant: r.amountPaidVal,
-                date: new Date().toISOString().split('T')[0],
+                montant: p.amount,
+                date: p.date,
                 type_frais: 'Scolarité',
-                mode_paiement: r.mode,
+                mode_paiement: p.mode,
                 statut: 'paid',
-                reference: r.reference,
+                reference: p.reference,
                 etablissement_id: etablissementId
               });
-              return map;
-            }, new Map<string, any>());
+            });
+          });
 
           const paymentsByEleveId = new Map<string, any[]>();
           for (const batch of chunkArray(Array.from(paymentPayload.values()), CHUNK_SIZE)) {
@@ -1187,18 +1318,32 @@ export default function ElevesPage() {
               .from('paiements')
               .upsert(batch, { onConflict: 'etablissement_id,reference' })
               .select();
+            const applyPaymentResults = (rows: any[]) => {
+              rows.forEach((p: any) => {
+                const list = paymentsByEleveId.get(p.eleve_id) || [];
+                list.push({
+                  id: p.id, eleveId: p.eleve_id, montant: Number(p.montant), date: p.date,
+                  typeFrais: p.type_frais, modePaiement: p.mode_paiement, statut: p.statut, reference: p.reference
+                });
+                paymentsByEleveId.set(p.eleve_id, list);
+              });
+            };
             if (payErr) {
               captureError(payErr, { context: "Batch payment upsert failed during Excel import" });
+              if (!firstBatchErrorMessage) firstBatchErrorMessage = payErr.message;
+              // Même repli ligne par ligne que pour les élèves : un seul
+              // paiement invalide ne doit pas faire perdre tout le lot.
+              for (const row of batch) {
+                const { data: rowData, error: rowErr } = await supabase
+                  .from('paiements')
+                  .upsert([row], { onConflict: 'etablissement_id,reference' })
+                  .select();
+                if (rowErr) continue;
+                applyPaymentResults(rowData || []);
+              }
               continue;
             }
-            (payCreated || []).forEach((p: any) => {
-              const list = paymentsByEleveId.get(p.eleve_id) || [];
-              list.push({
-                id: p.id, eleveId: p.eleve_id, montant: Number(p.montant), date: p.date,
-                typeFrais: p.type_frais, modePaiement: p.mode_paiement, statut: p.statut, reference: p.reference
-              });
-              paymentsByEleveId.set(p.eleve_id, list);
-            });
+            applyPaymentResults(payCreated || []);
           }
 
           setStudents(prev => {
@@ -1242,7 +1387,12 @@ export default function ElevesPage() {
         }
 
         if (importedCount > 0) refreshServerViews();
-        triggerToast(`Importation réussie : ${importedCount} élèves importés. (${errorsCount} lignes ignorées)`);
+        const notes: string[] = [];
+        if (skippedEmptyRows > 0) notes.push(`${skippedEmptyRows} ligne(s) vide(s) ignorée(s)`);
+        if (disambiguatedCount > 0) notes.push(`${disambiguatedCount} élève(s) sans matricule partageaient un nom identique et ont reçu un identifiant distinct`);
+        if (errorsCount > 0) notes.push(`${errorsCount} ligne(s) en erreur${firstBatchErrorMessage ? ` : ${firstBatchErrorMessage}` : ''}`);
+        const suffix = notes.length > 0 ? ` (${notes.join(' · ')})` : '';
+        triggerToast(`Importation réussie : ${importedCount} élèves importés.${suffix}`);
       } catch (err) {
         captureError(err, { context: "Error parsing excel:" });
         alert("Erreur lors de l'analyse du fichier Excel.");
@@ -1267,9 +1417,18 @@ export default function ElevesPage() {
         'Nom Parent': 'Emmanuel Fouda',
         'Téléphone Parent': '+237 677 88 99 00',
         'Email Parent': 'parent.fouda@gmail.com',
-        'Frais Payes': 150000,
-        'Mode Paiement': 'Espèces',
-        Reference: 'REC-INS-001'
+        'Paiement 1 - Montant': 150000,
+        'Paiement 1 - Date': '2026-09-01',
+        'Paiement 1 - Mode': 'Espèces',
+        'Paiement 1 - Référence': 'REC-INS-001',
+        'Paiement 2 - Montant': 75000,
+        'Paiement 2 - Date': '2026-11-15',
+        'Paiement 2 - Mode': 'MTN Mobile Money',
+        'Paiement 2 - Référence': 'REC-SCOL-002',
+        'Paiement 3 - Montant': 50000,
+        'Paiement 3 - Date': '2027-02-05',
+        'Paiement 3 - Mode': 'Virement Bancaire',
+        'Paiement 3 - Référence': 'REC-SCOL-003'
       }
     ];
     const wb = XLSX.utils.book_new();
@@ -1420,6 +1579,7 @@ export default function ElevesPage() {
               <option value="All">Tous les statuts</option>
               <option value="paid">Payé</option>
               <option value="partial">Partiel</option>
+              <option value="late">En retard</option>
               <option value="unpaid">Non payé</option>
             </select>
 
@@ -1495,15 +1655,18 @@ export default function ElevesPage() {
                       {/* Barre de scolarité */}
                       <td className="px-4 py-3.5">
                         <div className="w-48">
-                          <div className="text-[12px] font-semibold text-ink-soft mb-1.5">
-                            {formatFCFA(totalPaid)} / {totalDue !== null ? formatFCFA(totalDue) : 'Non configuré'}
+                          <div className="text-[12px] font-semibold text-ink-soft mb-1.5 flex justify-between">
+                            <span>{formatFCFA(totalPaid)} / {totalDue !== null ? formatFCFA(totalDue) : 'Non configuré'}</span>
+                            {student.precomputedStats?.resteAPayerEchu !== undefined && student.precomputedStats.resteAPayerEchu > 0 && (
+                              <span className="text-accent text-[10px] font-bold">Arriéré: {formatFCFA(student.precomputedStats.resteAPayerEchu)}</span>
+                            )}
                           </div>
                           <div className="w-full bg-chip h-2 rounded-pill overflow-hidden">
                             <div
                               className="h-full rounded-pill transition-all duration-300"
                               style={{
                                 width: `${progressPct}%`,
-                                background: status === 'paid' ? 'var(--color-green)' : status === 'partial' ? 'var(--color-ink)' : 'var(--color-accent)',
+                                background: status === 'paid' ? 'var(--color-green)' : status === 'partial' ? 'var(--color-ink)' : status === 'late' ? 'var(--color-warning)' : 'var(--color-accent)',
                               }}
                             ></div>
                           </div>
@@ -1515,11 +1678,13 @@ export default function ElevesPage() {
                         <span className={`inline-flex items-center px-3 py-1 rounded-pill text-[12px] font-extrabold ${
                           status === 'paid'
                             ? 'bg-green-bg text-green'
+                            : status === 'late'
+                            ? 'bg-warning/10 text-warning-dark'
                             : status === 'partial'
                             ? 'bg-chip text-ink-soft'
                             : 'bg-red-bg text-accent'
                         }`}>
-                          {status === 'paid' ? 'Payé' : status === 'partial' ? 'Partiel' : 'Non payé'}
+                          {status === 'paid' ? 'Payé' : status === 'late' ? 'En retard' : status === 'partial' ? 'Partiel' : 'Non payé'}
                         </span>
                       </td>
 

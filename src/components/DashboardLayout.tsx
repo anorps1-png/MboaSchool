@@ -402,6 +402,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { name: 'Tableau de bord', href: '/dashboard', icon: DashboardIcon, key: 'dashboard' },
     { name: 'Sections', href: '/sections', icon: DashboardIcon, key: 'sections' },
     { name: 'Classes', href: '/classes', icon: StudentsIcon, key: 'classes' },
+    { name: 'Emploi du temps', href: '/emploi-du-temps', icon: TimetableIcon, key: 'emploi-du-temps' },
     { name: 'Élèves', href: '/eleves', icon: StudentsIcon, key: 'eleves' },
     { name: 'Communauté & QHSE', href: '/parents', icon: UsersIcon, key: 'parents' },
     { name: 'Enseignants', href: '/enseignants', icon: TeachersIcon, key: 'enseignants' },
@@ -431,10 +432,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       return true;
     }
     if (roleLower === 'enseignant') {
-      return ['/dashboard', '/classes', '/eleves', '/evaluations'].includes(item.href);
+      return ['/dashboard', '/classes', '/emploi-du-temps', '/eleves', '/evaluations'].includes(item.href);
     }
     if (roleLower === 'parent') {
-      return ['/dashboard', '/eleves', '/parents'].includes(item.href);
+      return ['/dashboard', '/emploi-du-temps', '/eleves', '/parents'].includes(item.href);
     }
     return item.href === '/dashboard';
   });
@@ -458,10 +459,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       return true;
     }
     if (roleLower === 'enseignant') {
-      return ['/dashboard', '/classes', '/eleves', '/evaluations'].some(path => href === path || href.startsWith(path + '/'));
+      return ['/dashboard', '/classes', '/emploi-du-temps', '/eleves', '/evaluations'].some(path => href === path || href.startsWith(path + '/'));
     }
     if (roleLower === 'parent') {
-      return ['/dashboard', '/eleves', '/parents'].some(path => href === path || href.startsWith(path + '/'));
+      return ['/dashboard', '/emploi-du-temps', '/eleves', '/parents'].some(path => href === path || href.startsWith(path + '/'));
     }
     return href === '/dashboard';
   };
