@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { getStudentsPerClass } from '@/lib/queries/classes';
+import TranchesConfig from '@/components/settings/TranchesConfig';
 
 interface SupabaseClasse {
   id: string;
@@ -234,6 +235,19 @@ export default function ClassesPage() {
           + Nouvelle Classe
         </button>
       </div>
+
+      {/* Tranches de scolarité de l'année active — les pourcentages configurés
+          ici s'appliquent au prix de chaque classe pour déterminer le montant
+          de chaque tranche (voir Finance > Rapport de suivi des tranches). */}
+      {etablissementId && (
+        <div className="bg-surface p-6 rounded-card border border-border shadow-sm">
+          <h2 className="text-sm font-extrabold text-ink uppercase tracking-wider">Tranches de Scolarité</h2>
+          <p className="text-xs text-ink-soft mt-1">
+            Ces tranches s'appliquent à toutes les classes de l'année scolaire active — les pourcentages sont calculés sur le prix de chaque classe.
+          </p>
+          <TranchesConfig etablissementId={etablissementId} anneeScolaireId={academicYearId || ''} />
+        </div>
+      )}
 
       {/* Contenu */}
       {isLoading ? (

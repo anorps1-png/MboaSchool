@@ -15,7 +15,6 @@ interface TrancheConfig {
   pourcentage: number;
   ordre: number;
   dateLimite: string;
-  cumulativePct: number;
 }
 
 interface TrancheStatus {
@@ -23,7 +22,7 @@ interface TrancheStatus {
   nom: string;
   paid: boolean;
   overdue: boolean;
-  cumulativeAmount: number;
+  ownAmount: number;
   dateLimite: string;
 }
 
@@ -85,25 +84,20 @@ export default function RapportTranchesPage() {
 
           if (tranchesErr) throw tranchesErr;
 
-          let cumul = 0;
-          trancheConfigsLoaded = (tranchesData || []).map((t: any) => {
-            cumul += Number(t.pourcentage);
-            return {
-              id: t.id,
-              nom: t.nom,
-              pourcentage: Number(t.pourcentage),
-              ordre: t.ordre,
-              dateLimite: t.date_limite,
-              cumulativePct: cumul,
-            };
-          });
+          trancheConfigsLoaded = (tranchesData || []).map((t: any) => ({
+            id: t.id,
+            nom: t.nom,
+            pourcentage: Number(t.pourcentage),
+            ordre: t.ordre,
+            dateLimite: t.date_limite,
+          }));
         }
         setTrancheConfigs(trancheConfigsLoaded);
 
         // 2. Élèves + paiements réels
         let query = supabase
           .from('eleves')
-          .select('*, classes(id, nom, prix, niveaus:niveaux_classes(sections(nom))), paiements(id, montant, statut, type_frais)')
+          .select('*, classes(id, nom, prix, niveaus:niveaux_classes(sections(nom))), paiements(id, montant, statut, type_frais, tranche_id)')
           .eq('etablissement_id', etablissementId);
 
         if (academicYearId) {
@@ -131,16 +125,39 @@ export default function RapportTranchesPage() {
             );
             const totalPaid = paidPayments.reduce((sum: number, p: any) => sum + Number(p.montant), 0);
 
+            // Statut par tranche : priorité aux paiements explicitement
+            // rattachés à la tranche (tranche_id, choisi lors de l'encaissement).
+            // Les paiements Scolarité non rattachés (historique antérieur à
+            // cette fonctionnalité) comblent ensuite, dans l'ordre, les
+            // tranches encore incomplètes — pour ne pas casser les données
+            // déjà saisies avant que le rattachement n'existe.
+            const taggedAmountByTranche = new Map<string, number>();
+            let untaggedPaid = 0;
+            paidPayments.forEach((p: any) => {
+              if (p.tranche_id) {
+                taggedAmountByTranche.set(p.tranche_id, (taggedAmountByTranche.get(p.tranche_id) || 0) + Number(p.montant));
+              } else {
+                untaggedPaid += Number(p.montant);
+              }
+            });
+
+            let remainingUntagged = untaggedPaid;
             const tranches: TrancheStatus[] = trancheConfigsLoaded.map((tc) => {
-              const cumulativeAmount = Math.round(totalDue * tc.cumulativePct / 100);
-              const paid = totalPaid >= cumulativeAmount;
+              const ownAmount = Math.round(totalDue * tc.pourcentage / 100);
+              let covered = taggedAmountByTranche.get(tc.id) || 0;
+              if (covered < ownAmount && remainingUntagged > 0) {
+                const fill = Math.min(ownAmount - covered, remainingUntagged);
+                covered += fill;
+                remainingUntagged -= fill;
+              }
+              const paid = covered >= ownAmount;
               const overdue = !paid && !!tc.dateLimite && new Date(tc.dateLimite) < today;
               return {
                 trancheId: tc.id,
                 nom: tc.nom,
                 paid,
                 overdue,
-                cumulativeAmount,
+                ownAmount,
                 dateLimite: tc.dateLimite,
               };
             });
