@@ -10,6 +10,7 @@ import {
 } from '@/components/icons';
 import { Eleve, Paiement, NoteMatiere, TransactionPaiement, Classe, DisciplineIncident } from '@/types/domain';
 import { createClient } from '@/lib/supabase/client';
+import { addPayment, updatePayment, softDeletePayment } from '@/lib/queries/eleves';
 import { useEtablissement } from '@/contexts/etablissement-context';
 
 interface PageProps {
@@ -336,17 +337,17 @@ export default function FicheElevePage({ params }: PageProps) {
   };
 
   const handleDeletePayment = async (payId: string) => {
-    if (!confirm("Voulez-vous vraiment supprimer ce paiement ? Cette action est irréversible.")) {
+    if (!confirm("Voulez-vous vraiment annuler ce paiement ? Il sera retiré des totaux et des rapports, mais restera récupérable.")) {
       return;
     }
 
-    const { error } = await supabase
-      .from('paiements')
-      .delete()
-      .eq('id', payId);
-
-    if (error) {
-      alert("Erreur lors de la suppression du paiement: " + error.message);
+    try {
+      // Soft-delete : le paiement est masqué et restaurable, jamais détruit.
+      // Un encaissement effacé physiquement rendait tout rapprochement
+      // comptable faux sans laisser de trace.
+      await softDeletePayment(payId);
+    } catch (err: any) {
+      alert("Erreur lors de l'annulation du paiement: " + err.message);
       return;
     }
 
@@ -358,7 +359,7 @@ export default function FicheElevePage({ params }: PageProps) {
       });
     }
 
-    triggerToast("Paiement supprimé avec succès.");
+    triggerToast("Paiement annulé.");
   };
 
   // Handle adding payment
@@ -367,27 +368,26 @@ export default function FicheElevePage({ params }: PageProps) {
     if (!student) return;
 
     const amountVal = Number(payAmount);
-    if (!amountVal || amountVal <= 0) {
-      alert("Veuillez saisir un montant valide.");
-      return;
-    }
-
     const reference = `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const { data: payData, error } = await supabase.from('paiements').insert([{
-      eleve_id: student.id,
-      montant: amountVal,
-      date: new Date().toISOString().split('T')[0],
-      type_frais: payType,
-      statut: 'paid',
-      reference: reference,
-      mode_paiement: payMethod,
-      etablissement_id: etablissementId,
-      tranche_id: payType === 'Scolarité' && payTrancheId ? payTrancheId : null
-    }]).select();
-
-    if (error) {
-      alert("Erreur lors de l'enregistrement du paiement: " + error.message);
+    // addPayment applique paiementSchema (montant positif et fini, date et
+    // référence obligatoires, mode et type en enum). L'insertion directe
+    // précédente ne vérifiait que montant > 0, ce qui laissait passer des
+    // montants aberrants et des références vides jusqu'en base.
+    let payData;
+    try {
+      payData = await addPayment({
+        eleve_id: student.id,
+        montant: amountVal,
+        date: new Date().toISOString().split('T')[0],
+        type_frais: payType,
+        statut: 'paid',
+        reference: reference,
+        mode_paiement: payMethod,
+        tranche_id: payType === 'Scolarité' && payTrancheId ? payTrancheId : null
+      }, etablissementId!);
+    } catch (err: any) {
+      alert("Erreur lors de l'enregistrement du paiement: " + err.message);
       return;
     }
 
@@ -427,27 +427,22 @@ export default function FicheElevePage({ params }: PageProps) {
     if (!student || !editingPaymentId) return;
 
     const amountVal = Number(payAmount);
-    if (!amountVal || amountVal <= 0) {
-      alert("Veuillez saisir un montant valide.");
-      return;
-    }
-
     const trancheIdToSave = payType === 'Scolarité' && payTrancheId ? payTrancheId : null;
 
-    const { error } = await supabase
-      .from('paiements')
-      .update({
+    // Même validation Zod qu'à la création : l'édition acceptait auparavant
+    // une date ou une référence vides.
+    try {
+      await updatePayment(editingPaymentId, {
+        eleve_id: student.id,
         montant: amountVal,
         type_frais: payType,
         mode_paiement: payMethod,
         date: payDate,
         reference: payReference,
         tranche_id: trancheIdToSave
-      })
-      .eq('id', editingPaymentId);
-
-    if (error) {
-      alert("Erreur lors de la modification du paiement: " + error.message);
+      });
+    } catch (err: any) {
+      alert("Erreur lors de la modification du paiement: " + err.message);
       return;
     }
 

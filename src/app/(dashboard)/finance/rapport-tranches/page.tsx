@@ -115,7 +115,12 @@ export default function RapportTranchesPage() {
             const classObj = e.classes || {};
             const sectionObj = classObj.niveaus?.sections || {};
 
-            const totalDue = Number(classObj.prix) || 150000;
+            // Prix de classe non configuré => 0 dû, jamais un montant inventé.
+            // Aligné sur la fiche élève (« Non configuré »), le dashboard et
+            // les RPC serveur : quatre écrans affichaient auparavant quatre
+            // chiffres différents (200 000, 150 000, 0, « Non configuré »)
+            // pour le même élève.
+            const totalDue = Number(classObj.prix) || 0;
 
             // Seuls les règlements de Scolarité comptent pour la progression
             // des tranches — un paiement d'Inscription ou de Cantine ne doit

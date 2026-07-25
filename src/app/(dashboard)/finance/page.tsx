@@ -147,11 +147,11 @@ export default function FinancePage() {
   const [serverBalances, setServerBalances] = useState<Record<string, AccountBalance> | null>(null);
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
-      getFinanceAccountBalances(etablissementId)
+      getFinanceAccountBalances(etablissementId, academicYearId || null)
         .then(setServerBalances)
         .catch(() => setServerBalances(null));
     }
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // CA collecté par classe, calculé en base (get_finance_ca_par_classe), pour
   // getClassProductivity/getSectionProductivity. Ne dépend pas des écritures
@@ -159,11 +159,11 @@ export default function FinancePage() {
   const [serverCaParClasse, setServerCaParClasse] = useState<Record<string, number> | null>(null);
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
-      getFinanceCaParClasse(etablissementId)
+      getFinanceCaParClasse(etablissementId, academicYearId || null)
         .then(setServerCaParClasse)
         .catch(() => setServerCaParClasse(null));
     }
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // Rapprochement de trésorerie quotidien, calculé en base
   // (get_finance_reconciliation_quotidienne). Même remarque que ci-dessus :
@@ -171,11 +171,11 @@ export default function FinancePage() {
   const [serverReconciliation, setServerReconciliation] = useState<ReconciliationJour[] | null>(null);
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
-      getFinanceReconciliationQuotidienne(etablissementId, 7)
+      getFinanceReconciliationQuotidienne(etablissementId, 7, academicYearId || null)
         .then(setServerReconciliation)
         .catch(() => setServerReconciliation(null));
     }
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -660,9 +660,12 @@ export default function FinancePage() {
   // Trésorerie perçue (real cash collections from student payments) :
   // RPC serveur si disponible (évite de dépendre du fetch complet students),
   // sinon repli sur le calcul client historique.
+  // Scolarité uniquement, comme le serveur (get_dashboard_stats) : le taux de
+  // recouvrement ci-dessous compare ce montant au CA constaté (compte 706),
+  // qui ne couvre que la scolarité.
   const totalTresoreriePercue = serverStats?.total_paid ?? students.reduce((sum, student) => {
     return sum + (student.paiements || [])
-      .filter(p => p.statut === 'paid')
+      .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
       .reduce((s, p) => s + p.montant, 0);
   }, 0);
 
@@ -734,7 +737,9 @@ export default function FinancePage() {
   const totalArrieresEchus2026 = students.reduce((sum, s) => {
     const matchedClass = classes.find((c: any) => c.id === s.classeId || c.nom === s.classeId);
     const classPrice = matchedClass ? Number(matchedClass.prix || 0) : 0;
-    const totalPaid = (s.paiements || []).filter(p => p.statut === 'paid').reduce((acc, p) => acc + p.montant, 0);
+    // Seule la scolarité amortit l'échéancier de tranches (même convention que
+    // la fiche élève et get_students_paginated).
+    const totalPaid = (s.paiements || []).filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité').reduce((acc, p) => acc + p.montant, 0);
 
     const studentTranches = tranches.filter(t => t.annee_scolaire_id === s.anneeScolaireId);
     const tranchesEchues = studentTranches.filter(t => t.date_limite < currentDate);

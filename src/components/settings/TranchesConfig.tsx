@@ -87,10 +87,32 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Voulez-vous vraiment supprimer cette tranche ?')) return;
     setSaving(true);
     try {
       const supabase = createClient();
+
+      // La FK paiements.tranche_id est en ON DELETE SET NULL : supprimer une
+      // tranche détagge silencieusement tous les paiements qui y sont
+      // rattachés, et le rapport de tranches les réaffecte ensuite dans
+      // l'ordre — des familles à jour repassent « en retard ». On bloque donc
+      // la suppression d'une tranche référencée.
+      const { count, error: countError } = await supabase
+        .from('paiements')
+        .select('id', { count: 'exact', head: true })
+        .eq('tranche_id', id);
+      if (countError) throw countError;
+
+      if ((count ?? 0) > 0) {
+        alert(
+          `Impossible de supprimer cette tranche : ${count} paiement(s) y sont rattachés. ` +
+          `Modifiez la tranche (nom, pourcentage, date limite) au lieu de la supprimer, ` +
+          `ou réaffectez d'abord ces paiements depuis les fiches élèves.`
+        );
+        return;
+      }
+
+      if (!confirm('Voulez-vous vraiment supprimer cette tranche ?')) return;
+
       const { error } = await supabase.from('tranches_scolarite').delete().eq('id', id);
       if (error) throw error;
       await fetchTranches();

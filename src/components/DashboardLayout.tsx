@@ -163,9 +163,36 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     } catch (err) {
       captureError(err, { context: "Error signing out:" });
     }
-    // Always clear cookies & local storage
+
+    // Purge des caches du service worker : sans elle, les réponses mises en
+    // cache (pages du dashboard, payloads RSC) survivaient à la déconnexion et
+    // restaient servables hors réseau à l'utilisateur suivant du même poste.
+    try {
+      if (typeof caches !== 'undefined') {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map((k) => caches.delete(k)));
+      }
+    } catch (err) {
+      captureError(err, { context: 'Error clearing service worker caches:' });
+    }
+
     document.cookie = "mboaschool_offline_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    localStorage.removeItem('mboaschool_offline_session');
+    // Toutes les clés locales de session et de données, pas seulement la
+    // session hors-ligne. Exception desktop : mboaschool_profiles porte les
+    // hashes PBKDF2 qui permettent la connexion hors-ligne sur le poste de
+    // l'école — les purger rendrait l'app inutilisable sans réseau.
+    try {
+      const preserve = isElectron ? ['mboaschool_profiles'] : [];
+      Object.keys(localStorage)
+        .filter((k) =>
+          (k.startsWith('mboaschool_') || k.startsWith('offline_cache_')) &&
+          !preserve.includes(k)
+        )
+        .forEach((k) => localStorage.removeItem(k));
+    } catch (err) {
+      captureError(err, { context: 'Error clearing local storage:' });
+    }
+
     setEtablissementId(null);
     window.location.href = '/login';
   };

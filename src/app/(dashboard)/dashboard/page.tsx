@@ -203,12 +203,16 @@ export default function Dashboard() {
     }, 0);
   }, [students, filteredStudentsForExpected, classesList, dateFilterType]);
 
-  // Total paid in the selected period (all payments received during the period)
+  // Frais de scolarité perçus sur la période. Seuls les paiements 'Scolarité'
+  // comptent : totalExpected (prix des classes) ne couvre que la scolarité, et
+  // recoveryRate/totalPending comparent les deux. Compter l'inscription ou le
+  // transport ici gonflait le recouvrement affiché (même convention que la
+  // fiche élève et get_students_paginated, commit 4fc589a).
   const totalPaid = useMemo(() => {
     return students.reduce((sum, student) => {
       const studentPaid = (student.paiements || [])
         .filter(p => {
-          if (p.statut !== 'paid') return false;
+          if (p.statut !== 'paid' || p.typeFrais !== 'Scolarité') return false;
           if (dateFilterType === 'all') return true;
           const pd = parseLocalDate(p.date);
           return pd && pd >= dateRange.start && pd <= dateRange.end;
@@ -223,7 +227,7 @@ export default function Dashboard() {
     return filteredStudentsForExpected.reduce((sum, student) => {
       const studentPaid = (student.paiements || [])
         .filter(p => {
-          if (p.statut !== 'paid') return false;
+          if (p.statut !== 'paid' || p.typeFrais !== 'Scolarité') return false;
           if (dateFilterType === 'all') return true;
           const pd = parseLocalDate(p.date);
           return pd && pd >= dateRange.start && pd <= dateRange.end;
@@ -238,7 +242,7 @@ export default function Dashboard() {
     if (dateFilterType === 'all') {
       const allPaid = students.reduce((sum, student) => {
         const studentPaid = (student.paiements || [])
-          .filter(p => p.statut === 'paid')
+          .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
           .reduce((s, p) => s + p.montant, 0);
         return sum + studentPaid;
       }, 0);
@@ -287,7 +291,7 @@ export default function Dashboard() {
       const paid = studentsAllInClass.reduce((sum, s) => {
         const studentPaidInPeriod = (s.paiements || [])
           .filter(p => {
-            if (p.statut !== 'paid') return false;
+            if (p.statut !== 'paid' || p.typeFrais !== 'Scolarité') return false;
             if (dateFilterType === 'all') return true;
             const pd = parseLocalDate(p.date);
             return pd && pd >= dateRange.start && pd <= dateRange.end;
@@ -300,7 +304,7 @@ export default function Dashboard() {
       const paidByNewStudentsInPeriod = studentsInClass.reduce((sum, s) => {
         const studentPaidInPeriod = (s.paiements || [])
           .filter(p => {
-            if (p.statut !== 'paid') return false;
+            if (p.statut !== 'paid' || p.typeFrais !== 'Scolarité') return false;
             if (dateFilterType === 'all') return true;
             const pd = parseLocalDate(p.date);
             return pd && pd >= dateRange.start && pd <= dateRange.end;
