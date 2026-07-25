@@ -58,6 +58,15 @@ export default function ElevesPage() {
   const [matricule, setMatricule] = useState('');
   const [initialPayment, setInitialPayment] = useState('');
 
+  // Re-enrollment modal states
+  const [showReenrollModal, setShowReenrollModal] = useState(false);
+  const [reenrollSearch, setReenrollSearch] = useState('');
+  const [selectedReenrollStudent, setSelectedReenrollStudent] = useState<Eleve | null>(null);
+  const [reenrollClassId, setReenrollClassId] = useState('');
+  const [reenrollYearId, setReenrollYearId] = useState('');
+  const [reenrollInitialPayment, setReenrollInitialPayment] = useState('');
+  const [availableYears, setAvailableYears] = useState<any[]>([]);
+
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -84,22 +93,38 @@ export default function ElevesPage() {
   // Load from Supabase
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
-      const fetchClasses = async () => {
+      const fetchClassesAndYears = async () => {
         try {
           const data = await getClasses(etablissementId);
           setClassesList(data);
           if (data.length > 0) {
             setClassName(data[0].id);
+            setReenrollClassId(data[0].id);
           }
         } catch (error) {
           captureError(error, { context: "Error fetching classes:" });
           setClassesList([]);
         }
+
+        try {
+          const supabase = createClient();
+          const { data: years } = await supabase
+            .from('annees_scolaires')
+            .select('*')
+            .eq('etablissement_id', etablissementId)
+            .order('nom', { ascending: false });
+          if (years && years.length > 0) {
+            setAvailableYears(years);
+            setReenrollYearId(academicYearId || years[0].id);
+          }
+        } catch (err) {
+          captureError(err, { context: "Error fetching academic years:" });
+        }
       };
 
-      fetchClasses();
+      fetchClassesAndYears();
     }
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // Fetch complet des élèves (avec historique de paiements) — nécessaire
   // uniquement en repli client (tableau serveur paginé indisponible/hors-ligne)
@@ -553,6 +578,128 @@ export default function ElevesPage() {
 
     setShowAddModal(false);
     triggerToast(`L'élève ${lastName} ${firstName} a été inscrit avec succès dans Supabase.`);
+  };
+
+  const handleReenrollStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReenrollStudent) {
+      alert("Veuillez sélectionner un élève à réinscrire.");
+      return;
+    }
+    if (!reenrollClassId) {
+      alert("Veuillez sélectionner la nouvelle classe d'affectation.");
+      return;
+    }
+    const targetYearId = reenrollYearId || academicYearId;
+    if (!targetYearId) {
+      alert("Veuillez déterminer l'année scolaire de destination.");
+      return;
+    }
+
+    const reenrollData = {
+      matricule: selectedReenrollStudent.matricule,
+      nom: selectedReenrollStudent.nom,
+      prenom: selectedReenrollStudent.prenom,
+      sexe: selectedReenrollStudent.sexe,
+      classe_id: reenrollClassId,
+      annee_scolaire_id: targetYearId,
+      nom_parent: selectedReenrollStudent.nomParent,
+      telephone_parent: selectedReenrollStudent.telephoneParent,
+      email_parent: selectedReenrollStudent.emailParent || null,
+      date_naissance: selectedReenrollStudent.dateNaissance || null,
+      lieu_naissance: selectedReenrollStudent.lieuNaissance || null,
+      date_inscription: new Date().toISOString().split('T')[0],
+      statut: 'actif'
+    };
+
+    const isOfflineMode = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
+
+    if (isOfflineMode) {
+      const tempId = crypto.randomUUID();
+      await SyncManager.addToQueue('eleves', 'insert', { ...reenrollData, id: tempId });
+      const localStudent = {
+        id: tempId,
+        ...reenrollData,
+        classeId: reenrollClassId,
+        anneeScolaireId: targetYearId,
+        dateNaissance: reenrollData.date_naissance,
+        lieuNaissance: reenrollData.lieu_naissance,
+        nomParent: reenrollData.nom_parent,
+        telephoneParent: reenrollData.telephone_parent,
+        emailParent: reenrollData.email_parent,
+        paiements: [],
+        notes: []
+      };
+      setStudents([localStudent as any, ...students]);
+      setShowReenrollModal(false);
+      setSelectedReenrollStudent(null);
+      setReenrollInitialPayment('');
+      triggerToast(`Hors-ligne : L'élève ${selectedReenrollStudent.nom} a été réinscrit.`);
+      return;
+    }
+
+    try {
+      const data = await createStudent(reenrollData, etablissementId!);
+      if (data && data.length > 0) {
+        const d = data[0];
+        let newPayObj = null;
+        const initPay = Number(reenrollInitialPayment);
+        if (initPay > 0) {
+          const reference = `REC-REINS-${Date.now()}`;
+          const payPayload = {
+            eleve_id: d.id,
+            montant: initPay,
+            date: new Date().toISOString().split('T')[0],
+            type_frais: 'Scolarité',
+            mode_paiement: 'Espèces',
+            statut: 'paid',
+            reference: reference
+          };
+          const payRes = await addPayment(payPayload, etablissementId!);
+          if (payRes && payRes.length > 0) {
+            const pd = payRes[0];
+            newPayObj = {
+              id: pd.id,
+              eleveId: pd.eleve_id,
+              montant: Number(pd.montant),
+              date: pd.date,
+              typeFrais: pd.type_frais,
+              statut: pd.statut,
+              reference: pd.reference,
+              modePaiement: pd.mode_paiement
+            };
+          }
+        }
+
+        const newStudentObj: any = {
+          id: d.id,
+          matricule: d.matricule,
+          prenom: d.prenom,
+          nom: d.nom,
+          sexe: d.sexe,
+          classeId: reenrollClassId,
+          anneeScolaireId: d.annee_scolaire_id,
+          nomParent: d.nom_parent,
+          telephoneParent: d.telephone_parent,
+          emailParent: d.email_parent || 'N/A',
+          dateNaissance: d.date_naissance,
+          lieuNaissance: d.lieu_naissance,
+          dateInscription: d.date_inscription,
+          statut: d.statut,
+          paiements: newPayObj ? [newPayObj] : [],
+          notes: []
+        };
+
+        setStudents([newStudentObj, ...students]);
+        refreshServerViews();
+        setShowReenrollModal(false);
+        setSelectedReenrollStudent(null);
+        setReenrollInitialPayment('');
+        triggerToast(`Réinscription réussie pour ${selectedReenrollStudent.nom} ${selectedReenrollStudent.prenom} (Matricule: ${d.matricule}) !`);
+      }
+    } catch (err: any) {
+      alert("Erreur lors de la réinscription : " + err.message);
+    }
   };
 
   const handleDeleteStudent = async (id: string, name: string, event: React.MouseEvent) => {
@@ -1184,6 +1331,18 @@ export default function ElevesPage() {
             <DownloadIcon size={14} />
             Exporter
           </button>
+          <Link
+            href="/finance/rapport-tranches"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-transparent border border-outline text-ink-soft hover:border-ink hover:text-ink text-[13px] font-bold rounded-control transition-colors cursor-pointer"
+          >
+            📊 Rapport Tranches
+          </Link>
+          <button
+            onClick={() => setShowReenrollModal(true)}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-chip hover:bg-chip-hover text-ink text-[13px] font-extrabold rounded-control transition-colors cursor-pointer border border-border"
+          >
+            🔄 Réinscrire un élève
+          </button>
           <button
             onClick={() => setShowAddModal(true)}
             className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 bg-accent hover:bg-accent-hover text-cream text-sm font-extrabold rounded-control shadow-cta transition-colors cursor-pointer"
@@ -1628,6 +1787,186 @@ export default function ElevesPage() {
                   className="flex-1 px-4 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-[13px] font-extrabold shadow-cta transition-colors"
                 >
                   Inscrire
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Réinscription d'un Élève Existant */}
+      {showReenrollModal && (
+        <div className="fixed inset-0 bg-ink/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-up">
+          <div className="bg-surface rounded-card border border-border max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-login">
+            <div className="flex justify-between items-start mb-5 pb-3 border-b border-border">
+              <div>
+                <h3 className="text-xl font-extrabold text-ink">🔄 Réinscrire un élève de l&apos;année précédente</h3>
+                <p className="text-xs text-ink-soft mt-1">Le matricule et l&apos;état civil sont conservés intacts d&apos;une année sur l&apos;autre.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowReenrollModal(false);
+                  setSelectedReenrollStudent(null);
+                  setReenrollSearch('');
+                }}
+                className="text-ink-faint hover:text-ink text-xl font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleReenrollStudent} className="space-y-4">
+              {/* Recherche de l'élève existant */}
+              <div>
+                <label className="block text-xs font-bold text-ink-soft mb-1.5">Rechercher l&apos;élève dans la base de l&apos;école *</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={reenrollSearch}
+                    onChange={(e) => setReenrollSearch(e.target.value)}
+                    placeholder="Tapez le nom, prénom ou matricule..."
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink outline-none focus:border-accent"
+                  />
+                  {reenrollSearch && !selectedReenrollStudent && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border rounded-control shadow-lg max-h-48 overflow-y-auto z-50">
+                      {students
+                        .filter(s =>
+                          `${s.nom || ''} ${s.prenom || ''} ${s.matricule || ''}`
+                            .toLowerCase()
+                            .includes(reenrollSearch.toLowerCase())
+                        )
+                        .slice(0, 10)
+                        .map((s) => (
+                          <div
+                            key={s.id}
+                            onClick={() => {
+                              setSelectedReenrollStudent(s);
+                              setReenrollSearch(`${s.nom} ${s.prenom} (${s.matricule})`);
+                            }}
+                            className="px-4 py-2.5 hover:bg-chip cursor-pointer border-b border-border-row last:border-b-0 flex items-center justify-between"
+                          >
+                            <div>
+                              <span className="font-bold text-sm text-ink">{s.nom} {s.prenom}</span>
+                              <span className="text-xs text-ink-soft block">Parent : {s.nomParent || 'N/A'}</span>
+                            </div>
+                            <span className="text-xs font-mono font-bold text-ink-faint bg-bg px-2 py-1 rounded">
+                              {s.matricule}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Fiche d'état civil (lecture seule quand sélectionné) */}
+              {selectedReenrollStudent ? (
+                <div className="bg-bg p-4 rounded-control border border-border space-y-3">
+                  <div className="flex items-center justify-between border-b border-border pb-2">
+                    <span className="text-xs font-extrabold text-ink uppercase tracking-wider">Fiche Élève (Éléments Inchangés)</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedReenrollStudent(null);
+                        setReenrollSearch('');
+                      }}
+                      className="text-[11px] text-accent font-bold hover:underline"
+                    >
+                      Changer d&apos;élève
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-ink-faint block">Matricule :</span>
+                      <span className="font-mono font-bold text-ink">{selectedReenrollStudent.matricule}</span>
+                    </div>
+                    <div>
+                      <span className="text-ink-faint block">Nom & Prénom :</span>
+                      <span className="font-bold text-ink">{selectedReenrollStudent.nom} {selectedReenrollStudent.prenom}</span>
+                    </div>
+                    <div>
+                      <span className="text-ink-faint block">Genre :</span>
+                      <span className="font-bold text-ink">{selectedReenrollStudent.sexe === 'M' ? 'Masculin' : 'Féminin'}</span>
+                    </div>
+                    <div>
+                      <span className="text-ink-faint block">Né(e) le :</span>
+                      <span className="font-semibold text-ink">{selectedReenrollStudent.dateNaissance || 'Non renseigné'} à {selectedReenrollStudent.lieuNaissance || '—'}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-ink-faint block">Parent / Tuteur :</span>
+                      <span className="font-semibold text-ink">{selectedReenrollStudent.nomParent || 'N/A'} ({selectedReenrollStudent.telephoneParent || 'N/A'})</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-bg border border-dashed border-border rounded-control text-center text-xs text-ink-faint italic">
+                  Sélectionnez un élève ci-dessus pour afficher sa fiche d&apos;état civil verrouillée.
+                </div>
+              )}
+
+              {/* Choix de la nouvelle classe et de l'année scolaire */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Nouvelle Classe *</label>
+                  <select
+                    value={reenrollClassId}
+                    onChange={(e) => setReenrollClassId(e.target.value)}
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink outline-none focus:border-accent font-semibold"
+                    required
+                  >
+                    <option value="">Sélectionner une classe</option>
+                    {classesList.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nom}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-ink-soft mb-1.5">Année Scolaire de Destination *</label>
+                  <select
+                    value={reenrollYearId}
+                    onChange={(e) => setReenrollYearId(e.target.value)}
+                    className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink outline-none focus:border-accent font-semibold"
+                    required
+                  >
+                    {availableYears.map((y) => (
+                      <option key={y.id} value={y.id}>Année {y.nom}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-ink-soft mb-1.5">Montant payé à la réinscription (FCFA)</label>
+                <input
+                  type="number"
+                  value={reenrollInitialPayment}
+                  onChange={(e) => setReenrollInitialPayment(e.target.value)}
+                  className="w-full box-border px-3.5 py-2.5 bg-bg border border-border rounded-control text-sm text-ink outline-none focus:border-accent"
+                  placeholder="ex: 50000 (Optionnel)"
+                  min="0"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-border-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowReenrollModal(false);
+                    setSelectedReenrollStudent(null);
+                    setReenrollSearch('');
+                  }}
+                  className="flex-1 px-4 py-2.5 border border-outline text-ink-soft hover:border-ink hover:text-ink rounded-control text-[13px] font-bold transition-colors cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={!selectedReenrollStudent}
+                  className="flex-1 px-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-cream rounded-control text-[13px] font-extrabold shadow-cta transition-colors cursor-pointer"
+                >
+                  Valider la Réinscription
                 </button>
               </div>
             </form>

@@ -40,23 +40,34 @@ export default function SettingsPage() {
   const [newYearEnd, setNewYearEnd] = useState('');
 
   useEffect(() => {
-    if (/^\d{4}\/\d{4}$/.test(newYearName)) {
-      const parts = newYearName.split('/');
-      setNewYearStart(`${parts[0]}-09-01`);
-      setNewYearEnd(`${parts[1]}-06-30`);
+    if (newYearName) {
+      const yearsMatch = newYearName.match(/\d{4}/g);
+      if (yearsMatch && yearsMatch.length >= 1) {
+        const startY = yearsMatch[0];
+        const endY = yearsMatch[1] || String(Number(startY) + 1);
+        setNewYearStart(`${startY}-09-01`);
+        setNewYearEnd(`${endY}-06-30`);
+      }
     }
   }, [newYearName]);
 
   const handleCreateYear = async (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!newYearName) return;
+    if (!newYearName.trim()) return;
 
     const supabase = createClient();
     try {
+      const yearsMatch = newYearName.match(/\d{4}/g);
+      const startY = yearsMatch && yearsMatch[0] ? yearsMatch[0] : new Date().getFullYear().toString();
+      const endY = yearsMatch && yearsMatch[1] ? yearsMatch[1] : (Number(startY) + 1).toString();
+
+      const startDateVal = newYearStart || `${startY}-09-01`;
+      const endDateVal = newYearEnd || `${endY}-06-30`;
+
       const yearPayload = {
-        nom: newYearName,
-        date_debut: newYearStart || `${newYearName.split('/')[0]}-09-01`,
-        date_fin: newYearEnd || `${newYearName.split('/')[1]}-06-30`,
+        nom: newYearName.trim(),
+        date_debut: startDateVal,
+        date_fin: endDateVal,
         etablissement_id: etablissementId,
       };
 
@@ -74,9 +85,12 @@ export default function SettingsPage() {
         setShowAddYearForm(false);
         setNewYearName('');
         
-        // Dispatch event so that DashboardLayout updates the global years selector immediately
+        // Also update local storage active year cache
         if (typeof window !== 'undefined') {
+          localStorage.setItem('mboaschool_active_year_id', createdYear.id);
+          localStorage.setItem('mboaschool_current_year', createdYear.nom);
           window.dispatchEvent(new Event('school_settings_updated'));
+          window.dispatchEvent(new Event('academic_year_changed'));
         }
 
         triggerToast(`Année scolaire ${createdYear.nom} créée et sélectionnée !`);

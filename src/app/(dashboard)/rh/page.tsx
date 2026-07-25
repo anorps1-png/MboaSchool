@@ -1229,6 +1229,15 @@ export default function RHPage() {
       try {
         await insertFichesDePaie(fichesDB, etablissementId!);
       } catch (dbErr: any) {
+        // 23505 = violation de la contrainte UNIQUE(personnel_id, periode).
+        // Le pré-check ci-dessus (lecture puis comparaison) n'est pas atomique :
+        // une autre session peut avoir payé le même employé entre notre lecture
+        // et cet insert. C'est la base, pas le pré-check, qui tranche en dernier
+        // ressort — d'où un message dédié plutôt que l'erreur Postgres brute.
+        if (dbErr?.code === '23505') {
+          triggerToast(`❌ Un ou plusieurs employés viennent d'être payés par une autre session. Paiement annulé, veuillez recharger la page.`);
+          return;
+        }
         captureMessage('Sauvegarde DB fiches de paie échouée:', { detail: dbErr });
         const errMsg = dbErr?.message || (typeof dbErr === 'object' ? JSON.stringify(dbErr) : String(dbErr));
         triggerToast(`❌ Échec de l'enregistrement en base. Paiement annulé : ${errMsg}`);

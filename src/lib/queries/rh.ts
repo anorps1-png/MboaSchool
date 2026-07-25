@@ -140,9 +140,16 @@ export async function getFichesDePaie(etablissementId: string, periode?: string)
 export async function insertFichesDePaie(fiches: Record<string, any>[], etablissementId: string) {
   const fichesWithEtab = fiches.map(f => ({ ...f, etablissement_id: etablissementId }));
 
+  // Insert strict (pas upsert) : chaque fiche de paie payée est censée être
+  // une création unique par (personnel_id, periode). Un upsert masquerait
+  // une double validation concurrente en écrasant silencieusement la fiche
+  // existante ; l'insert laisse la contrainte UNIQUE(personnel_id, periode)
+  // rejeter la deuxième tentative (erreur Postgres 23505) au lieu de la
+  // fusionner, ce que l'appelant peut détecter pour afficher un message
+  // « déjà payé » fiable même en cas de course entre deux sessions.
   const { data, error } = await supabase
     .from('fiches_de_paie')
-    .upsert(fichesWithEtab, { onConflict: 'personnel_id,periode' })
+    .insert(fichesWithEtab)
     .select();
 
   if (error) throw error;

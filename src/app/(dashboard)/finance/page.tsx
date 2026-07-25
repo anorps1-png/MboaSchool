@@ -1437,7 +1437,13 @@ export default function FinancePage() {
           <h1 className="text-[44px] font-extrabold text-ink tracking-[-1.5px] leading-tight">Direction Financière</h1>
           <p className="text-sm text-ink-soft mt-1">Balanced Scorecard (BSC), rentabilité par segment, ratios financiers, budget & trésorerie</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Link
+            href="/finance/rapport-tranches"
+            className="px-4 py-2 bg-chip hover:bg-chip-hover text-ink text-sm font-bold rounded-control transition-colors border border-border flex items-center gap-1.5"
+          >
+            📊 Rapport Tranches (Relances)
+          </Link>
           <button
             onClick={() => setShowAddAccountModal(true)}
             className="px-4 py-2 bg-chip hover:bg-chip text-ink-soft rounded-control text-sm font-bold transition-colors"
