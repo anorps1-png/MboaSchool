@@ -41,7 +41,12 @@ export default function ElevesPage() {
 
   const classesOfActiveYear = useMemo(() => {
     if (!academicYearId) return classesList;
-    return classesList.filter(c => c.anneeScolaireId === academicYearId);
+    // getClasses() renvoie les lignes Supabase brutes en snake_case ; le type
+    // Classe déclare anneeScolaireId en camelCase mais ce champ n'existe pas
+    // réellement sur ces objets, donc ce filtre ne matchait jamais rien dès
+    // qu'une année était active. On vérifie les deux casses comme le fait déjà
+    // resolvedAnneeScolaireId plus bas dans ce même fichier.
+    return classesList.filter(c => ((c as any).annee_scolaire_id || c.anneeScolaireId) === academicYearId);
   }, [classesList, academicYearId]);
 
   // Form states for adding student
