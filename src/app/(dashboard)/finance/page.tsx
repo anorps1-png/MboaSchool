@@ -86,7 +86,7 @@ export default function FinancePage() {
   // Budget report state
   const [showBudgetReportModal, setShowBudgetReportModal] = useState(false);
 
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
 
   // Trésorerie perçue / effectif élèves : calculés en base (RPC déjà utilisée
   // par le tableau de bord, get_dashboard_stats) quand disponible, plutôt que
@@ -95,11 +95,11 @@ export default function FinancePage() {
   const [serverStats, setServerStats] = useState<DashboardStats | null>(null);
   useEffect(() => {
     if (typeof window !== 'undefined' && etablissementId) {
-      getDashboardStats(etablissementId)
+      getDashboardStats(etablissementId, academicYearId || null)
         .then(setServerStats)
         .catch(() => setServerStats(null));
     }
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // Moyenne générale réelle (RPC get_moyenne_generale) pour la carte BSC
   // "Moyenne Générale", qui affichait auparavant une constante fabriquée (12,5).
@@ -247,13 +247,21 @@ export default function FinancePage() {
       // 1.5 Fetch Classes first so we have access to class prices!
       let loadedClasses: any[] = [];
       try {
-        const { data: classesData, error: classesErr } = await supabase
+        let classesQuery = supabase
           .from('classes')
           .select('*')
           .eq('etablissement_id', etablissementId);
+
+        if (academicYearId) {
+          classesQuery = classesQuery.eq('annee_scolaire_id', academicYearId);
+        }
+
+        const { data: classesData, error: classesErr } = await classesQuery;
         if (!classesErr && classesData) {
           loadedClasses = classesData;
           setClasses(classesData);
+        } else {
+          setClasses([]);
         }
       } catch (err) {
         captureError(err, { context: 'Error fetching classes in loadData:' });
@@ -270,10 +278,16 @@ export default function FinancePage() {
         let hasMore = true;
         let fetchError: any = null;
         while (hasMore) {
-          const { data, error: err } = await supabase
+          let elevesQuery = supabase
             .from('eleves')
             .select('*, paiements(*)')
-            .eq('etablissement_id', etablissementId)
+            .eq('etablissement_id', etablissementId);
+
+          if (academicYearId) {
+            elevesQuery = elevesQuery.eq('annee_scolaire_id', academicYearId);
+          }
+
+          const { data, error: err } = await elevesQuery
             .order('nom', { ascending: true })
             .order('id', { ascending: true })
             .range(from, from + step - 1);
@@ -576,7 +590,7 @@ export default function FinancePage() {
     };
 
     loadData();
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);

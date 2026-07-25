@@ -9,7 +9,7 @@ import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
 
 export default function EmploiDuTempsPage() {
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
   const supabase = useMemo(() => createClient(), []);
 
   // Database lists
@@ -78,11 +78,14 @@ export default function EmploiDuTempsPage() {
     const loadBaseData = async () => {
       setIsLoading(true);
       try {
-        // Load classes
-        const classesData = await getClasses(etablissementId);
+        // Load classes for active academic year
+        const classesData = await getClasses(etablissementId, academicYearId || null);
         setClasses(classesData);
         if (classesData.length > 0) {
           setSelectedClassId(classesData[0].id);
+        } else {
+          setSelectedClassId('');
+          setLessons([]);
         }
 
         // Load subjects
@@ -107,7 +110,7 @@ export default function EmploiDuTempsPage() {
     };
 
     loadBaseData();
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // Fetch lessons when class changes
   useEffect(() => {

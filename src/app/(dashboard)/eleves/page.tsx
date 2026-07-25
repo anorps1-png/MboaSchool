@@ -95,11 +95,14 @@ export default function ElevesPage() {
     if (typeof window !== 'undefined' && etablissementId) {
       const fetchClassesAndYears = async () => {
         try {
-          const data = await getClasses(etablissementId);
+          const data = await getClasses(etablissementId, academicYearId || null);
           setClassesList(data);
           if (data.length > 0) {
             setClassName(data[0].id);
             setReenrollClassId(data[0].id);
+          } else {
+            setClassName('');
+            setReenrollClassId('');
           }
         } catch (error) {
           captureError(error, { context: "Error fetching classes:" });

@@ -2,12 +2,17 @@ import { createClient } from '../supabase/client';
 
 const supabase = createClient();
 
-export async function getClasses(etablissementId: string) {
-  const { data, error } = await supabase
+export async function getClasses(etablissementId: string, anneeScolaireId?: string | null) {
+  let query = supabase
     .from('classes')
     .select('*')
-    .eq('etablissement_id', etablissementId)
-    .order('nom', { ascending: true });
+    .eq('etablissement_id', etablissementId);
+
+  if (anneeScolaireId) {
+    query = query.eq('annee_scolaire_id', anneeScolaireId);
+  }
+
+  const { data, error } = await query.order('nom', { ascending: true });
 
   if (error) throw error;
   return data || [];
@@ -53,9 +58,10 @@ export async function getMatieresByNiveau(niveauId: string) {
  * Nombre d'élèves par classe, calculé en base — évite de charger la colonne
  * classe_id de tous les élèves de l'établissement juste pour les compter.
  */
-export async function getStudentsPerClass(etablissementId: string): Promise<Record<string, number>> {
+export async function getStudentsPerClass(etablissementId: string, anneeScolaireId?: string | null): Promise<Record<string, number>> {
   const { data, error } = await supabase.rpc('get_students_per_class', {
     p_etablissement_id: etablissementId,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   const counts: Record<string, number> = {};

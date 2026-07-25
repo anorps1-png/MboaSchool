@@ -16,7 +16,7 @@ export default function EvaluationsHome() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
   const supabase = useMemo(() => createClient(), []);
 
   const triggerToast = (msg: string) => {
@@ -32,10 +32,16 @@ export default function EvaluationsHome() {
       setIsLoading(true);
       setLoadError(null);
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('classes')
           .select('*')
-          .eq('etablissement_id', etablissementId)
+          .eq('etablissement_id', etablissementId);
+
+        if (academicYearId) {
+          query = query.eq('annee_scolaire_id', academicYearId);
+        }
+
+        const { data, error } = await query
           .order('nom', { ascending: true })
           .limit(1000);
 
@@ -46,6 +52,8 @@ export default function EvaluationsHome() {
           setClassesList(data);
           if (data.length > 0) {
             setSelectedClass(data[0].id);
+          } else {
+            setSelectedClass('');
           }
         }
       } catch (err) {
@@ -57,7 +65,7 @@ export default function EvaluationsHome() {
       }
     };
     fetchClasses();
-  }, [etablissementId, supabase]);
+  }, [etablissementId, academicYearId, supabase]);
 
   const handleStart = (e: React.FormEvent) => {
     e.preventDefault();

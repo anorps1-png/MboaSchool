@@ -10,7 +10,7 @@ import { DownloadIcon } from '@/components/icons';
 import { useEtablissement } from '@/contexts/etablissement-context';
 
 export default function Dashboard() {
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
   const [students, setStudents] = useState<Eleve[]>([]);
   const [classesList, setClassesList] = useState<Classe[]>([]);
   const [teachersList, setTeachersList] = useState<any[]>([]);
@@ -30,8 +30,8 @@ export default function Dashboard() {
           // Indicateurs globaux calculés en base (agrégats SQL) en parallèle
           // du chargement détaillé nécessaire aux vues filtrées par date.
           const [{ classes, students: studentsData, teachers }, stats] = await Promise.all([
-            getDashboardData(etablissementId),
-            getDashboardStats(etablissementId).catch((e) => {
+            getDashboardData(etablissementId, academicYearId || null),
+            getDashboardStats(etablissementId, academicYearId || null).catch((e) => {
               captureError(e, { context: 'Dashboard stats RPC error:' });
               return null;
             }),
@@ -95,7 +95,7 @@ export default function Dashboard() {
 
       fetchData();
     }
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // Helper to parse dates locally without timezone shift issues (noon normalization)
   const parseLocalDate = (dateStr: string | null | undefined) => {

@@ -36,22 +36,22 @@ export default function ClassesPage() {
   const [editSection, setEditSection] = useState('Francophone');
   const [editPrix, setEditPrix] = useState('');
 
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     if (etablissementId) fetchData();
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // Comptage par classe calculé en base (get_students_per_class), pour éviter
   // le fetch complet ci-dessous. Repli automatique sur elevesCount (calcul
   // client) si la RPC échoue ou n'est pas encore appliquée.
   useEffect(() => {
     if (!etablissementId) return;
-    getStudentsPerClass(etablissementId)
+    getStudentsPerClass(etablissementId, academicYearId || null)
       .then(setServerElevesCount)
       .catch(() => setServerElevesCount(null));
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   const effectiveElevesCount = serverElevesCount ?? elevesCount;
 
@@ -59,28 +59,40 @@ export default function ClassesPage() {
     if (!etablissementId) return;
     setIsLoading(true);
     
-    // Fetch classes filtered by etablissement
-    const { data: classesData, error: classesError } = await supabase
+    // Fetch classes filtered by etablissement & academicYearId
+    let query = supabase
       .from('classes')
       .select('*')
-      .eq('etablissement_id', etablissementId)
+      .eq('etablissement_id', etablissementId);
+
+    if (academicYearId) {
+      query = query.eq('annee_scolaire_id', academicYearId);
+    }
+
+    const { data: classesData, error: classesError } = await query
       .order('niveau', { ascending: true })
       .order('nom', { ascending: true });
 
     if (classesData) {
       setClassesList(classesData);
+    } else {
+      setClassesList([]);
     }
 
-    // Fetch eleves to count them per class (filtered by etablissement) with pagination
+    // Fetch eleves to count them per class (filtered by etablissement & active year) with pagination
     let allElevesData: any[] = [];
     let from = 0;
     const step = 1000;
     let hasMore = true;
     while (hasMore) {
-      const { data } = await supabase
+      let elevesQuery = supabase
         .from('eleves')
         .select('classe_id')
-        .eq('etablissement_id', etablissementId)
+        .eq('etablissement_id', etablissementId);
+      if (academicYearId) {
+        elevesQuery = elevesQuery.eq('annee_scolaire_id', academicYearId);
+      }
+      const { data } = await elevesQuery
         .order('id', { ascending: true })
         .range(from, from + step - 1);
       if (data && data.length > 0) {
@@ -121,6 +133,7 @@ export default function ClassesPage() {
           section,
           prix: Number(prix) || 0,
           etablissement_id: etablissementId,
+          annee_scolaire_id: academicYearId || null,
         }
       ])
       .select();

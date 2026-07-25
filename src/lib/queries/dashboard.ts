@@ -22,9 +22,10 @@ export interface DashboardStats {
  * Récupère les indicateurs globaux du tableau de bord, calculés en base
  * (agrégats SQL) plutôt que côté navigateur sur l'ensemble des lignes.
  */
-export async function getDashboardStats(etablissementId: string): Promise<DashboardStats | null> {
+export async function getDashboardStats(etablissementId: string, anneeScolaireId?: string | null): Promise<DashboardStats | null> {
   const { data, error } = await supabase.rpc('get_dashboard_stats', {
     p_etablissement_id: etablissementId,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   return (data as DashboardStats) ?? null;
@@ -32,17 +33,19 @@ export async function getDashboardStats(etablissementId: string): Promise<Dashbo
 
 /**
  * Récupère les données brutes nécessaires pour le Dashboard,
- * filtrées par établissement.
- *
- * Note : les notes ne sont plus chargées ici — le taux de réussite est calculé
- * en base via getDashboardStats(), ce qui allège fortement le transfert.
+ * filtrées par établissement et année scolaire active.
  */
-export async function getDashboardData(etablissementId: string) {
-  const { data: classes, error: classesError } = await supabase
+export async function getDashboardData(etablissementId: string, anneeScolaireId?: string | null) {
+  let classesQuery = supabase
     .from('classes')
     .select('id, nom, prix')
-    .eq('etablissement_id', etablissementId)
-    .order('nom', { ascending: true });
+    .eq('etablissement_id', etablissementId);
+
+  if (anneeScolaireId) {
+    classesQuery = classesQuery.eq('annee_scolaire_id', anneeScolaireId);
+  }
+
+  const { data: classes, error: classesError } = await classesQuery.order('nom', { ascending: true });
 
   if (classesError) throw classesError;
 
@@ -52,10 +55,16 @@ export async function getDashboardData(etablissementId: string) {
   let hasMore = true;
 
   while (hasMore) {
-    const { data: students, error: studentsError } = await supabase
+    let elevesQuery = supabase
       .from('eleves')
       .select('id, matricule, nom, prenom, sexe, classe_id, statut, date_inscription, paiements(id, eleve_id, montant, date, type_frais, statut, reference, mode_paiement)')
-      .eq('etablissement_id', etablissementId)
+      .eq('etablissement_id', etablissementId);
+
+    if (anneeScolaireId) {
+      elevesQuery = elevesQuery.eq('annee_scolaire_id', anneeScolaireId);
+    }
+
+    const { data: students, error: studentsError } = await elevesQuery
       .order('nom', { ascending: true })
       .order('id', { ascending: true })
       .range(from, from + step - 1);
