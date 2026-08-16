@@ -11,6 +11,7 @@ import {
 import { Eleve, Paiement, NoteMatiere, TransactionPaiement, Classe, DisciplineIncident } from '@/types/domain';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
+import SyncManager from '@/lib/syncManager';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -265,9 +266,12 @@ export default function FicheElevePage({ params }: PageProps) {
   // Calcul des tranches échues
   const currentDate = new Date().toISOString().split('T')[0];
   const tranchesEchues = tranches.filter(t => t.date_limite < currentDate);
-  const pctEchu = tranchesEchues.reduce((sum, t) => sum + Number(t.pourcentage), 0) / 100;
+  const montantTranchesEchues = tranchesEchues.reduce((sum, t) => sum + (Number(t.montant) || 0), 0);
+  const pctEchu = tranchesEchues.reduce((sum, t) => sum + Number(t.pourcentage || 0), 0) / 100;
   
-  const expectedPaid = totalDue !== null ? totalDue * pctEchu : 0;
+  const expectedPaid = montantTranchesEchues > 0
+    ? montantTranchesEchues
+    : (totalDue !== null ? totalDue * pctEchu : 0);
   const resteAPayerEchu = Math.max(0, expectedPaid - totalPaid);
   
   let financialStatus: 'paid' | 'partial' | 'late' | 'unpaid' = 'unpaid';
@@ -336,14 +340,22 @@ export default function FicheElevePage({ params }: PageProps) {
       return;
     }
 
-    const { error } = await supabase
-      .from('paiements')
-      .delete()
-      .eq('id', payId);
-
-    if (error) {
-      alert("Erreur lors de la suppression du paiement: " + error.message);
-      return;
+    let isOfflineDelete = false;
+    if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+      await SyncManager.addToQueue('paiements', 'delete', { id: payId });
+      isOfflineDelete = true;
+    } else {
+      try {
+        const { error } = await supabase
+          .from('paiements')
+          .delete()
+          .eq('id', payId);
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Échec réseau suppression paiement, repli SyncManager:", err);
+        await SyncManager.addToQueue('paiements', 'delete', { id: payId });
+        isOfflineDelete = true;
+      }
     }
 
     if (student) {
@@ -354,7 +366,7 @@ export default function FicheElevePage({ params }: PageProps) {
       });
     }
 
-    triggerToast("Paiement supprimé avec succès.");
+    triggerToast(isOfflineDelete ? "Paiement supprimé localement (en attente de synchronisation)." : "Paiement supprimé avec succès.");
   };
 
   // Handle adding payment
@@ -368,37 +380,73 @@ export default function FicheElevePage({ params }: PageProps) {
       return;
     }
 
-    const reference = `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const reference = payReference.trim() || `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const dateVal = payDate || new Date().toISOString().split('T')[0];
 
-    const { data: payData, error } = await supabase.from('paiements').insert([{
+    const paymentPayload = {
       eleve_id: student.id,
       montant: amountVal,
-      date: new Date().toISOString().split('T')[0],
+      date: dateVal,
       type_frais: payType,
       statut: 'paid',
       reference: reference,
       mode_paiement: payMethod,
       etablissement_id: etablissementId
-    }]).select();
+    };
 
-    if (error) {
-      alert("Erreur lors de l'enregistrement du paiement: " + error.message);
-      return;
+    let newPaymentObj: Paiement | null = null;
+    let isOfflineSave = false;
+
+    if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+      const tempPayId = crypto.randomUUID();
+      await SyncManager.addToQueue('paiements', 'insert', { ...paymentPayload, id: tempPayId });
+      newPaymentObj = {
+        id: tempPayId,
+        eleveId: student.id,
+        montant: amountVal,
+        date: dateVal,
+        typeFrais: payType as any,
+        statut: 'paid',
+        reference: reference,
+        modePaiement: payMethod as any
+      };
+      isOfflineSave = true;
+    } else {
+      try {
+        const { data: payData, error } = await supabase.from('paiements').insert([paymentPayload]).select();
+        if (error) throw error;
+        if (payData && payData.length > 0) {
+          const p = payData[0];
+          newPaymentObj = {
+            id: p.id,
+            eleveId: p.eleve_id,
+            montant: Number(p.montant),
+            date: p.date,
+            typeFrais: p.type_frais as any,
+            statut: p.statut as any,
+            reference: p.reference,
+            modePaiement: p.mode_paiement as any
+          };
+        }
+      } catch (err: any) {
+        console.warn("Échec réseau lors de l'enregistrement du paiement, repli local/SyncManager:", err);
+        const tempPayId = crypto.randomUUID();
+        await SyncManager.addToQueue('paiements', 'insert', { ...paymentPayload, id: tempPayId });
+        newPaymentObj = {
+          id: tempPayId,
+          eleveId: student.id,
+          montant: amountVal,
+          date: dateVal,
+          typeFrais: payType as any,
+          statut: 'paid',
+          reference: reference,
+          modePaiement: payMethod as any
+        };
+        isOfflineSave = true;
+      }
     }
 
-    if (payData && payData.length > 0) {
-      const p = payData[0];
-      const newPaymentObj: Paiement = {
-        id: p.id,
-        eleveId: p.eleve_id,
-        montant: Number(p.montant),
-        date: p.date,
-        typeFrais: p.type_frais as any,
-        statut: p.statut as any,
-        reference: p.reference,
-        modePaiement: p.mode_paiement as any
-      };
-
+    if (newPaymentObj) {
       const updatedStudent: Eleve = {
         ...student,
         paiements: [newPaymentObj, ...(student.paiements || [])]
@@ -411,7 +459,11 @@ export default function FicheElevePage({ params }: PageProps) {
     setPayDate('');
     setPayReference('');
     setShowAddPaymentModal(false);
-    triggerToast(`Paiement de ${new Intl.NumberFormat('fr-FR').format(amountVal)} FCFA validé.`);
+    triggerToast(
+      isOfflineSave
+        ? `Paiement de ${new Intl.NumberFormat('fr-FR').format(amountVal)} FCFA enregistré localement (en attente de synchronisation).`
+        : `Paiement de ${new Intl.NumberFormat('fr-FR').format(amountVal)} FCFA validé.`
+    );
   };
 
   // Handle editing payment
@@ -425,20 +477,38 @@ export default function FicheElevePage({ params }: PageProps) {
       return;
     }
 
-    const { error } = await supabase
-      .from('paiements')
-      .update({
-        montant: amountVal,
-        type_frais: payType,
-        mode_paiement: payMethod,
-        date: payDate,
-        reference: payReference
-      })
-      .eq('id', editingPaymentId);
+    const dateVal = payDate || new Date().toISOString().split('T')[0];
+    const updatePayload = {
+      id: editingPaymentId,
+      montant: amountVal,
+      type_frais: payType,
+      mode_paiement: payMethod,
+      date: dateVal,
+      reference: payReference
+    };
 
-    if (error) {
-      alert("Erreur lors de la modification du paiement: " + error.message);
-      return;
+    let isOfflineSave = false;
+    if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+      await SyncManager.addToQueue('paiements', 'update', updatePayload);
+      isOfflineSave = true;
+    } else {
+      try {
+        const { error } = await supabase
+          .from('paiements')
+          .update({
+            montant: amountVal,
+            type_frais: payType,
+            mode_paiement: payMethod,
+            date: dateVal,
+            reference: payReference
+          })
+          .eq('id', editingPaymentId);
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Échec réseau modification paiement, repli SyncManager:", err);
+        await SyncManager.addToQueue('paiements', 'update', updatePayload);
+        isOfflineSave = true;
+      }
     }
 
     const updatedPayments = (student.paiements || []).map(p => {
@@ -448,7 +518,7 @@ export default function FicheElevePage({ params }: PageProps) {
           montant: amountVal,
           typeFrais: payType,
           modePaiement: payMethod as any,
-          date: payDate,
+          date: dateVal,
           reference: payReference
         };
       }
@@ -466,7 +536,7 @@ export default function FicheElevePage({ params }: PageProps) {
     setPayReference('');
     setEditingPaymentId(null);
     setShowAddPaymentModal(false);
-    triggerToast("Paiement modifié avec succès.");
+    triggerToast(isOfflineSave ? "Paiement modifié localement (en attente de synchronisation)." : "Paiement modifié avec succès.");
   };
 
   // Handle adding grade

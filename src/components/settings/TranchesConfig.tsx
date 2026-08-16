@@ -8,7 +8,8 @@ interface Tranche {
   id: string;
   nom: string;
   date_limite: string;
-  pourcentage: number;
+  montant: number;
+  pourcentage?: number;
   ordre: number;
 }
 
@@ -25,7 +26,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
   // Nouveaux champs
   const [nom, setNom] = useState('');
   const [dateLimite, setDateLimite] = useState('');
-  const [pourcentage, setPourcentage] = useState('');
+  const [montant, setMontant] = useState('');
 
   const fetchTranches = async () => {
     if (!etablissementId || !anneeScolaireId) return;
@@ -53,13 +54,23 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
   }, [etablissementId, anneeScolaireId]);
 
   const handleAdd = async () => {
-    if (!nom || !dateLimite || !pourcentage) return;
+    if (!nom || !dateLimite || !montant) return;
     
+    const amountVal = parseFloat(montant);
+    if (isNaN(amountVal) || amountVal <= 0) {
+      alert("Veuillez saisir un montant valide supérieur à 0.");
+      return;
+    }
+
     setSaving(true);
     try {
       const supabase = createClient();
-      const pct = parseFloat(pourcentage);
       const nextOrdre = tranches.length > 0 ? Math.max(...tranches.map(t => t.ordre)) + 1 : 1;
+
+      // Calcul d'un pourcentage indicatif pour assurer la rétrocompatibilité
+      const currentTotal = tranches.reduce((sum, t) => sum + (Number(t.montant) || 0), 0);
+      const newTotal = currentTotal + amountVal;
+      const pct = newTotal > 0 ? Math.min(100, Math.max(1, Math.round((amountVal / newTotal) * 100))) : 10;
 
       const { error } = await supabase
         .from('tranches_scolarite')
@@ -68,6 +79,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
           annee_scolaire_id: anneeScolaireId,
           nom,
           date_limite: dateLimite,
+          montant: amountVal,
           pourcentage: pct,
           ordre: nextOrdre
         }]);
@@ -76,7 +88,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
 
       setNom('');
       setDateLimite('');
-      setPourcentage('');
+      setMontant('');
       await fetchTranches();
     } catch (err) {
       captureError(err, { context: 'Erreur lors de l\'ajout de la tranche' });
@@ -102,7 +114,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
     }
   };
 
-  const totalPct = tranches.reduce((sum, t) => sum + Number(t.pourcentage), 0);
+  const totalMontant = tranches.reduce((sum, t) => sum + (Number(t.montant) || 0), 0);
 
   if (!anneeScolaireId) {
     return (
@@ -116,8 +128,8 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
     <div className="space-y-4 mt-4">
       <div className="flex justify-between items-center">
         <h4 className="text-xs font-bold text-ink uppercase tracking-wider">Tranches de Scolarité</h4>
-        <span className={`text-xs font-bold px-2 py-1 rounded-full ${totalPct === 100 ? 'bg-green/10 text-green' : totalPct > 100 ? 'bg-red-500/10 text-red-500' : 'bg-warning/10 text-warning-dark'}`}>
-          Total : {totalPct}% / 100%
+        <span className="text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-accent/10 text-accent">
+          Total : {new Intl.NumberFormat('fr-FR').format(totalMontant)} FCFA
         </span>
       </div>
 
@@ -130,12 +142,16 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
           ) : (
             tranches.map((t) => (
               <div key={t.id} className="flex items-center justify-between p-2 bg-bg border border-border rounded-control text-sm">
-                <div>
+                <div className="flex items-center gap-2">
                   <span className="font-bold text-ink">{t.nom}</span>
-                  <span className="text-ink-soft ml-2 text-xs">({t.pourcentage}%)</span>
+                  <span className="text-accent font-bold font-mono text-xs">
+                    {new Intl.NumberFormat('fr-FR').format(t.montant || 0)} FCFA
+                  </span>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-xs font-mono text-ink-soft">{new Date(t.date_limite).toLocaleDateString('fr-FR')}</span>
+                  <span className="text-xs font-mono text-ink-soft">
+                    Échéance : {new Date(t.date_limite).toLocaleDateString('fr-FR')}
+                  </span>
                   <button onClick={() => handleDelete(t.id)} disabled={saving} className="text-red-500 hover:text-red-600 font-bold text-xs">
                     ×
                   </button>
@@ -160,12 +176,13 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
         <div className="col-span-3 relative">
           <input
             type="number"
-            placeholder="Pct"
-            value={pourcentage}
-            onChange={(e) => setPourcentage(e.target.value)}
-            className="w-full px-2 py-1.5 border border-border rounded-control text-xs outline-none focus:border-accent pr-6"
+            placeholder="Montant"
+            value={montant}
+            onChange={(e) => setMontant(e.target.value)}
+            min="0"
+            className="w-full px-2 py-1.5 border border-border rounded-control text-xs outline-none focus:border-accent pr-11 font-mono"
           />
-          <span className="absolute right-2 top-1.5 text-[10px] text-ink-soft font-bold">%</span>
+          <span className="absolute right-1.5 top-1.5 text-[9px] text-ink-soft font-bold">FCFA</span>
         </div>
         <div className="col-span-3">
           <input
@@ -179,7 +196,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
           <button
             type="button"
             onClick={handleAdd}
-            disabled={saving || totalPct >= 100 || !nom || !pourcentage || !dateLimite}
+            disabled={saving || !nom || !montant || !dateLimite}
             className="w-full h-full bg-ink hover:bg-ink/90 text-cream text-[10px] font-bold rounded-control disabled:opacity-50 transition-colors cursor-pointer"
           >
             + Ajout

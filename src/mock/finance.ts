@@ -57,6 +57,7 @@ export interface BudgetPrevisionnel {
   poste: string;
   categorie: 'Revenu' | 'Charge';
   budgetPrevu: number;
+  realiseReel?: number;
 }
 
 export const mockBudget2026: BudgetPrevisionnel[] = [

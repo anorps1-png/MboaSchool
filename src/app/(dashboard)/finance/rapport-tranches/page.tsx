@@ -77,7 +77,20 @@ export default function RapportTranchesPage() {
 
         setClassesList(classesData || []);
 
-        // 3. Fetch Students & Payments
+        // 3. Fetch Tranches de scolarité
+        let tranchesQuery = supabase
+          .from('tranches_scolarite')
+          .select('*')
+          .eq('etablissement_id', etablissementId);
+
+        if (academicYearId) {
+          tranchesQuery = tranchesQuery.eq('annee_scolaire_id', academicYearId);
+        }
+
+        const { data: tranchesData } = await tranchesQuery.order('ordre', { ascending: true });
+        const realTranches = tranchesData || [];
+
+        // 4. Fetch Students & Payments
         let query = supabase
           .from('eleves')
           .select('*, classes(id, nom, prix, niveaus:niveaux_classes(sections(nom))), paiements(id, montant, statut, type_frais)')
@@ -97,8 +110,43 @@ export default function RapportTranchesPage() {
             const sectionObj = classObj.niveaus?.sections || {};
             
             const totalDue = Number(classObj.prix) || 150000;
-            const t1Limit = Math.round(totalDue * 0.33);
-            const t2Limit = Math.round(totalDue * 0.66);
+            
+            // Calculate tranche limits based on real configured tranches if present
+            let t1Limit = Math.round(totalDue * 0.33);
+            let t2Limit = Math.round(totalDue * 0.66);
+            let t1Amount = t1Limit;
+            let t2Amount = Math.round(totalDue * 0.33);
+            let t3Amount = totalDue - (t1Limit + t2Amount);
+
+            if (realTranches.length > 0) {
+              const t1 = realTranches[0];
+              const t2 = realTranches[1];
+              const t3 = realTranches[2];
+
+              if (t1 && Number(t1.montant) > 0) {
+                t1Amount = Number(t1.montant);
+                t1Limit = t1Amount;
+              } else if (t1 && Number(t1.pourcentage) > 0) {
+                t1Amount = Math.round(totalDue * (Number(t1.pourcentage) / 100));
+                t1Limit = t1Amount;
+              }
+
+              if (t2 && Number(t2.montant) > 0) {
+                t2Amount = Number(t2.montant);
+                t2Limit = t1Limit + t2Amount;
+              } else if (t2 && Number(t2.pourcentage) > 0) {
+                t2Amount = Math.round(totalDue * (Number(t2.pourcentage) / 100));
+                t2Limit = t1Limit + t2Amount;
+              } else {
+                t2Limit = t1Limit;
+              }
+
+              if (t3 && Number(t3.montant) > 0) {
+                t3Amount = Number(t3.montant);
+              } else {
+                t3Amount = Math.max(0, totalDue - (t1Amount + t2Amount));
+              }
+            }
 
             const paidPayments = (e.paiements || []).filter((p: any) => p.statut === 'paid');
             const totalPaid = paidPayments.reduce((sum: number, p: any) => sum + Number(p.montant), 0);
@@ -124,11 +172,11 @@ export default function RapportTranchesPage() {
               totalDue,
               totalPaid,
               tranche1Paid,
-              tranche1Amount: t1Limit,
+              tranche1Amount: t1Amount,
               tranche2Paid,
-              tranche2Amount: Math.round(totalDue * 0.33),
+              tranche2Amount: t2Amount,
               tranche3Paid,
-              tranche3Amount: totalDue - (t1Limit + Math.round(totalDue * 0.33)),
+              tranche3Amount: t3Amount,
               pctToPay
             };
           });

@@ -10,7 +10,7 @@ import {
   MembrePersonnel, 
   FormationRH 
 } from '@/types/domain';
-import { planComptableOHADA, mockEcrituresInitiales } from '@/mock/comptabilite';
+import { planComptableOHADA } from '@/mock/comptabilite';
 import type { BudgetPrevisionnel } from '@/mock/finance';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
@@ -76,12 +76,14 @@ export default function FinancePage() {
   const [newBudgetPoste, setNewBudgetPoste] = useState('');
   const [newBudgetCategorie, setNewBudgetCategorie] = useState<'Revenu' | 'Charge'>('Charge');
   const [newBudgetPrevu, setNewBudgetPrevu] = useState('');
+  const [newBudgetRealise, setNewBudgetRealise] = useState('');
 
   // Editing budget lines
   const [editingBudgetIndex, setEditingBudgetIndex] = useState<number | null>(null);
   const [editBudgetPoste, setEditBudgetPoste] = useState('');
   const [editBudgetCategorie, setEditBudgetCategorie] = useState<'Revenu' | 'Charge'>('Charge');
   const [editBudgetPrevu, setEditBudgetPrevu] = useState('');
+  const [editBudgetRealise, setEditBudgetRealise] = useState('');
 
   // Budget report state
   const [showBudgetReportModal, setShowBudgetReportModal] = useState(false);
@@ -437,9 +439,8 @@ export default function FinancePage() {
             customEcritures = [];
           }
         } else {
-          // Default mock data if no local storage cache is present
-          customEcritures = mockEcrituresInitiales;
-          localStorage.setItem('mboaschool_ecritures', JSON.stringify(mockEcrituresInitiales));
+          // Un nouvel établissement démarre avec un journal vierge
+          customEcritures = [];
         }
       }
 
@@ -738,9 +739,10 @@ export default function FinancePage() {
 
     const studentTranches = tranches.filter(t => t.annee_scolaire_id === s.anneeScolaireId);
     const tranchesEchues = studentTranches.filter(t => t.date_limite < currentDate);
-    const pctEchu = tranchesEchues.reduce((acc, t) => acc + Number(t.pourcentage), 0) / 100;
+    const montantTranchesEchues = tranchesEchues.reduce((acc, t) => acc + (Number(t.montant) || 0), 0);
+    const pctEchu = tranchesEchues.reduce((acc, t) => acc + Number(t.pourcentage || 0), 0) / 100;
     
-    const expectedPaid = classPrice * pctEchu;
+    const expectedPaid = montantTranchesEchues > 0 ? montantTranchesEchues : classPrice * pctEchu;
     const resteEchu = Math.max(0, expectedPaid - totalPaid);
     return sum + resteEchu;
   }, 0);
@@ -909,26 +911,30 @@ export default function FinancePage() {
   const getBudgetVariance = () => {
     return budgetLines.map(item => {
       let realized = 0;
-      const lowerPoste = item.poste.toLowerCase();
-      if (item.categorie === 'Revenu') {
-        if (lowerPoste.includes('scolarité') || lowerPoste.includes('inscription') || lowerPoste.includes('revenu')) {
-          realized = totalCA2026;
-        } else {
-          realized = 150000; // divers
-        }
+      if (item.realiseReel !== undefined && item.realiseReel !== null && !isNaN(Number(item.realiseReel))) {
+        realized = Number(item.realiseReel);
       } else {
-        if (lowerPoste.includes('salariale') || lowerPoste.includes('salaire')) {
-          realized = masseSalarialeAnnuelle2026;
-        } else if (lowerPoste.includes('formation') || lowerPoste.includes('stage')) {
-          realized = totalTrainingCosts2026;
-        } else if (lowerPoste.includes('fourniture') || lowerPoste.includes('entretien')) {
-          realized = totalChargesComptables2026 * 0.4;
-        } else if (lowerPoste.includes('loyer') || lowerPoste.includes('locat')) {
-          realized = totalChargesComptables2026 * 0.3;
-        } else if (lowerPoste.includes('fluid') || lowerPoste.includes('eau') || lowerPoste.includes('élec') || lowerPoste.includes('internet')) {
-          realized = totalChargesComptables2026 * 0.15;
+        const lowerPoste = item.poste.toLowerCase();
+        if (item.categorie === 'Revenu') {
+          if (lowerPoste.includes('scolarité') || lowerPoste.includes('inscription') || lowerPoste.includes('revenu')) {
+            realized = totalCA2026;
+          } else {
+            realized = 150000; // divers
+          }
         } else {
-          realized = totalChargesComptables2026 * 0.15; // equipement/divers
+          if (lowerPoste.includes('salariale') || lowerPoste.includes('salaire')) {
+            realized = masseSalarialeAnnuelle2026;
+          } else if (lowerPoste.includes('formation') || lowerPoste.includes('stage')) {
+            realized = totalTrainingCosts2026;
+          } else if (lowerPoste.includes('fourniture') || lowerPoste.includes('entretien')) {
+            realized = totalChargesComptables2026 * 0.4;
+          } else if (lowerPoste.includes('loyer') || lowerPoste.includes('locat')) {
+            realized = totalChargesComptables2026 * 0.3;
+          } else if (lowerPoste.includes('fluid') || lowerPoste.includes('eau') || lowerPoste.includes('élec') || lowerPoste.includes('internet')) {
+            realized = totalChargesComptables2026 * 0.15;
+          } else {
+            realized = totalChargesComptables2026 * 0.15; // equipement/divers
+          }
         }
       }
 
@@ -1045,7 +1051,7 @@ export default function FinancePage() {
 
     // Save to local storage (always do as local sync / fallback)
     const stored = localStorage.getItem('mboaschool_ecritures');
-    const existing = stored ? JSON.parse(stored) : mockEcrituresInitiales;
+    const existing = stored ? JSON.parse(stored) : [];
     const updated = [...newEcrituresList, ...existing];
     localStorage.setItem('mboaschool_ecritures', JSON.stringify(updated));
 
@@ -1070,17 +1076,19 @@ export default function FinancePage() {
               credit: Number(l.credit || 0)
             }))
           }));
-          setEcritures(reloadedEcritures.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+          setEcritures(prev => {
+            const systemEntries = prev.filter(e => e.id.startsWith('ecr-const-') || e.id.startsWith('ecr-pay-') || e.id.startsWith('ecr-train-'));
+            return [...reloadedEcritures, ...systemEntries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          });
         }
-      } catch (err) {
-        captureError(err, { context: "Error reloading ecritures after save:" });
-        // Fallback: update with temporary IDs if reload fails
-        setEcritures([...ecritures, ...newEcrituresList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      } catch (reloadErr) {
+        captureMessage("Failed to reload ecritures from Supabase:", { detail: reloadErr });
       }
     } else {
-      // If not saved to Supabase, just update with local state
-      setEcritures([...ecritures, ...newEcrituresList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      setEcritures(prev => [...newEcrituresList, ...prev]);
     }
+
+    // Reset modal form
     setShowExpenseModal(false);
     setExpLibelle('');
     setExpReference('');
@@ -1088,33 +1096,42 @@ export default function FinancePage() {
     setExpAmountPaye('');
     setExpPartenaire('');
     setExpTva(false);
-    triggerToast(savedToSupabase ? "Opération comptable enregistrée dans le cloud !" : "Opération comptable enregistrée !");
+    triggerToast(savedToSupabase ? "Opération enregistrée dans le cloud !" : "Opération enregistrée !");
   };
 
   const handleSaveAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAccNum || !newAccLibelle) return;
+    
+    // Check duplication
+    if (planComptable.some(c => c.numero === newAccNum)) {
+      alert("Ce numéro de compte existe déjà.");
+      return;
+    }
+
     const newAcc: CompteOHADA = {
       numero: newAccNum,
       libelle: newAccLibelle,
-      classe: Number(newAccClasse) as any
+      classe: newAccClasse as any
     };
 
-    // Save to Supabase (attempt)
-    const supabase = createClient();
     let savedToSupabase = false;
     try {
+      const supabase = createClient();
       const { error } = await supabase
-        .from('comptes_ohada')
+        .from('comptes_comptables')
         .insert([{
-          numero: newAcc.numero,
-          libelle: newAcc.libelle,
-          classe: newAcc.classe,
+          numero: newAccNum,
+          libelle: newAccLibelle,
+          classe: newAccClasse,
           etablissement_id: etablissementId
         }]);
-      if (!error) savedToSupabase = true;
+
+      if (!error) {
+        savedToSupabase = true;
+      }
     } catch (err) {
-      captureMessage("Failed to save account in Supabase:", { detail: err });
+      captureMessage("Compte comptable non persisté dans le cloud (fallback local):", { detail: err });
     }
 
     const updated = [...planComptable, newAcc].sort((a,b) => a.numero.localeCompare(b.numero));
@@ -1132,7 +1149,8 @@ export default function FinancePage() {
     const newLine: BudgetPrevisionnel = {
       poste: newBudgetPoste,
       categorie: newBudgetCategorie,
-      budgetPrevu: Number(newBudgetPrevu) || 0
+      budgetPrevu: Number(newBudgetPrevu) || 0,
+      realiseReel: newBudgetRealise !== '' ? Number(newBudgetRealise) : undefined
     };
     const updated = [...budgetLines, newLine];
     setBudgetLines(updated);
@@ -1140,6 +1158,7 @@ export default function FinancePage() {
     setShowAddBudgetModal(false);
     setNewBudgetPoste('');
     setNewBudgetPrevu('');
+    setNewBudgetRealise('');
     triggerToast("Ligne budgétaire ajoutée !");
   };
 
@@ -1150,6 +1169,7 @@ export default function FinancePage() {
     setEditBudgetPoste(line.poste);
     setEditBudgetCategorie(line.categorie);
     setEditBudgetPrevu(String(line.budgetPrevu));
+    setEditBudgetRealise(line.realiseReel !== undefined && line.realiseReel !== null ? String(line.realiseReel) : '');
   };
 
   const handleSaveBudgetLine = (e: React.FormEvent) => {
@@ -1159,7 +1179,8 @@ export default function FinancePage() {
     updated[editingBudgetIndex] = {
       poste: editBudgetPoste,
       categorie: editBudgetCategorie,
-      budgetPrevu: Number(editBudgetPrevu) || 0
+      budgetPrevu: Number(editBudgetPrevu) || 0,
+      realiseReel: editBudgetRealise !== '' ? Number(editBudgetRealise) : undefined
     };
     setBudgetLines(updated);
     localStorage.setItem('mboaschool_budget_lines', JSON.stringify(updated));
@@ -2008,7 +2029,25 @@ export default function FinancePage() {
                         formatMoney(item.budgetPrevu)
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{formatMoney(item.realise)}</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {editingBudgetIndex === idx ? (
+                        <input
+                          type="number"
+                          placeholder="Auto si vide"
+                          value={editBudgetRealise}
+                          onChange={(e) => setEditBudgetRealise(e.target.value)}
+                          className="px-2 py-1 border border-outline rounded text-sm w-28 text-right font-mono focus:outline-none"
+                          min="0"
+                        />
+                      ) : (
+                        <div>
+                          <span>{formatMoney(item.realise)}</span>
+                          {item.realiseReel !== undefined && item.realiseReel !== null && (
+                            <span className="text-[9px] text-accent font-semibold block">Saisi manuel</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td className={`px-4 py-3 text-right font-mono font-bold ${item.isFavorable ? 'text-green' : 'text-accent'}`}>
                       {item.diff > 0 ? '+' : ''}{formatMoney(item.diff)} ({item.pct.toFixed(1)}%)
                     </td>
@@ -2774,6 +2813,19 @@ export default function FinancePage() {
                   value={newBudgetPrevu}
                   onChange={(e) => setNewBudgetPrevu(e.target.value)}
                   required
+                  min="0"
+                  className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-ink-faint uppercase mb-1.5">
+                  Montant Réalisé Réel (FCFA) <span className="text-[10px] lowercase text-ink-soft font-normal">(Optionnel — calculé automatiquement si vide)</span>
+                </label>
+                <input
+                  type="number"
+                  placeholder="Laisser vide pour calcul automatique ou saisir le montant réel"
+                  value={newBudgetRealise}
+                  onChange={(e) => setNewBudgetRealise(e.target.value)}
                   min="0"
                   className="w-full px-3 py-2 border border-border rounded-control text-sm outline-none focus:border-accent font-mono"
                 />

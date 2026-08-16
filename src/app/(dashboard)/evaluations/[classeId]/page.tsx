@@ -136,10 +136,12 @@ export default function EvaluationsClassePage({ params }: PageProps) {
             }
           }
         }
-        setSubjectsList(subjects);
+        setSubjectsList(prev => {
+          const merged = Array.from(new Set([...subjects, ...prev]));
+          return merged.length > 0 ? merged : defaultSubjects;
+        });
 
-        const subjToUse = selectedSubject || subjects[0] || 'Mathématiques';
-        if (!selectedSubject) setSelectedSubject(subjToUse);
+        setSelectedSubject(curr => curr || subjects[0] || 'Mathématiques');
 
       } catch (err) {
         captureError(err, { context: "Error loading evaluations page:" });
@@ -148,12 +150,7 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     };
 
     loadData();
-    // selectedSubject est à la fois lu et écrit ici : au montage il vaut '',
-    // ce qui déclenche un setSelectedSubject(subjToUse) qui reprovoque cet
-    // effet une seconde fois (puisque selectedSubject est dans ses propres
-    // dépendances) — un seul refetch redondant, auto-limité par le
-    // `if (!selectedSubject)` ci-dessus, pas une boucle infinie.
-  }, [classeId, term, selectedSubject, etablissementId, supabase, reloadTrigger]);
+  }, [classeId, term, etablissementId, supabase, reloadTrigger]);
 
   useEffect(() => {
     if (studentsList.length > 0) {
@@ -183,24 +180,47 @@ export default function EvaluationsClassePage({ params }: PageProps) {
     const newSubj = newSubjectName.trim();
     if (subjectsList.includes(newSubj)) {
       triggerToast(`La matière "${newSubj}" existe déjà.`);
+      setSelectedSubject(newSubj);
+      setNewSubjectName('');
       return;
     }
-    const newList = [...subjectsList, newSubj];
-    setSubjectsList(newList);
+    
+    setSubjectsList(prev => [...prev, newSubj]);
     setSelectedSubject(newSubj);
     setNewSubjectName('');
     triggerToast(`Matière "${newSubj}" ajoutée.`);
 
     if (etablissementId) {
-      const { error } = await supabase.from('matieres').insert([{ nom: newSubj, etablissement_id: etablissementId }]);
-      if (error) {
-        // Table matieres indisponible (migration pas encore appliquée) :
-        // repli localStorage pour ne pas perdre la matière sur ce poste.
-        captureMessage('Insertion matieres échouée, repli localStorage:', { detail: error });
-        localStorage.setItem('mboaschool_subjects', JSON.stringify(newList));
+      try {
+        const { error } = await supabase.from('matieres').insert([{ nom: newSubj, etablissement_id: etablissementId }]);
+        if (error) {
+          captureMessage('Insertion matieres échouée, repli localStorage:', { detail: error });
+          const stored = localStorage.getItem('mboaschool_subjects');
+          let existing: string[] = [];
+          if (stored) {
+            try { existing = JSON.parse(stored); } catch (e) {}
+          }
+          if (!existing.includes(newSubj)) existing.push(newSubj);
+          localStorage.setItem('mboaschool_subjects', JSON.stringify(existing));
+        }
+      } catch (err) {
+        captureMessage('Insertion matieres catch, repli localStorage:', { detail: err });
+        const stored = localStorage.getItem('mboaschool_subjects');
+        let existing: string[] = [];
+        if (stored) {
+          try { existing = JSON.parse(stored); } catch (e) {}
+        }
+        if (!existing.includes(newSubj)) existing.push(newSubj);
+        localStorage.setItem('mboaschool_subjects', JSON.stringify(existing));
       }
     } else {
-      localStorage.setItem('mboaschool_subjects', JSON.stringify(newList));
+      const stored = localStorage.getItem('mboaschool_subjects');
+      let existing: string[] = [];
+      if (stored) {
+        try { existing = JSON.parse(stored); } catch (e) {}
+      }
+      if (!existing.includes(newSubj)) existing.push(newSubj);
+      localStorage.setItem('mboaschool_subjects', JSON.stringify(existing));
     }
   };
 

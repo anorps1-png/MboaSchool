@@ -521,21 +521,33 @@ export default function ElevesPage() {
                modePaiement: 'Espèces'
              };
           } else {
-            const payData = await addPayment(paymentData, etablissementId!);
-            
-            if (payData && payData.length > 0) {
-              const pd = payData[0];
-              newPaymentObj = {
-                id: pd.id,
-                eleveId: pd.eleve_id,
-                montant: Number(pd.montant),
-                date: pd.date,
-                typeFrais: pd.type_frais,
-                statut: pd.statut,
-                reference: pd.reference,
-                modePaiement: pd.mode_paiement
-              };
-            }
+             try {
+               const payData = await addPayment(paymentData, etablissementId!);
+               if (payData && payData.length > 0) {
+                 const pd = payData[0];
+                 newPaymentObj = {
+                   id: pd.id,
+                   eleveId: pd.eleve_id,
+                   montant: Number(pd.montant),
+                   date: pd.date,
+                   typeFrais: pd.type_frais,
+                   statut: pd.statut,
+                   reference: pd.reference,
+                   modePaiement: pd.mode_paiement
+                 };
+               }
+             } catch (payErr) {
+               console.warn("Échec addPayment en ligne, repli SyncManager:", payErr);
+               const tempPayId = crypto.randomUUID();
+               await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: tempPayId });
+               newPaymentObj = {
+                 id: tempPayId,
+                 ...paymentData,
+                 eleveId: d.id,
+                 typeFrais: 'Scolarité',
+                 modePaiement: 'Espèces'
+               };
+             }
           }
         }
 
@@ -658,18 +670,31 @@ export default function ElevesPage() {
             statut: 'paid',
             reference: reference
           };
-          const payRes = await addPayment(payPayload, etablissementId!);
-          if (payRes && payRes.length > 0) {
-            const pd = payRes[0];
+          try {
+            const payRes = await addPayment(payPayload, etablissementId!);
+            if (payRes && payRes.length > 0) {
+              const pd = payRes[0];
+              newPayObj = {
+                id: pd.id,
+                eleveId: pd.eleve_id,
+                montant: Number(pd.montant),
+                date: pd.date,
+                typeFrais: pd.type_frais,
+                statut: pd.statut,
+                reference: pd.reference,
+                modePaiement: pd.mode_paiement
+              };
+            }
+          } catch (payErr) {
+            console.warn("Échec addPayment réinscription en ligne, repli SyncManager:", payErr);
+            const tempPayId = crypto.randomUUID();
+            await SyncManager.addToQueue('paiements', 'insert', { ...payPayload, id: tempPayId });
             newPayObj = {
-              id: pd.id,
-              eleveId: pd.eleve_id,
-              montant: Number(pd.montant),
-              date: pd.date,
-              typeFrais: pd.type_frais,
-              statut: pd.statut,
-              reference: pd.reference,
-              modePaiement: pd.mode_paiement
+              id: tempPayId,
+              ...payPayload,
+              eleveId: d.id,
+              typeFrais: 'Scolarité',
+              modePaiement: 'Espèces'
             };
           }
         }
