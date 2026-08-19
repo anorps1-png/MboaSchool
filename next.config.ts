@@ -11,7 +11,7 @@ const withSerwist = withSerwistInit({
 const isDev = process.env.NODE_ENV === "development";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ['sql.js'],
 };
 
 export default isDev

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
 import TranchesConfig from '@/components/settings/TranchesConfig';
+import AppUpdateCard from '@/components/settings/AppUpdateCard';
 
 interface AcademicYear {
   id: string;
@@ -837,6 +838,9 @@ export default function SettingsPage() {
         {/* Right Side: Branding, App settings, License/SaaS */}
         <div className="space-y-6">
           
+          {/* Card: Version & Mises à jour du Setup */}
+          <AppUpdateCard />
+
           {/* Card 5: Subscription / SaaS info */}
           <div className="bg-surface p-6 rounded-card border border-border shadow-sm space-y-4">
             <h3 className="text-base font-bold text-ink border-b border-border pb-3 flex items-center gap-2">

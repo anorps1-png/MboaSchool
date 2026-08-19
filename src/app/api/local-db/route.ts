@@ -1,128 +1,75 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import {
+  getAllRecordsFromTable,
+  saveRecordsToTable,
+  deleteRecordsFromTable,
+  getQueue,
+  addToQueue,
+  removeFromQueue
+} from '@/lib/db/sqlite';
 
-// Cette API sert de base de données locale pour l'application desktop (Electron).
-// Elle lit/écrit des fichiers sur la machine et n'a AUCUNE authentification :
-// elle ne doit donc jamais être exposée sur un déploiement web, où elle serait
-// partagée entre tous les visiteurs. Le runtime desktop est identifié par la
-// variable MBOASCHOOL_DESKTOP définie par le process principal Electron (main.js).
+// Cette API sert de base de données locale SQL (SQLite) pour l'application desktop (Electron).
+// Elle lit/écrit directement dans un fichier SQLite (.mboaschool/local_db.sqlite) sur la machine.
+// Elle ne doit jamais être exposée sur un déploiement web.
 const isDesktopRuntime = () => process.env.MBOASCHOOL_DESKTOP === '1';
 
 const desktopOnlyResponse = () =>
   NextResponse.json(
-    { data: null, error: { message: "Cette API n'est disponible que dans l'application desktop." } },
+    { data: null, error: { message: "Cette API n'est disponible que dans l'application desktop (Mode SQL SQLite)." } },
     { status: 403 }
   );
 
-// Path helpers
-const getDbDir = () => {
-  const dir = path.join(os.homedir(), '.mboaschool');
-  try {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    // Verify write permissions
-    const testPath = path.join(dir, '.write_test');
-    fs.writeFileSync(testPath, 'test', 'utf8');
-    fs.unlinkSync(testPath);
-    return dir;
-  } catch (e) {
-    // Homedir is read-only (e.g. Vercel serverless environment)
-    // Fall back to system tmp directory which is writeable
-    const tmpDir = path.join(os.tmpdir(), '.mboaschool');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-    return tmpDir;
+// Helper to resolve nested relationships in queries
+async function resolveRelations(table: string, records: any[]) {
+  if (table === 'eleves') {
+    const paiements = await getAllRecordsFromTable('paiements');
+    const notes = await getAllRecordsFromTable('notes');
+    return records.map(record => ({
+      ...record,
+      paiements: paiements.filter((p: any) => p.eleve_id === record.id),
+      notes: notes.filter((n: any) => n.eleve_id === record.id)
+    }));
   }
-};
-
-const getDbPath = () => path.join(getDbDir(), 'local_db.json');
-const getQueuePath = () => path.join(getDbDir(), 'sync_queue.json');
-
-// Helper to read database
-const readDb = (): Record<string, any[]> => {
-  const dbPath = getDbPath();
-  if (!fs.existsSync(dbPath)) {
-    return {};
+  
+  if (table === 'ecritures_comptables') {
+    const lignes = await getAllRecordsFromTable('lignes_ecritures');
+    return records.map(record => ({
+      ...record,
+      lignes_ecritures: lignes.filter((l: any) => l.ecriture_id === record.id)
+    }));
   }
-  try {
-    const data = fs.readFileSync(dbPath, 'utf8');
-    return JSON.parse(data);
-  } catch (e) {
-    return {};
+  
+  if (table === 'classes') {
+    const eleves = await getAllRecordsFromTable('eleves');
+    return records.map(record => ({
+      ...record,
+      eleves: eleves.filter((e: any) => e.classe_id === record.id)
+    }));
   }
-};
 
-// Helper to write database
-const writeDb = (db: Record<string, any[]>) => {
-  const dbPath = getDbPath();
-  fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
-};
-
-// Helper to read sync queue
-const readQueue = (): any[] => {
-  const queuePath = getQueuePath();
-  if (!fs.existsSync(queuePath)) {
-    return [];
+  if (table === 'membres_personnel') {
+    const fb = await getAllRecordsFromTable('formations_beneficiaires');
+    return records.map(record => ({
+      ...record,
+      formations_beneficiaires: fb.filter((x: any) => x.personnel_id === record.id)
+    }));
   }
-  try {
-    const data = fs.readFileSync(queuePath, 'utf8');
-    return JSON.parse(data);
-  } catch (e) {
-    return [];
-  }
-};
 
-// Helper to write sync queue
-const writeQueue = (queue: any[]) => {
-  const queuePath = getQueuePath();
-  fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2), 'utf8');
-};
-
-// Resolve relations dynamically for nested selects
-function resolveRelations(table: string, records: any[], db: Record<string, any[]>) {
-  return records.map(record => {
-    const copy = { ...record };
-    
-    if (table === 'eleves') {
-      const paiements = db['paiements'] || [];
-      copy.paiements = paiements.filter((p: any) => p.eleve_id === record.id);
-      
-      const notes = db['notes'] || [];
-      copy.notes = notes.filter((n: any) => n.eleve_id === record.id);
-    }
-    
-    if (table === 'ecritures_comptables') {
-      const lignes = db['lignes_ecritures'] || [];
-      copy.lignes_ecritures = lignes.filter((l: any) => l.ecriture_id === record.id);
-    }
-    
-    if (table === 'classes') {
-      const eleves = db['eleves'] || [];
-      copy.eleves = eleves.filter((e: any) => e.classe_id === record.id);
-    }
-
-    if (table === 'membres_personnel') {
-      const fb = db['formations_beneficiaires'] || [];
-      copy.formations_beneficiaires = fb.filter((x: any) => x.personnel_id === record.id);
-    }
-
-    if (table === 'sections') {
-      const niveaux = db['niveaux_classes'] || [];
-      const classes = db['classes'] || [];
-      copy.niveaux_classes = niveaux
+  if (table === 'sections') {
+    const niveaux = await getAllRecordsFromTable('niveaux_classes');
+    const classes = await getAllRecordsFromTable('classes');
+    return records.map(record => ({
+      ...record,
+      niveaux_classes: niveaux
         .filter((n: any) => n.section_id === record.id)
         .map((n: any) => ({
           ...n,
           classes: classes.filter((c: any) => c.niveau_id === n.id)
-        }));
-    }
-    
-    return copy;
-  });
+        }))
+    }));
+  }
+  
+  return records;
 }
 
 // GET handler
@@ -134,7 +81,7 @@ export async function GET(req: NextRequest) {
 
     // 1. Get sync queue
     if (action === 'get-queue') {
-      const queue = readQueue();
+      const queue = await getQueue();
       return NextResponse.json({ queue, error: null });
     }
 
@@ -152,8 +99,7 @@ export async function GET(req: NextRequest) {
     const rangeStartStr = searchParams.get('rangeStart');
     const rangeEndStr = searchParams.get('rangeEnd');
 
-    const db = readDb();
-    let records = db[table] || [];
+    let records = await getAllRecordsFromTable(table);
 
     // Apply filters
     if (filtersStr) {
@@ -200,7 +146,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Resolve nested relations
-    records = resolveRelations(table, records, db);
+    records = await resolveRelations(table, records);
 
     if (isSingle) {
       return NextResponse.json({ data: records[0] || null, error: null });
@@ -217,31 +163,45 @@ export async function POST(req: NextRequest) {
   if (!isDesktopRuntime()) return desktopOnlyResponse();
   try {
     const body = await req.json();
-    const { action, table, payload, filters, taskId } = body;
+    const { action, table, payload, filters } = body;
 
     // 1. Init Database with seed data if empty
     if (action === 'init') {
-      const db = readDb();
       let initializedCount = 0;
       for (const key of Object.keys(payload)) {
-        if (!db[key] || db[key].length === 0) {
-          db[key] = payload[key];
+        const existing = await getAllRecordsFromTable(key);
+        if (existing.length === 0 && Array.isArray(payload[key])) {
+          await saveRecordsToTable(key, payload[key]);
           initializedCount++;
         }
-      }
-      if (initializedCount > 0) {
-        writeDb(db);
       }
       return NextResponse.json({ success: true, initializedCount });
     }
 
-    if (!table || !action) {
-      return NextResponse.json({ error: "Missing table or action parameter" }, { status: 400 });
+    // 2. Sync Pull from Remote Supabase to Local SQLite DB
+    if (action === 'sync-pull-table') {
+      const { table: pullTable, records } = body;
+      if (!pullTable || !Array.isArray(records)) {
+        return NextResponse.json({ error: "Missing table or records array" }, { status: 400 });
+      }
+
+      const queue = await getQueue();
+      const pendingIds = new Set(
+        queue
+          .filter((t: any) => t.table === pullTable && t.payload?.id)
+          .map((t: any) => t.payload.id)
+      );
+
+      const recordsToUpsert = records.filter(remoteItem => remoteItem?.id && !pendingIds.has(remoteItem.id));
+      if (recordsToUpsert.length > 0) {
+        await saveRecordsToTable(pullTable, recordsToUpsert);
+      }
+
+      return NextResponse.json({ success: true, count: records.length });
     }
 
-    const db = readDb();
-    if (!db[table]) {
-      db[table] = [];
+    if (!table || !action) {
+      return NextResponse.json({ error: "Missing table or action parameter" }, { status: 400 });
     }
 
     let resultData: any = null;
@@ -253,20 +213,16 @@ export async function POST(req: NextRequest) {
         if (!item.id) {
           item.id = crypto.randomUUID();
         }
-        db[table].push(item);
         
-        // Add to local sync queue
-        const queue = readQueue();
-        queue.push({
+        await addToQueue({
           id: `task_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
           table,
           action: 'insert',
           payload: item,
           timestamp: Date.now()
         });
-        writeQueue(queue);
       }
-      writeDb(db);
+      await saveRecordsToTable(table, payloadArray);
       resultData = Array.isArray(payload) ? payloadArray : payloadArray[0];
     }
 
@@ -276,8 +232,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Missing filters for update" }, { status: 400 });
       }
 
+      const existingRecords = await getAllRecordsFromTable(table);
       const updatedItems: any[] = [];
-      db[table] = db[table].map((item: any) => {
+
+      for (const item of existingRecords) {
         let match = true;
         for (const filter of filters) {
           if (item[filter.field] !== filter.value) {
@@ -288,18 +246,13 @@ export async function POST(req: NextRequest) {
         if (match) {
           const updated = { ...item, ...payload };
           updatedItems.push(updated);
-          return updated;
         }
-        return item;
-      });
+      }
 
       if (updatedItems.length > 0) {
-        writeDb(db);
-        
-        // Add to local sync queue
-        const queue = readQueue();
+        await saveRecordsToTable(table, updatedItems);
         for (const item of updatedItems) {
-          queue.push({
+          await addToQueue({
             id: `task_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
             table,
             action: 'update',
@@ -308,12 +261,11 @@ export async function POST(req: NextRequest) {
             timestamp: Date.now()
           });
         }
-        writeQueue(queue);
       }
       resultData = updatedItems;
     }
 
-    // D. UPSERT
+    // C. UPSERT
     else if (action === 'upsert') {
       const payloadArray = Array.isArray(payload) ? payload : [payload];
       const { upsertOptions } = body;
@@ -322,32 +274,33 @@ export async function POST(req: NextRequest) {
         ? onConflictOpt.split(',').map((k: string) => k.trim())
         : ['id'];
 
+      const existingRecords = await getAllRecordsFromTable(table);
       const insertedItems: any[] = [];
       const updatedItems: any[] = [];
 
       for (const item of payloadArray) {
-        const conflictIndex = db[table].findIndex((existingItem: any) => {
+        const conflictIndex = existingRecords.findIndex((existingItem: any) => {
           return conflictKeys.every((key: string) => existingItem[key] !== undefined && existingItem[key] === item[key]);
         });
 
         if (conflictIndex !== -1) {
-          const updated = { ...db[table][conflictIndex], ...item };
-          db[table][conflictIndex] = updated;
+          const updated = { ...existingRecords[conflictIndex], ...item };
           updatedItems.push(updated);
         } else {
           if (!item.id) {
             item.id = crypto.randomUUID();
           }
-          db[table].push(item);
           insertedItems.push(item);
         }
       }
 
-      writeDb(db);
+      const allToSave = [...updatedItems, ...insertedItems];
+      if (allToSave.length > 0) {
+        await saveRecordsToTable(table, allToSave);
+      }
 
-      const queue = readQueue();
       for (const item of updatedItems) {
-        queue.push({
+        await addToQueue({
           id: `task_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
           table,
           action: 'update',
@@ -357,7 +310,7 @@ export async function POST(req: NextRequest) {
         });
       }
       for (const item of insertedItems) {
-        queue.push({
+        await addToQueue({
           id: `task_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
           table,
           action: 'insert',
@@ -365,20 +318,20 @@ export async function POST(req: NextRequest) {
           timestamp: Date.now()
         });
       }
-      writeQueue(queue);
 
       resultData = Array.isArray(payload) ? [...updatedItems, ...insertedItems] : (updatedItems[0] || insertedItems[0]);
     }
 
-
-    // C. DELETE
+    // D. DELETE
     else if (action === 'delete') {
       if (!filters || !Array.isArray(filters)) {
         return NextResponse.json({ error: "Missing filters for delete" }, { status: 400 });
       }
 
+      const existingRecords = await getAllRecordsFromTable(table);
       const deletedItems: any[] = [];
-      const keptItems = db[table].filter((item: any) => {
+
+      for (const item of existingRecords) {
         let match = true;
         for (const filter of filters) {
           if (item[filter.field] !== filter.value) {
@@ -388,19 +341,15 @@ export async function POST(req: NextRequest) {
         }
         if (match) {
           deletedItems.push(item);
-          return false;
         }
-        return true;
-      });
+      }
 
       if (deletedItems.length > 0) {
-        db[table] = keptItems;
-        writeDb(db);
+        const idsToDelete = deletedItems.map(d => d.id).filter(Boolean);
+        await deleteRecordsFromTable(table, idsToDelete);
 
-        // Add to local sync queue
-        const queue = readQueue();
         for (const item of deletedItems) {
-          queue.push({
+          await addToQueue({
             id: `task_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
             table,
             action: 'delete',
@@ -409,7 +358,6 @@ export async function POST(req: NextRequest) {
             timestamp: Date.now()
           });
         }
-        writeQueue(queue);
       }
       resultData = deletedItems;
     }
@@ -429,11 +377,10 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Missing taskId" }, { status: 400 });
     }
 
-    const queue = readQueue();
-    const filtered = queue.filter(item => item.id !== taskId);
-    writeQueue(filtered);
+    await removeFromQueue(taskId);
+    const queue = await getQueue();
 
-    return NextResponse.json({ success: true, remaining: filtered.length });
+    return NextResponse.json({ success: true, remaining: queue.length });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }

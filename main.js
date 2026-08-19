@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
@@ -28,15 +29,182 @@ function log(msg) {
   }
 }
 
+// Configure auto updater
+autoUpdater.logger = {
+  info: (msg) => log(`[AutoUpdater] ${msg}`),
+  warn: (msg) => log(`[AutoUpdater WARN] ${msg}`),
+  error: (msg) => log(`[AutoUpdater ERROR] ${msg}`)
+};
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+function sendUpdateStatus(data) {
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('app:update-status', data);
+  }
+}
+
+autoUpdater.on('checking-for-update', () => {
+  log("AutoUpdater: Checking for updates...");
+  sendUpdateStatus({ status: 'checking' });
+});
+
+autoUpdater.on('update-available', (info) => {
+  log(`AutoUpdater: Update available v${info.version}`);
+  sendUpdateStatus({ status: 'available', version: info.version });
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  log(`AutoUpdater: Update not available. Current version is up to date (v${info.version})`);
+  sendUpdateStatus({ status: 'not-available', version: info.version });
+});
+
+autoUpdater.on('error', (err) => {
+  log(`AutoUpdater error: ${err.message}`);
+  sendUpdateStatus({ status: 'error', error: err.message });
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  log(`AutoUpdater download progress: ${Math.round(progressObj.percent)}%`);
+  sendUpdateStatus({ status: 'downloading', percent: Math.round(progressObj.percent) });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  log(`AutoUpdater: Update downloaded v${info.version}`);
+  sendUpdateStatus({ status: 'downloaded', version: info.version });
+
+  if (mainWindow) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      buttons: ['Redémarrer et installer', 'Plus tard'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Mise à jour prête',
+      message: `La version ${info.version} de MboaSchool a été téléchargée.`,
+      detail: 'Voulez-vous redémarrer l\'application maintenant pour appliquer la mise à jour ?'
+    }).then(({ response }) => {
+      if (response === 0) {
+        autoUpdater.quitAndInstall(false, true);
+      }
+    });
+  }
+});
+
+// IPC handlers for frontend communication
+ipcMain.handle('app:get-version', () => {
+  return app.getVersion();
+});
+
+ipcMain.handle('app:check-for-updates', async () => {
+  if (!app.isPackaged) {
+    log("Check for updates skipped: running in development mode.");
+    return { status: 'dev-mode', message: 'Mode développement : les mises à jour automatiques sont actives dans le setup installé.' };
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { status: 'ok', result };
+  } catch (err) {
+    log(`Check for updates manual trigger error: ${err.message}`);
+    return { status: 'error', error: err.message };
+  }
+});
+
+ipcMain.handle('app:quit-and-install', () => {
+  autoUpdater.quitAndInstall(false, true);
+});
+
+function setupMenu() {
+  const template = [
+    {
+      label: 'Fichier',
+      submenu: [
+        {
+          label: 'Recharger',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => {
+            if (mainWindow) mainWindow.reload();
+          }
+        },
+        { type: 'separator' },
+        { role: 'quit', label: 'Quitter MboaSchool' }
+      ]
+    },
+    {
+      label: 'Affichage',
+      submenu: [
+        { role: 'forceReload', label: 'Forcer l\'actualisation' },
+        { role: 'toggleDevTools', label: 'Outils de développement' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: 'Taille normale' },
+        { role: 'zoomIn', label: 'Agrandir' },
+        { role: 'zoomOut', label: 'Réduire' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Plein écran' }
+      ]
+    },
+    {
+      label: 'Aide & Mises à jour',
+      submenu: [
+        {
+          label: 'Vérifier les mises à jour...',
+          click: () => {
+            if (app.isPackaged) {
+              autoUpdater.checkForUpdates();
+            } else if (mainWindow) {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'Mises à jour',
+                message: 'Mode développement actif',
+                detail: 'La vérification automatique des mises à jour s\'exécute lors du déploiement du setup NSIS.'
+              });
+            }
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'À propos de MboaSchool',
+          click: () => {
+            if (mainWindow) {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'À propos de MboaSchool',
+                message: `MboaSchool v${app.getVersion()}`,
+                detail: 'Gestion scolaire & comptable complète.\n© 2026 MboaSchool.'
+              });
+            }
+          }
+        }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+function getNextAppDir() {
+  if (!app.isPackaged) return __dirname;
+  const resourcesNext = path.join(process.resourcesPath, '.next');
+  if (fs.existsSync(resourcesNext)) {
+    log(`Found .next in process.resourcesPath: ${resourcesNext}`);
+    return process.resourcesPath;
+  }
+  const appPathNext = path.join(app.getAppPath(), '.next');
+  if (fs.existsSync(appPathNext)) {
+    log(`Found .next in appPath: ${appPathNext}`);
+    return app.getAppPath();
+  }
+  return __dirname;
+}
+
 function startNextServer() {
   return new Promise((resolve, reject) => {
     log("Starting Next.js initialization...");
-    // Identifie ce serveur comme le runtime desktop embarqué : débloque le mode
-    // hors-ligne (cookie de session offline, API /api/local-db). Jamais défini
-    // sur un déploiement web, où ces mécanismes doivent rester inaccessibles.
     process.env.MBOASCHOOL_DESKTOP = '1';
     const dev = false;
-    const nextApp = next({ dev, dir: __dirname });
+    const appDir = getNextAppDir();
+    log(`Next.js runtime directory: ${appDir}`);
+    const nextApp = next({ dev, dir: appDir });
     const handle = nextApp.getRequestHandler();
 
     // Set a safety timeout to prevent infinite hanging
@@ -83,11 +251,12 @@ function createWindow() {
     width: 1280,
     height: 800,
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true
     },
     title: "MboaSchool - Gestion Scolaire",
-    autoHideMenuBar: true
+    autoHideMenuBar: false
   });
 
   log("Loading URL http://127.0.0.1:3000...");
@@ -101,10 +270,20 @@ function createWindow() {
     log("BrowserWindow closed.");
     mainWindow = null;
   });
+
+  // Check for updates on startup if packaged
+  if (app.isPackaged) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdatesAndNotify().catch(e => {
+        log(`AutoUpdater initial check error: ${e.message}`);
+      });
+    }, 5000);
+  }
 }
 
 app.on('ready', async () => {
   log("Electron app ready event received.");
+  setupMenu();
   try {
     await startNextServer();
     log("Server start routine finished. Creating window...");

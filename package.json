@@ -1,6 +1,6 @@
 {
   "name": "ecole-saas-cameroun",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -19,12 +19,14 @@
     "@serwist/next": "^9.5.11",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.107.0",
+    "electron-updater": "^6.8.9",
     "idb-keyval": "^6.2.5",
     "next": "16.2.7",
     "pg": "^8.21.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "serwist": "^9.5.11",
+    "sql.js": "^1.14.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.25.76"
   },
@@ -33,6 +35,7 @@
     "@types/node": "^20.19.41",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/sql.js": "^1.4.11",
     "electron": "^42.4.0",
     "electron-builder": "^26.15.3",
     "eslint": "^9",
@@ -46,15 +49,31 @@
     "productName": "MboaSchool",
     "asar": false,
     "directories": {
-      "output": "dist"
+      "output": "release-dist"
     },
     "files": [
       "main.js",
+      "preload.js",
       "package.json",
-      ".next/**/*",
-      "!.next/cache/**/*",
-      "!.next/dev/**/*",
-      "public/**/*"
+      "public/**"
+    ],
+    "extraResources": [
+      {
+        "from": ".next",
+        "to": ".next",
+        "filter": [
+          "**/*",
+          "!cache/**",
+          "!dev/**"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "anorps1-png",
+        "repo": "MboaSchool"
+      }
     ],
     "win": {
       "target": "nsis"
@@ -63,7 +82,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "runAfterFinish": true
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "differentialPackage": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }
