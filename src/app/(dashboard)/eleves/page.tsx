@@ -66,6 +66,15 @@ export default function ElevesPage() {
   const [reenrollYearId, setReenrollYearId] = useState('');
   const [reenrollInitialPayment, setReenrollInitialPayment] = useState('');
   const [availableYears, setAvailableYears] = useState<any[]>([]);
+  // Candidats de la recherche de réinscription. Alimentés par la RPC serveur
+  // (toutes années confondues) quand elle est disponible : la liste `students`
+  // n'est remplie qu'en repli client, donc le modal était vide sur le chemin
+  // nominal en production.
+  const [reenrollCandidates, setReenrollCandidates] = useState<any[]>([]);
+  // Classes de l'année de destination : le menu affichait les classes de
+  // l'année ACTIVE, ce qui permettait d'affecter un élève réinscrit en
+  // 2026/2027 à une classe de 2025/2026.
+  const [reenrollClassesList, setReenrollClassesList] = useState<Classe[]>([]);
 
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -97,12 +106,12 @@ export default function ElevesPage() {
         try {
           const data = await getClasses(etablissementId, academicYearId || null);
           setClassesList(data);
+          // reenrollClassId est géré par l'effet dédié aux classes de l'année
+          // de destination, pas par la liste de l'année active.
           if (data.length > 0) {
             setClassName(data[0].id);
-            setReenrollClassId(data[0].id);
           } else {
             setClassName('');
-            setReenrollClassId('');
           }
         } catch (error) {
           captureError(error, { context: "Error fetching classes:" });
@@ -128,6 +137,77 @@ export default function ElevesPage() {
       fetchClassesAndYears();
     }
   }, [etablissementId, academicYearId]);
+
+  // Classes de l'année de destination de la réinscription : rechargées quand
+  // l'année cible change, pour interdire l'affectation croisée classe/année.
+  useEffect(() => {
+    if (!etablissementId || !reenrollYearId) {
+      setReenrollClassesList([]);
+      return;
+    }
+    getClasses(etablissementId, reenrollYearId)
+      .then((data) => {
+        setReenrollClassesList(data);
+        setReenrollClassId(data.length > 0 ? data[0].id : '');
+      })
+      .catch((error) => {
+        captureError(error, { context: 'Error fetching reenroll classes:' });
+        setReenrollClassesList([]);
+        setReenrollClassId('');
+      });
+  }, [etablissementId, reenrollYearId]);
+
+  // Recherche des candidats à la réinscription. En mode serveur, la liste
+  // `students` reste vide (elle n'alimente que le repli client) : on cherche
+  // donc en base via la RPC paginée, toutes années confondues, sinon le modal
+  // ne renvoyait jamais aucun résultat en production.
+  useEffect(() => {
+    if (!showReenrollModal || !reenrollSearch || selectedReenrollStudent) {
+      setReenrollCandidates([]);
+      return;
+    }
+
+    if (serverModeAvailable !== true) {
+      const q = reenrollSearch.toLowerCase();
+      setReenrollCandidates(
+        students
+          .filter(s => `${s.nom || ''} ${s.prenom || ''} ${s.matricule || ''}`.toLowerCase().includes(q))
+          .slice(0, 10)
+      );
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      getStudentsPaginated({
+        etablissementId: etablissementId!,
+        anneeScolaireId: null,
+        search: reenrollSearch,
+        page: 1,
+        pageSize: 10,
+      })
+        .then(({ students: rows }) => {
+          setReenrollCandidates(rows.map((r: any) => ({
+            id: r.id,
+            matricule: r.matricule,
+            nom: r.nom,
+            prenom: r.prenom,
+            sexe: r.sexe,
+            classeId: r.classe_id,
+            anneeScolaireId: r.annee_scolaire_id,
+            nomParent: r.nom_parent,
+            telephoneParent: r.telephone_parent,
+            emailParent: r.email_parent,
+            dateNaissance: r.date_naissance,
+            lieuNaissance: r.lieu_naissance,
+          })));
+        })
+        .catch((error) => {
+          captureError(error, { context: 'Error searching reenroll candidates:' });
+          setReenrollCandidates([]);
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [showReenrollModal, reenrollSearch, selectedReenrollStudent, serverModeAvailable, students, etablissementId]);
 
   // Fetch complet des élèves (avec historique de paiements) — nécessaire
   // uniquement en repli client (tableau serveur paginé indisponible/hors-ligne)
@@ -287,8 +367,11 @@ export default function ElevesPage() {
   }, [studentsOfActiveYear, searchTerm, selectedClass, selectedPaymentStatus, selectedGender, isLoaded, getStudentPaymentStats]);
 
   // Total counts for widgets
+  // lateCount reste à 0 : ce repli client n'a pas la notion d'échéance des
+  // tranches (contrairement à get_students_widget_stats). La carte « Partiel »
+  // additionne les deux, donc le total reste juste dans les deux modes.
   const widgetStats = useMemo(() => {
-    if (!isLoaded) return { paidCount: 0, partialCount: 0, unpaidCount: 0, total: 0 };
+    if (!isLoaded) return { paidCount: 0, partialCount: 0, lateCount: 0, unpaidCount: 0, total: 0 };
     let paidCount = 0;
     let partialCount = 0;
     let unpaidCount = 0;
@@ -301,7 +384,7 @@ export default function ElevesPage() {
       else unpaidCount++;
     });
 
-    return { paidCount, partialCount, unpaidCount, total: studentsOfActiveYear.length };
+    return { paidCount, partialCount, lateCount: 0, unpaidCount, total: studentsOfActiveYear.length };
   }, [studentsOfActiveYear, isLoaded, getStudentPaymentStats]);
 
 
@@ -466,9 +549,38 @@ export default function ElevesPage() {
       statut: 'actif'
     };
 
-    if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
+    // Même garde que la réinscription et les autres flux du fichier : la file
+    // de synchro hors-ligne n'existe que dans l'app desktop.
+    if (isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline))) {
       const tempId = crypto.randomUUID();
       await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: tempId });
+
+      // L'acompte encaissé à l'inscription doit partir dans la même file :
+      // avant ce correctif, ce bloc sortait (return) avant la création du
+      // paiement initial, et l'argent encaissé physiquement disparaissait du
+      // système à la synchronisation.
+      let offlinePaymentObj = null;
+      const offlineInitialPay = Number(initialPayment);
+      if (offlineInitialPay > 0) {
+        const tempPayId = crypto.randomUUID();
+        const offlinePaymentData = {
+          id: tempPayId,
+          eleve_id: tempId,
+          montant: offlineInitialPay,
+          date: new Date().toISOString().split('T')[0],
+          type_frais: 'Scolarité',
+          mode_paiement: 'Espèces',
+          statut: 'paid',
+          reference: `REC-INS-${Date.now()}`
+        };
+        await SyncManager.addToQueue('paiements', 'insert', offlinePaymentData);
+        offlinePaymentObj = {
+          ...offlinePaymentData,
+          eleveId: tempId,
+          typeFrais: 'Scolarité',
+          modePaiement: 'Espèces'
+        };
+      }
 
       const localStudent = {
         id: tempId,
@@ -480,12 +592,13 @@ export default function ElevesPage() {
         nomParent: studentData.nom_parent,
         telephoneParent: studentData.telephone_parent,
         emailParent: studentData.email_parent,
-        paiements: [],
+        paiements: offlinePaymentObj ? [offlinePaymentObj] : [],
         notes: []
       };
-      
+
       setStudents([localStudent as any, ...students]);
       setShowAddModal(false);
+      setInitialPayment('');
       triggerToast(`Hors-ligne : L'élève ${lastName} a été mis en file d'attente de synchronisation.`);
       return;
     }
@@ -610,6 +723,13 @@ export default function ElevesPage() {
       alert("Veuillez déterminer l'année scolaire de destination.");
       return;
     }
+    // La classe choisie doit appartenir à l'année de destination : une classe
+    // d'une autre année rendrait l'élève invisible dans sa nouvelle année et
+    // gonflerait rétroactivement les effectifs de l'ancienne.
+    if (!reenrollClassesList.some(c => c.id === reenrollClassId)) {
+      alert("La classe sélectionnée n'appartient pas à l'année scolaire de destination.");
+      return;
+    }
 
     const reenrollData = {
       matricule: selectedReenrollStudent.matricule,
@@ -632,6 +752,32 @@ export default function ElevesPage() {
     if (isOfflineMode) {
       const tempId = crypto.randomUUID();
       await SyncManager.addToQueue('eleves', 'insert', { ...reenrollData, id: tempId });
+
+      // Comme pour l'inscription : l'acompte de réinscription part dans la
+      // même file, sinon il était silencieusement perdu.
+      let offlinePayObj = null;
+      const offlineReenrollPay = Number(reenrollInitialPayment);
+      if (offlineReenrollPay > 0) {
+        const tempPayId = crypto.randomUUID();
+        const offlinePayData = {
+          id: tempPayId,
+          eleve_id: tempId,
+          montant: offlineReenrollPay,
+          date: new Date().toISOString().split('T')[0],
+          type_frais: 'Scolarité',
+          mode_paiement: 'Espèces',
+          statut: 'paid',
+          reference: `REC-REINS-${Date.now()}`
+        };
+        await SyncManager.addToQueue('paiements', 'insert', offlinePayData);
+        offlinePayObj = {
+          ...offlinePayData,
+          eleveId: tempId,
+          typeFrais: 'Scolarité',
+          modePaiement: 'Espèces'
+        };
+      }
+
       const localStudent = {
         id: tempId,
         ...reenrollData,
@@ -642,7 +788,7 @@ export default function ElevesPage() {
         nomParent: reenrollData.nom_parent,
         telephoneParent: reenrollData.telephone_parent,
         emailParent: reenrollData.email_parent,
-        paiements: [],
+        paiements: offlinePayObj ? [offlinePayObj] : [],
         notes: []
       };
       setStudents([localStudent as any, ...students]);
@@ -1552,7 +1698,7 @@ export default function ElevesPage() {
         </div>
         <div className="bg-surface border border-border p-6 rounded-card">
           <span className="text-[13px] font-bold text-ink-soft block">Tranche partielle</span>
-          <span className="text-[38px] font-extrabold text-ink tracking-[-1.5px] mt-2 block">{effectiveWidgetStats.partialCount}</span>
+          <span className="text-[38px] font-extrabold text-ink tracking-[-1.5px] mt-2 block">{effectiveWidgetStats.partialCount + (effectiveWidgetStats.lateCount ?? 0)}</span>
         </div>
         <div className="bg-surface border border-border p-6 rounded-card">
           <span className="text-[13px] font-bold text-ink-soft block">Non payé / attente</span>
@@ -2022,13 +2168,12 @@ export default function ElevesPage() {
                   />
                   {reenrollSearch && !selectedReenrollStudent && (
                     <div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border rounded-control shadow-lg max-h-48 overflow-y-auto z-50">
-                      {students
-                        .filter(s =>
-                          `${s.nom || ''} ${s.prenom || ''} ${s.matricule || ''}`
-                            .toLowerCase()
-                            .includes(reenrollSearch.toLowerCase())
-                        )
-                        .slice(0, 10)
+                      {reenrollCandidates.length === 0 && (
+                        <div className="px-4 py-2.5 text-xs text-ink-faint italic">
+                          Aucun élève trouvé pour « {reenrollSearch} ».
+                        </div>
+                      )}
+                      {reenrollCandidates
                         .map((s) => (
                           <div
                             key={s.id}
@@ -2109,10 +2254,15 @@ export default function ElevesPage() {
                     required
                   >
                     <option value="">Sélectionner une classe</option>
-                    {classesList.map((c) => (
+                    {reenrollClassesList.map((c) => (
                       <option key={c.id} value={c.id}>{c.nom}</option>
                     ))}
                   </select>
+                  {reenrollYearId && reenrollClassesList.length === 0 && (
+                    <p className="text-[11px] text-accent font-semibold mt-1.5">
+                      Aucune classe n&apos;existe pour cette année scolaire. Créez d&apos;abord les classes de l&apos;année de destination.
+                    </p>
+                  )}
                 </div>
 
                 <div>

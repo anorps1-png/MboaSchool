@@ -44,10 +44,12 @@ export interface AccountBalance {
  * TVA, bilan, DSF).
  */
 export async function getFinanceAccountBalances(
-  etablissementId: string
+  etablissementId: string,
+  anneeScolaireId?: string | null
 ): Promise<Record<string, AccountBalance>> {
   const { data, error } = await supabase.rpc('get_finance_account_balances', {
     p_etablissement_id: etablissementId,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   const balances: Record<string, AccountBalance> = {};
@@ -66,9 +68,13 @@ export interface CaParClasse {
 }
 
 /** CA (paiements statut='paid') collecté par classe, calculé en base. */
-export async function getFinanceCaParClasse(etablissementId: string): Promise<Record<string, number>> {
+export async function getFinanceCaParClasse(
+  etablissementId: string,
+  anneeScolaireId?: string | null
+): Promise<Record<string, number>> {
   const { data, error } = await supabase.rpc('get_finance_ca_par_classe', {
     p_etablissement_id: etablissementId,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   const map: Record<string, number> = {};
@@ -87,11 +93,13 @@ export interface ReconciliationJour {
 /** Rapprochement de trésorerie quotidien (N derniers jours), calculé en base. */
 export async function getFinanceReconciliationQuotidienne(
   etablissementId: string,
-  jours = 7
+  jours = 7,
+  anneeScolaireId?: string | null
 ): Promise<ReconciliationJour[]> {
   const { data, error } = await supabase.rpc('get_finance_reconciliation_quotidienne', {
     p_etablissement_id: etablissementId,
     p_jours: jours,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   return ((data as Record<string, unknown>[]) ?? []).map((row) => ({

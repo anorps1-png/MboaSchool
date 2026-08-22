@@ -74,12 +74,17 @@ export async function proxy(request: NextRequest) {
 
   // Protected routes check
   // Allow landing page (/), login (/login), SW/manifests, and static assets
+  // L'extension se teste sur le DERNIER SEGMENT, pas sur le chemin entier :
+  // path.includes('.') laissait passer /eleves/a.b, donc n'importe quelle
+  // route dynamique dont un paramètre contient un point.
+  const isStaticAsset = /\.[a-z0-9]+$/i.test(path.split('/').pop() || '');
+
   const isPublicRoute =
     path === '/' ||
     path === '/login' ||
     path.startsWith('/_next') ||
     path.startsWith('/favicon.ico') ||
-    path.includes('.') || // static files with extensions like .png, .json, etc.
+    isStaticAsset ||
     path.startsWith('/sw') ||
     path.startsWith('/manifest');
 

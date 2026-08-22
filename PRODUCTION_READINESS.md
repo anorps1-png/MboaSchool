@@ -1,6 +1,196 @@
 # État de préparation à la production — MboaSchool / APON
 
-Suivi des chantiers de robustesse et de scalabilité. Mis à jour le 2026-07-22.
+Suivi des chantiers de robustesse et de scalabilité. Mis à jour le 2026-08-22.
+
+---
+
+## ⚠️ Fork de trois semaines réconcilié — 2026-08-22
+
+Le commit `0890e99` (16/08, auteur : compte GitHub du projet) a été poussé sur
+`frontend-prototype` depuis un checkout local resté sur `4ef98d1` (25/07),
+c'est-à-dire **avant** `a3490d4`/`5c613bd`/`bfd21d9` (indépendance année
+scolaire, configuration des tranches depuis le module Classes) et avant le
+correctif de sécurité du 26/07 (`8155926`) documenté plus bas. Cette poussée a
+donc effacé ces quatre commits de l'historique de la branche, tout en
+apportant son propre travail indépendant : une reconstruction différente de la
+fonctionnalité de tranches (modèle par `montant` plutôt que par `pourcentage`
+dynamique), plus une migration `20260816190000_tranches_scolarite_montant.sql`
+**jamais appliquée en base** (colonne manquante, page Tranches cassée en
+production jusqu'à ce correctif).
+
+**Constat en base au moment de la découverte** : la base de données avait
+continué de tourner sur le schéma issu de `bfd21d9` + mes 5 migrations de
+sécurité (appliquées directement le 26/07, indépendamment de git) — RLS,
+triggers de cohérence tenant, isolation vérifiée sur les 13 établissements
+réels. Le code déployé (lignée du 16/08) et la base avaient donc chacun
+évolué sans se parler, tout en restant partiellement compatibles (les deux
+utilisent `paiements.tranche_id`).
+
+**Réconciliation, décidée avec l'utilisateur** : conserver la version du
+16/08 du module tranches/finance (déjà déployée, la plus récente), et
+réappliquer par-dessus uniquement les correctifs de sécurité/validation qui
+n'entrent pas en conflit avec cette refonte :
+- Migration `20260816190000` appliquée en base (colonne `montant` manquante).
+- 8 fichiers de migration manquants restaurés sur le disque (3 de la lignée
+  du 25/07 + les 5 de sécurité), tous déjà appliqués et vérifiés en base —
+  seul l'historique tracké dans git était en retard.
+- `proxy.ts`, `DashboardLayout.tsx`, `sw.ts`, `lib/queries/eleves.ts`,
+  `lib/queries/finance.ts`, `dashboard/page.tsx` : portés tels quels (non
+  touchés par la lignée du 16/08, confirmé par diff avant application).
+- `eleves/page.tsx`, `eleves/[id]/page.tsx`, `finance/page.tsx` : correctifs
+  de sécurité/validation/cohérence réappliqués manuellement par-dessus le
+  code du 16/08 (qui a sa propre gestion de file d'attente hors-ligne,
+  conservée et complétée plutôt que remplacée).
+- `TranchesConfig.tsx` : seul le garde-fou anti-suppression d'une tranche
+  référencée a été ajouté (orthogonal à la refonte).
+- `finance/rapport-tranches/page.tsx` et le reste de `TranchesConfig.tsx` :
+  **non touchés**, la refonte du 16/08 y reste intégralement en place.
+
+---
+
+## 🔴 Incident critique corrigé — 2026-07-26
+
+**Le correctif du 22/07 n'avait fermé la fuite qu'à moitié.** Il a nettoyé les
+politiques de `eleves` et `paiements`, mais la table `parent_eleves`, créée par
+la même migration fautive (`20260721140000`), porte exactement le même motif et
+n'avait jamais été corrigée :
+
+```sql
+CREATE POLICY "Parents see their children" ON public.parent_eleves
+  USING (parent_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles
+         WHERE id = auth.uid() AND role IN ('admin','directeur')));
+```
+
+Branche admin sans filtre `etablissement_id`, pas de clause `FOR` (donc
+`FOR ALL`), pas de `WITH CHECK` (donc Postgres réutilise l'expression `USING`
+en écriture). **Chaîne d'exploitation complète, sans privilège préalable** :
+s'inscrire normalement rend admin de son propre établissement, ce qui donne la
+lecture de tous les couples (parent, élève) de la plateforme, donc les UUID
+d'élèves des autres écoles ; un second compte `parent` créé dans sa propre
+école permet ensuite de s'y rattacher par `INSERT`, et les politiques parent de
+`20260722100000` (qui ne vérifiaient jamais `etablissement_id`, déléguant 100 %
+de l'isolation à `parent_eleves`) ouvrent alors l'identité complète de l'élève
+visé et tout son historique de paiements.
+
+**Corrigé par `20260726100000_fix_parent_eleves_leak_and_role_scoping.sql`** :
+- `parent_eleves` : `SELECT` et écriture séparés, tous deux scopés au tenant,
+  écriture réservée à admin/directeur.
+- Politiques parent sur `eleves`/`paiements` : ajout du filtre tenant et de
+  `deleted_at IS NULL` (absent, alors que toutes les autres politiques du
+  projet l'ont : un parent voyait un élève ou un paiement soft-supprimé).
+- `tranches_scolarite`, `matieres`, `emploi_du_temps` : exclusion du rôle
+  `parent`, qui pouvait supprimer la grille tarifaire de son école.
+- `paiements` : lecture large, écriture (INSERT/UPDATE/DELETE) réservée à
+  admin/directeur. Auparavant une seule politique `FOR ALL` n'excluait que
+  `parent`, si bien qu'un enseignant pouvait modifier ou supprimer n'importe
+  quel paiement depuis la console du navigateur ; le seul garde-fou était un
+  rendu conditionnel React alimenté par le localStorage.
+- `discipline_incidents` : un parent pouvait effacer une sanction.
+- **Filet structurel** : politique `AS RESTRICTIVE` de tenant sur les tables
+  concernées. Les politiques permissives se combinant par OR, elles ne peuvent
+  qu'élargir l'accès, ce qui est le mécanisme commun aux incidents du 22/07 et
+  du 23/07. Une restrictive est combinée par AND et rend inoffensive toute
+  future politique permissive mal écrite. Pose défensive : elle n'est appliquée
+  qu'aux tables sans ligne à `etablissement_id` NULL, pour ne pas masquer de
+  données existantes (les tables sautées émettent un NOTICE).
+
+**Autres correctifs du même audit :**
+
+| Migration | Objet |
+|---|---|
+| `20260726110000` | Les 3 RPC finance et `get_dashboard_stats`/`get_students_paginated`/`get_students_widget_stats` : paramètre année scolaire, filtre `type_frais = 'Scolarité'`, suppression du prix par défaut inventé (200 000 F). |
+| `20260726120000` | Triggers de cohérence tenant sur `classes.annee_scolaire_id`, `tranches_scolarite.annee_scolaire_id`, `eleves.annee_scolaire_id` et `paiements.tranche_id` : le contrôle de clé étrangère s'exécute hors RLS, donc une ligne pouvait référencer un autre établissement (avec `ON DELETE CASCADE`, cela constituait une primitive de destruction inter-tenant). |
+| `20260726130000` | `soft_delete_paiement` / `restore_paiement` : le paiement était le seul objet financier détruit physiquement. |
+
+**Montants faux corrigés (aucun signal d'erreur ne les signalait) :**
+- Le taux de recouvrement divisait un numérateur filtré par année scolaire
+  (`get_dashboard_stats`) par un dénominateur toutes années confondues
+  (`get_finance_account_balances`, sans paramètre année) : 33 % affichés au lieu
+  de 100 % sur une école de 3 ans, l'écart grandissant à chaque rentrée.
+- `total_paid` : le commit `4fc589a` avait restreint le total aux paiements de
+  scolarité côté client mais pas côté SQL, si bien qu'un élève ayant payé
+  inscription plus scolarité partielle apparaissait « Payé » dans le tableau et
+  « Partiel » sur sa fiche.
+- Quatre valeurs de repli différentes pour le même frais quand `classes.prix`
+  est vide (200 000, 150 000, 0, « Non configuré »). Plus aucun montant inventé.
+
+**Fonctionnalités réparées :** le modal de réinscription cherchait dans une
+liste qui n'est peuplée qu'en mode dégradé (donc toujours vide en production,
+désormais recherche serveur) ; l'acompte encaissé à l'inscription et à la
+réinscription était perdu hors-ligne (la branche offline sortait avant la
+création du paiement) ; la classe de réinscription pouvait appartenir à une
+autre année que l'année de destination ; supprimer une tranche détaguait
+silencieusement les paiements (`ON DELETE SET NULL`), ce qui faisait repasser
+« en retard » des familles à jour.
+
+**Sécurité applicative :** le service worker mettait les réponses Supabase en
+cache disque une heure via `defaultCache` (identités, coordonnées des parents,
+historique des paiements), sans que le JWT fasse partie de la clé de cache,
+donc relisibles hors réseau sur un poste partagé — désormais `NetworkOnly` sur
+l'origine Supabase, règle placée avant `defaultCache` (vérifié dans le bundle
+généré) ; aucune purge n'avait lieu à la déconnexion (ajout de `caches.delete`
+et du nettoyage des clés locales, hors hashes PBKDF2 en desktop) ; les
+mutations de paiement de la fiche élève contournaient `paiementSchema` ;
+`path.includes('.')` dans `proxy.ts` traitait toute route dynamique contenant
+un point comme un fichier statique.
+
+### Régression introduite puis corrigée le même jour
+
+`20260726100000` scopait les politiques de `parent_eleves` par une sous-requête
+sur `eleves`, alors que la politique parent de `eleves` interroge
+`parent_eleves`. Les expressions de politique étant soumises à la RLS de la
+table référencée, cela a créé un cycle `eleves -> parent_eleves -> eleves` :
+Postgres l'a détecté et **toute lecture de `eleves` échouait** (42P17), pour
+tous les rôles. Détecté par le test d'isolation joué juste après l'application.
+
+Corrigé par `20260726140000_fix_rls_infinite_recursion.sql` : les deux côtés du
+cycle passent par des fonctions `SECURITY DEFINER`
+(`eleve_etablissement_id`, `current_parent_eleve_ids`), qui s'exécutent hors RLS
+— même mécanisme que `current_user_etablissement_id()`. Le durcissement est
+intégralement préservé. **Leçon** : toute politique RLS qui référence une table
+elle-même protégée par une politique référençant la première doit passer par
+une fonction `SECURITY DEFINER`.
+
+### Vérification en production (2026-07-26, après application)
+
+Migrations appliquées sur le projet `fjsuhzgvoswdmwaowkcz`, chaque fichier dans
+sa propre transaction, avec test d'isolation avant COMMIT.
+
+- **Isolation confirmée** : les 9 comptes admin voient exactement leur propre
+  établissement (735/735, 393/393, 1576/1576, les autres 0/0) sur un total
+  plateforme de 3356 élèves. Le compte parent voit **1 élève** au lieu des 1576
+  de son école.
+- **Chaîne d'exploitation bloquée à chaque étape** : rattachement d'un parent à
+  un élève d'une autre école refusé (42501) ; modification par l'admin A d'un
+  élève de l'école B sans effet (0 ligne) ; classe de A pointant vers une année
+  de B refusée par le trigger (23514) ; parent sans aucun accès en écriture aux
+  tranches.
+- **Aucune régression** : un admin conserve la lecture et l'écriture des
+  tranches de son école et peut toujours encaisser un paiement ; les six RPC
+  (dont les trois de finance, aux nouvelles signatures) répondent normalement.
+- L'historique `supabase_migrations.schema_migrations` a été resynchronisé :
+  les migrations du 21 au 25/07 avaient été appliquées à la main sans y être
+  enregistrées, si bien qu'un `supabase db push` aurait tenté de les rejouer et
+  échoué sur une contrainte déjà existante.
+
+**Points levés par la vérification en base :**
+1. **Résolu** — l'unicité du matricule est bien `UNIQUE (etablissement_id,
+   matricule, annee_scolaire_id)` et l'ancienne contrainte globale a disparu.
+   Réserve subsistante : `eleves.annee_scolaire_id` est encore *nullable*, et
+   NULL étant distinct de NULL dans un index unique, l'unicité ne s'applique
+   pas aux lignes sans année. Aucune ligne dans ce cas aujourd'hui.
+2. **Résolu, ce n'était pas un P0** — les 13 tables ont bien `etablissement_id`
+   et la RLS active en production (seules `discipline_incidents` et
+   `formations_beneficiaires` n'ont pas la colonne, mais elles sont protégées
+   par une politique passant par `eleve_etablissement_id`). Le risque ne
+   concerne que les bases reconstruites depuis les seules migrations.
+3. **Toujours ouvert** — logs PostgREST du 23 au 25/07 sur
+   `tranches_scolarite` : la policy tautologique de `20260723100000` a pu
+   exposer la grille tarifaire de toutes les écoles pendant environ deux jours.
+   À vérifier dans le dashboard Supabase.
+4. Constat annexe : les 5278 paiements sont tous de type `Scolarité`. Le filtre
+   ajouté ne change donc aucun montant aujourd'hui, il empêche la divergence
+   dès qu'un premier frais d'inscription sera saisi.
 
 ---
 

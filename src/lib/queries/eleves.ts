@@ -58,6 +58,10 @@ export interface StudentsWidgetStats {
   total: number;
   paidCount: number;
   partialCount: number;
+  // Absent des anciennes versions de la RPC et du repli client : à additionner
+  // à partialCount pour rester cohérent avec le filtre 'partial' du tableau,
+  // qui inclut les retards.
+  lateCount?: number;
   unpaidCount: number;
 }
 
@@ -143,4 +147,39 @@ export async function addPayment(paymentData: Record<string, any>, etablissement
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Modification d'un paiement existant, avec la même validation Zod que la
+ * création. paymentData doit contenir l'objet complet (eleve_id compris) pour
+ * satisfaire paiementSchema ; seuls les champs modifiables sont écrits.
+ */
+export async function updatePayment(payId: string, paymentData: Record<string, any>) {
+  validateOrThrow(paiementSchema, paymentData, 'Paiement invalide');
+
+  const { data, error } = await supabase
+    .from('paiements')
+    .update({
+      montant: paymentData.montant,
+      date: paymentData.date,
+      type_frais: paymentData.type_frais,
+      mode_paiement: paymentData.mode_paiement,
+      reference: paymentData.reference,
+      tranche_id: paymentData.tranche_id ?? null,
+    })
+    .eq('id', payId)
+    .select();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Annulation d'un paiement via la RPC soft_delete_paiement : la ligne est
+ * masquée (deleted_at) et restaurable, jamais détruite. La RPC vérifie le
+ * tenant et réserve l'opération aux rôles admin/directeur.
+ */
+export async function softDeletePayment(payId: string) {
+  const { error } = await supabase.rpc('soft_delete_paiement', { p_id: payId });
+  if (error) throw error;
 }

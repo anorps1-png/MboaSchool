@@ -10,6 +10,8 @@ import {
 } from '@/components/icons';
 import { Eleve, Paiement, NoteMatiere, TransactionPaiement, Classe, DisciplineIncident } from '@/types/domain';
 import { createClient } from '@/lib/supabase/client';
+import { addPayment, updatePayment, softDeletePayment } from '@/lib/queries/eleves';
+import { paiementSchema, validateOrThrow } from '@/lib/validation/schemas';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import SyncManager from '@/lib/syncManager';
 
@@ -336,7 +338,7 @@ export default function FicheElevePage({ params }: PageProps) {
   };
 
   const handleDeletePayment = async (payId: string) => {
-    if (!confirm("Voulez-vous vraiment supprimer ce paiement ? Cette action est irréversible.")) {
+    if (!confirm("Voulez-vous vraiment annuler ce paiement ? Il sera retiré des totaux et des rapports, mais restera récupérable.")) {
       return;
     }
 
@@ -346,11 +348,10 @@ export default function FicheElevePage({ params }: PageProps) {
       isOfflineDelete = true;
     } else {
       try {
-        const { error } = await supabase
-          .from('paiements')
-          .delete()
-          .eq('id', payId);
-        if (error) throw error;
+        // Soft-delete : le paiement est masqué et restaurable, jamais détruit.
+        // Un encaissement effacé physiquement rendait tout rapprochement
+        // comptable faux sans laisser de trace.
+        await softDeletePayment(payId);
       } catch (err: any) {
         console.warn("Échec réseau suppression paiement, repli SyncManager:", err);
         await SyncManager.addToQueue('paiements', 'delete', { id: payId });
@@ -366,7 +367,7 @@ export default function FicheElevePage({ params }: PageProps) {
       });
     }
 
-    triggerToast(isOfflineDelete ? "Paiement supprimé localement (en attente de synchronisation)." : "Paiement supprimé avec succès.");
+    triggerToast(isOfflineDelete ? "Paiement annulé localement (en attente de synchronisation)." : "Paiement annulé.");
   };
 
   // Handle adding payment
@@ -391,15 +392,24 @@ export default function FicheElevePage({ params }: PageProps) {
       statut: 'paid',
       reference: reference,
       mode_paiement: payMethod,
-      etablissement_id: etablissementId
     };
+
+    // Même validation qu'en ligne, appliquée avant la mise en file d'attente
+    // hors-ligne : un paiement invalide ne doit pas non plus pouvoir être mis
+    // en attente (la file rejoue les paiements bruts, sans revalidation).
+    try {
+      validateOrThrow(paiementSchema, paymentPayload, 'Paiement invalide');
+    } catch (err: any) {
+      alert("Erreur : " + err.message);
+      return;
+    }
 
     let newPaymentObj: Paiement | null = null;
     let isOfflineSave = false;
 
     if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
       const tempPayId = crypto.randomUUID();
-      await SyncManager.addToQueue('paiements', 'insert', { ...paymentPayload, id: tempPayId });
+      await SyncManager.addToQueue('paiements', 'insert', { ...paymentPayload, id: tempPayId, etablissement_id: etablissementId });
       newPaymentObj = {
         id: tempPayId,
         eleveId: student.id,
@@ -412,9 +422,12 @@ export default function FicheElevePage({ params }: PageProps) {
       };
       isOfflineSave = true;
     } else {
+      // addPayment applique paiementSchema (montant positif et fini, date et
+      // référence obligatoires, mode et type en enum). L'insertion directe
+      // précédente ne vérifiait que montant > 0, ce qui laissait passer des
+      // montants aberrants et des références vides jusqu'en base.
       try {
-        const { data: payData, error } = await supabase.from('paiements').insert([paymentPayload]).select();
-        if (error) throw error;
+        const payData = await addPayment(paymentPayload, etablissementId!);
         if (payData && payData.length > 0) {
           const p = payData[0];
           newPaymentObj = {
@@ -431,7 +444,7 @@ export default function FicheElevePage({ params }: PageProps) {
       } catch (err: any) {
         console.warn("Échec réseau lors de l'enregistrement du paiement, repli local/SyncManager:", err);
         const tempPayId = crypto.randomUUID();
-        await SyncManager.addToQueue('paiements', 'insert', { ...paymentPayload, id: tempPayId });
+        await SyncManager.addToQueue('paiements', 'insert', { ...paymentPayload, id: tempPayId, etablissement_id: etablissementId });
         newPaymentObj = {
           id: tempPayId,
           eleveId: student.id,
@@ -478,35 +491,33 @@ export default function FicheElevePage({ params }: PageProps) {
     }
 
     const dateVal = payDate || new Date().toISOString().split('T')[0];
-    const updatePayload = {
-      id: editingPaymentId,
+    const paymentFields = {
       montant: amountVal,
       type_frais: payType,
       mode_paiement: payMethod,
       date: dateVal,
-      reference: payReference
+      reference: payReference,
     };
+
+    // Même validation qu'à la création : l'édition acceptait auparavant une
+    // date ou une référence vides.
+    try {
+      validateOrThrow(paiementSchema, { ...paymentFields, eleve_id: student.id }, 'Paiement invalide');
+    } catch (err: any) {
+      alert("Erreur : " + err.message);
+      return;
+    }
 
     let isOfflineSave = false;
     if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
-      await SyncManager.addToQueue('paiements', 'update', updatePayload);
+      await SyncManager.addToQueue('paiements', 'update', { id: editingPaymentId, ...paymentFields });
       isOfflineSave = true;
     } else {
       try {
-        const { error } = await supabase
-          .from('paiements')
-          .update({
-            montant: amountVal,
-            type_frais: payType,
-            mode_paiement: payMethod,
-            date: dateVal,
-            reference: payReference
-          })
-          .eq('id', editingPaymentId);
-        if (error) throw error;
+        await updatePayment(editingPaymentId, { ...paymentFields, eleve_id: student.id });
       } catch (err: any) {
         console.warn("Échec réseau modification paiement, repli SyncManager:", err);
-        await SyncManager.addToQueue('paiements', 'update', updatePayload);
+        await SyncManager.addToQueue('paiements', 'update', { id: editingPaymentId, ...paymentFields });
         isOfflineSave = true;
       }
     }

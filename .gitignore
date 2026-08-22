@@ -32,6 +32,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# service worker généré au build depuis src/app/sw.ts (ne pas éditer ni committer)
+/public/sw.js
+/public/sw.js.map
 
 # vercel
 .vercel
