@@ -677,6 +677,21 @@ export default function RHPage() {
     e.preventDefault();
     if (!selectedEmployee) return;
 
+    // Changer la catégorie hors "Enseignant" supprime définitivement la
+    // fiche enseignant correspondante (table enseignants) plus bas dans
+    // cette fonction — avec cascade sur ses évaluations et son emploi du
+    // temps (ON DELETE CASCADE). Aucune restauration possible : demander
+    // confirmation avant de poursuivre, comme pour handleDeleteAccount.
+    if (
+      selectedEmployee.categorie === 'Enseignant' &&
+      editEmpCategorie !== 'Enseignant' &&
+      !confirm(
+        `Changer la catégorie de ${selectedEmployee.prenom} ${selectedEmployee.nom} hors "Enseignant" supprimera définitivement sa fiche enseignant, y compris son historique d'évaluations et son emploi du temps. Continuer ?`
+      )
+    ) {
+      return;
+    }
+
     const updatedEmp = {
       nom: editEmpNom,
       prenom: editEmpPrenom,

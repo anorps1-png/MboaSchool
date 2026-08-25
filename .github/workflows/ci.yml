@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, frontend-prototype]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, frontend-prototype]
 
 # Annule les exécutions précédentes encore en cours sur la même branche
 concurrency:
@@ -26,6 +26,20 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Bloquant : aucune vulnérabilité critique connue dans les dépendances
+      # de production actuellement (vérifié 2026-08-25). Les vulnérabilités
+      # critiques/hautes existantes (vitest, tar, next) sont soit dev-only,
+      # soit déjà documentées dans PRODUCTION_READINESS.md — ce step protège
+      # seulement contre une NOUVELLE régression critique en prod.
+      - name: Audit dépendances (production, bloquant sur critique)
+        run: npm audit --omit=dev --audit-level=critical
+
+      # Non bloquant : visibilité sur l'ensemble (dev inclus) sans casser la
+      # CI tant que les vulnérabilités déjà connues ne sont pas résorbées.
+      - name: Audit dépendances (complet, informatif)
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
       - name: Lint
         run: npm run lint
