@@ -164,6 +164,7 @@ export default function FicheElevePage({ params }: PageProps) {
   const [payReference, setPayReference] = useState('');
 
   // Form states for editing/adding grades
+  const [selectedTrimestre, setSelectedTrimestre] = useState('Trimestre 1');
   const [showAddGradeModal, setShowAddGradeModal] = useState(false);
   const [newGradeMatiere, setNewGradeMatiere] = useState('');
   const [newGradeValue, setNewGradeValue] = useState('');
@@ -285,9 +286,11 @@ export default function FicheElevePage({ params }: PageProps) {
     financialStatus = 'partial';
   }
 
-  // Grade calculations
-  const firstTermGrades = (student.notes || []).filter(g => g.trimestre === 'Trimestre 1');
-  const secondTermGrades = (student.notes || []).filter(g => g.trimestre === 'Trimestre 2');
+  // Grade calculations — filtrées sur le trimestre sélectionné (avant, la
+  // page entière était câblée en dur sur 'Trimestre 1', y compris le
+  // formulaire d'ajout de note : une note saisie en Trimestre 2/3 polluait
+  // silencieusement la moyenne du Trimestre 1).
+  const currentTermGrades = (student.notes || []).filter(g => g.trimestre === selectedTrimestre);
 
   const calculateWeightedAverage = (gradesList: NoteMatiere[]) => {
     if (gradesList.length === 0) return 0;
@@ -296,21 +299,20 @@ export default function FicheElevePage({ params }: PageProps) {
     return totalCoefs > 0 ? totalPoints / totalCoefs : 0;
   };
 
-  const avgTrim1 = calculateWeightedAverage(firstTermGrades);
-  const avgTrim2 = calculateWeightedAverage(secondTermGrades);
+  const avgCurrentTerm = calculateWeightedAverage(currentTermGrades);
 
   // NOUVEAUX CALCULS (Rang, Points, Mention)
   const classmates = students.filter(s => s.classeId === student.classeId);
-  const getStudentAvg = (s: Eleve) => calculateWeightedAverage((s.notes || []).filter(g => g.trimestre === 'Trimestre 1'));
+  const getStudentAvg = (s: Eleve) => calculateWeightedAverage((s.notes || []).filter(g => g.trimestre === selectedTrimestre));
   const allAvgs = classmates.map(getStudentAvg).sort((a,b) => b - a);
-  const myRank = avgTrim1 > 0 ? allAvgs.indexOf(avgTrim1) + 1 : '--';
-  const totalPointsTrim1 = firstTermGrades.filter(g => ((g.note || 0) || 0) !== undefined).reduce((sum, g) => sum + ((((g.note || 0) || 0) || 0) * 1), 0);
-  const mentionTrim1 = avgTrim1 >= 16 ? 'Très Bien' : avgTrim1 >= 14 ? 'Bien' : avgTrim1 >= 12 ? 'Assez Bien' : avgTrim1 >= 10 ? 'Passable' : 'Insuffisant';
+  const myRank = avgCurrentTerm > 0 ? allAvgs.indexOf(avgCurrentTerm) + 1 : '--';
+  const totalPointsCurrentTerm = currentTermGrades.filter(g => ((g.note || 0) || 0) !== undefined).reduce((sum, g) => sum + ((((g.note || 0) || 0) || 0) * 1), 0);
+  const mentionCurrentTerm = avgCurrentTerm >= 16 ? 'Très Bien' : avgCurrentTerm >= 14 ? 'Bien' : avgCurrentTerm >= 12 ? 'Assez Bien' : avgCurrentTerm >= 10 ? 'Passable' : 'Insuffisant';
 
   // Handle report card download (print page)
   const handleDownloadBulletin = () => {
     if (student?.classeId) {
-      window.open(`/evaluations/${student.classeId}/bulletin/${student.id}?term=Trimestre 1`, '_blank');
+      window.open(`/evaluations/${student.classeId}/bulletin/${student.id}?term=${encodeURIComponent(selectedTrimestre)}`, '_blank');
     } else {
       triggerToast("Classe de l'élève introuvable.");
     }
@@ -563,7 +565,7 @@ export default function FicheElevePage({ params }: PageProps) {
     const payload: any = {
       eleve_id: student.id,
       matiere: newGradeMatiere,
-      trimestre: 'Trimestre 1',
+      trimestre: selectedTrimestre,
       coefficient: Number(newGradeCoef) || 1,
       etablissement_id: etablissementId
     };
@@ -990,13 +992,13 @@ export default function FicheElevePage({ params }: PageProps) {
             <div className="bg-surface rounded-card border border-border p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex flex-wrap gap-8 w-full">
                 <div>
-                  <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Moyenne Trimestre 1</span>
-                  <span className={`text-3xl font-extrabold block ${avgTrim1 >= 10 ? 'text-ink' : 'text-accent'}`}>
-                    {avgTrim1 > 0 ? avgTrim1.toFixed(2) : '--'} <span className="text-sm text-ink-soft font-semibold">/ 20</span>
+                  <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Moyenne {selectedTrimestre}</span>
+                  <span className={`text-3xl font-extrabold block ${avgCurrentTerm >= 10 ? 'text-ink' : 'text-accent'}`}>
+                    {avgCurrentTerm > 0 ? avgCurrentTerm.toFixed(2) : '--'} <span className="text-sm text-ink-soft font-semibold">/ 20</span>
                   </span>
-                  {avgTrim1 > 0 && <span className="text-xs font-bold text-ink-soft mt-1 block">Mention: {mentionTrim1}</span>}
+                  {avgCurrentTerm > 0 && <span className="text-xs font-bold text-ink-soft mt-1 block">Mention: {mentionCurrentTerm}</span>}
                 </div>
-                
+
                 <div className="border-l border-border pl-8">
                   <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Rang / Effectif</span>
                   <span className="text-3xl font-extrabold block text-ink">
@@ -1008,7 +1010,7 @@ export default function FicheElevePage({ params }: PageProps) {
                 <div className="border-l border-border pl-8">
                   <span className="text-[10px] font-bold text-ink-faint uppercase tracking-wider block">Total des points</span>
                   <span className="text-3xl font-extrabold block text-ink">
-                    {totalPointsTrim1}
+                    {totalPointsCurrentTerm}
                   </span>
                 </div>
               </div>
@@ -1026,7 +1028,15 @@ export default function FicheElevePage({ params }: PageProps) {
               <div className="px-6 py-4 border-b border-border bg-bg/50 flex items-center justify-between">
                 <span className="text-xs font-bold text-ink uppercase tracking-wider block">Détails des notes par matière</span>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-ink-faint">Trimestre 1</span>
+                  <select
+                    value={selectedTrimestre}
+                    onChange={(e) => setSelectedTrimestre(e.target.value)}
+                    className="px-2 py-1 border border-border rounded-control text-xs font-semibold text-ink bg-bg focus:outline-none focus:ring-2 focus:border-accent"
+                  >
+                    <option value="Trimestre 1">Trimestre 1</option>
+                    <option value="Trimestre 2">Trimestre 2</option>
+                    <option value="Trimestre 3">Trimestre 3</option>
+                  </select>
                   <button
                     onClick={() => setShowAddGradeModal(true)}
                     className="px-3 py-1.5 bg-chip hover:bg-chip-hover text-ink text-xs font-bold rounded-control transition-colors"
@@ -1048,8 +1058,8 @@ export default function FicheElevePage({ params }: PageProps) {
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y divide-border-row">
-                    {firstTermGrades.length > 0 ? (
-                      firstTermGrades.map((g, idx) => (
+                    {currentTermGrades.length > 0 ? (
+                      currentTermGrades.map((g, idx) => (
                         <tr key={idx} className="hover:bg-row-hover transition-colors">
                           <td className="px-6 py-4 font-semibold text-ink">{g.matiereId}</td>
                           <td className="px-6 py-4 text-center text-ink-soft font-medium">{g.evaluationMaternelle ? '-' : 1}</td>
@@ -1114,21 +1124,21 @@ export default function FicheElevePage({ params }: PageProps) {
                       </tr>
                     )}
                   </tbody>
-                  {firstTermGrades.length > 0 && (
+                  {currentTermGrades.length > 0 && (
                     <tfoot className="bg-bg font-bold border-t border-border">
                       <tr>
                         <td colSpan={2} className="px-6 py-4 text-right uppercase text-xs tracking-wider">Bilan du Trimestre :</td>
                         <td className="px-6 py-4 text-center text-ink text-base">
-                          {firstTermGrades.some(g => g.evaluationMaternelle) ? 'N/A' : (firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length).toFixed(2) + ' / 20'}
+                          {currentTermGrades.some(g => g.evaluationMaternelle) ? 'N/A' : (currentTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / currentTermGrades.length).toFixed(2) + ' / 20'}
                         </td>
                         <td colSpan={3} className="px-6 py-4 text-sm text-ink-soft">
-                          {firstTermGrades.some(g => g.evaluationMaternelle) ? (
+                          {currentTermGrades.some(g => g.evaluationMaternelle) ? (
                             <span className="text-green font-medium">Évaluation par compétences (Maternelle)</span>
                           ) : (
                             <div className="flex flex-col gap-1">
-                              <span>Total des points: {firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0)}</span>
+                              <span>Total des points: {currentTermGrades.reduce((sum, g) => sum + (g.note || 0), 0)}</span>
                               <span>Rang: {myRank} / {classmates.length}</span>
-                              <span className="text-xs font-semibold text-accent">Mention: {(firstTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / firstTermGrades.length) >= 12 ? 'Tableau d\'Honneur' : 'Encouragements'}</span>
+                              <span className="text-xs font-semibold text-accent">Mention: {(currentTermGrades.reduce((sum, g) => sum + (g.note || 0), 0) / currentTermGrades.length) >= 12 ? 'Tableau d\'Honneur' : 'Encouragements'}</span>
                             </div>
                           )}
                         </td>
@@ -1361,7 +1371,7 @@ export default function FicheElevePage({ params }: PageProps) {
             </button>
 
             <h3 className="text-lg font-bold text-ink border-b border-border pb-3 mb-4">
-              Ajouter une note (Trimestre 1)
+              Ajouter une note ({selectedTrimestre})
             </h3>
 
             <form onSubmit={handleAddGrade} className="space-y-4">

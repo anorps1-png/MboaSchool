@@ -388,7 +388,10 @@ export default function BulletinImpressionPage({ params }: PageProps) {
           <div className="border border-[#2b2318] rounded-control p-2.5 text-center bg-white shadow-sm">
             <div className="text-[7.5px] font-bold text-[#a3947a] uppercase tracking-wide">Mention</div>
             <div className={`text-[17px] font-extrabold mt-0.5 tracking-tight ${myAvg >= 10 ? 'text-[#1a5c3f]' : 'text-[#b5502f]'}`}>
-              {getMention(myAvg)}
+              {/* Priorité à la mention RPC, calculée avec le seuil_reussite
+                  réel de l'établissement — getMention (seuil 10 en dur) ne
+                  sert que de repli quand la RPC est indisponible. */}
+              {serverRow?.mention ?? getMention(myAvg)}
             </div>
           </div>
           <div className="border border-[#2b2318] rounded-control p-2.5 text-center bg-white shadow-sm">

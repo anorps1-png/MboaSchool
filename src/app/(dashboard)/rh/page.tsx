@@ -31,6 +31,7 @@ import { getStudents } from '@/lib/queries/eleves';
 import { addEcritureComptable } from '@/lib/queries/finance';
 import { calculerFicheDePaie, calculerPrimeAnciennete, getAnneesService, getTauxFromLocalStorage, genererEcrituresComptablesPaie, PLAFOND_CNPS } from '@/lib/payroll';
 import { validatePasswordStrength } from '@/lib/validation/password';
+import { hashPassword } from '@/lib/utils/offlineAuth';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
 
@@ -423,11 +424,15 @@ export default function RHPage() {
         return;
       }
       
-      // Fallback local storage (completely offline or network unreachable)
+      // Fallback local storage (completely offline or network unreachable).
+      // Haché en PBKDF2 comme login.tsx, jamais stocké en clair : ce même
+      // localStorage sert de base de vérification au login hors-ligne.
+      const { hash: passwordHash, salt: passwordSalt } = await hashPassword(newAccPassword);
       const newMockProfile = {
         id: `mock-${Date.now()}`,
         email: newAccEmail,
-        password: newAccPassword, // Store password for fallback verification
+        passwordHash,
+        passwordSalt,
         role: newAccRole,
         permissions: newAccPermissions,
         etablissement_id: etablissementId,
