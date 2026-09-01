@@ -755,7 +755,9 @@ export default function RHPage() {
             .update(ensData)
             .eq('id', existingEns.id);
         } else {
-          const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+          // Espace élargi à 6 chiffres (10 000 valeurs auparavant) pour
+          // limiter la probabilité de collision.
+          const matricule = `PROF-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
           await supabaseClient
             .from('enseignants')
             .insert([{ ...ensData, matricule, matiere_principale: 'Général' }]);
@@ -926,7 +928,9 @@ export default function RHPage() {
       // If category is 'Enseignant', also insert into enseignants table
       if (newCategorie === 'Enseignant') {
         const supabaseClient = createClient();
-        const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+        // Espace élargi à 6 chiffres (10 000 valeurs auparavant) pour
+        // limiter la probabilité de collision.
+        const matricule = `PROF-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
         const newEnsData = {
           matricule,
           nom: newNom,

@@ -10,7 +10,7 @@ export default function SectionsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [moyennesParSection, setMoyennesParSection] = useState<Record<string, number>>({});
   const [serverSectionsSummary, setServerSectionsSummary] = useState<Record<string, SectionSummary> | null>(null);
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -21,10 +21,14 @@ export default function SectionsPage() {
       // eleves(id) seulement : seul .length est lu plus bas, pas besoin des
       // autres colonnes. get_sections_summary (ci-dessous) remplace ce
       // comptage par une agrégation en base quand elle est disponible.
-      const { data: classesData, error } = await supabase
+      let query = supabase
         .from('classes')
         .select('*, eleves(id)')
         .eq('etablissement_id', etablissementId);
+      if (academicYearId) {
+        query = query.eq('annee_scolaire_id', academicYearId);
+      }
+      const { data: classesData, error } = await query;
 
       if (classesData) {
         const sectionsMap: Record<string, { name: string; classes: any[]; studentsCount: number }> = {};
@@ -53,7 +57,7 @@ export default function SectionsPage() {
     // à chaque rendu, donc l'inclure ici recrée fetchSectionsData en boucle et
     // redéclenche le useEffect ci-dessous indéfiniment (boucle infinie de fetch).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   useEffect(() => {
     if (etablissementId) fetchSectionsData();
@@ -61,7 +65,7 @@ export default function SectionsPage() {
 
   useEffect(() => {
     if (!etablissementId) return;
-    getMoyennesParSection(etablissementId)
+    getMoyennesParSection(etablissementId, academicYearId)
       .then(rows => {
         const map: Record<string, number> = {};
         rows.forEach(r => { map[r.section] = r.moyenne; });
@@ -71,11 +75,11 @@ export default function SectionsPage() {
         captureError(err, { context: "Error loading moyennes par section:" });
         setMoyennesParSection({});
       });
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   useEffect(() => {
     if (!etablissementId) return;
-    getSectionsSummary(etablissementId)
+    getSectionsSummary(etablissementId, academicYearId)
       .then(rows => {
         const map: Record<string, SectionSummary> = {};
         rows.forEach(r => { map[r.section] = r; });
@@ -85,7 +89,7 @@ export default function SectionsPage() {
         captureError(err, { context: "Error loading sections summary:" });
         setServerSectionsSummary(null);
       });
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">

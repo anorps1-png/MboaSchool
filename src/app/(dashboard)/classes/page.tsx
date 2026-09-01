@@ -200,7 +200,24 @@ export default function ClassesPage() {
       return;
     }
 
-    if (confirm('Voulez-vous vraiment supprimer cette classe définitivement ?')) {
+    // bulletins.classe_id et emploi_du_temps.classe_id sont en ON DELETE
+    // CASCADE : une classe vide d'élèves ACTIFS de l'année en cours peut
+    // encore porter un historique (bulletins, créneaux) d'années
+    // précédentes, détruit silencieusement sans cet avertissement.
+    const [{ count: bulletinsCount }, { count: creneauxCount }] = await Promise.all([
+      supabase.from('bulletins').select('id', { count: 'exact', head: true }).eq('classe_id', id),
+      supabase.from('emploi_du_temps').select('id', { count: 'exact', head: true }).eq('classe_id', id),
+    ]);
+
+    let confirmMessage = 'Voulez-vous vraiment supprimer cette classe définitivement ?';
+    if ((bulletinsCount || 0) > 0 || (creneauxCount || 0) > 0) {
+      const parts: string[] = [];
+      if (bulletinsCount) parts.push(`${bulletinsCount} bulletin(s)`);
+      if (creneauxCount) parts.push(`${creneauxCount} créneau(x) d'emploi du temps`);
+      confirmMessage = `Cette classe a un historique lié (${parts.join(', ')}), y compris d'années précédentes, qui sera détruit définitivement avec elle. Voulez-vous vraiment continuer ?`;
+    }
+
+    if (confirm(confirmMessage)) {
       const { error } = await supabase.from('classes').delete().eq('id', id);
       if (error) {
         alert("Erreur lors de la suppression: " + error.message);

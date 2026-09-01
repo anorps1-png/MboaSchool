@@ -15,9 +15,13 @@ export interface ParentListItem {
  * de charger tous les élèves de l'établissement juste pour les regrouper par
  * parent côté navigateur.
  */
-export async function getParentsList(etablissementId: string): Promise<ParentListItem[]> {
+export async function getParentsList(
+  etablissementId: string,
+  anneeScolaireId?: string | null
+): Promise<ParentListItem[]> {
   const { data, error } = await supabase.rpc('get_parents_list', {
     p_etablissement_id: etablissementId,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   return ((data as Record<string, unknown>[]) ?? []).map((row) => ({

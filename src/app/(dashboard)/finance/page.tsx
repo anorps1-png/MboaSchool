@@ -16,6 +16,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
 import { getDashboardStats, type DashboardStats } from '@/lib/queries/dashboard';
+import { sanitizeExcelValue } from '@/lib/excel';
 import { getMoyenneGenerale } from '@/lib/queries/evaluations';
 import { getAbsences, getEvaluationsRH } from '@/lib/queries/rh';
 import {
@@ -1339,10 +1340,10 @@ export default function FinancePage() {
           const compteDef = planComptable.find(c => c.numero === ligne.compteNumero);
           data.push([
             idx === 0 ? new Date(ecr.date).toLocaleDateString('fr-FR') : '',
-            idx === 0 ? ecr.reference : '',
+            idx === 0 ? sanitizeExcelValue(ecr.reference) : '',
             ligne.compteNumero,
-            idx === 0 && ligne.compteNumero.startsWith('4') && ecr.partenaire ? ecr.partenaire : '',
-            idx === 0 ? ecr.libelle : '',
+            idx === 0 && ligne.compteNumero.startsWith('4') && ecr.partenaire ? sanitizeExcelValue(ecr.partenaire) : '',
+            idx === 0 ? sanitizeExcelValue(ecr.libelle) : '',
             ligne.debit,
             ligne.credit
           ]);

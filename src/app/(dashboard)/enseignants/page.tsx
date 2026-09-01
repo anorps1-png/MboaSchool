@@ -75,6 +75,7 @@ export default function EnseignantsPage() {
     if (!etablissementId) return;
 
     let created: EnseignantDB | null = null;
+    let rhLinkWarning: string | null = null;
 
     try {
       // Chemin serveur : matricule généré + vérifié unique côté serveur,
@@ -99,7 +100,9 @@ export default function EnseignantsPage() {
       // l'ancien code (3 inserts séquentiels, non transactionnels).
       captureMessage('RPC create_enseignant_with_personnel indisponible, repli legacy:', { detail: rpcErr });
 
-      const matricule = `PROF-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      // Espace élargi à 6 chiffres (10 000 valeurs auparavant) pour limiter
+      // la probabilité de collision.
+      const matricule = `PROF-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
       const enseignantData = {
         matricule,
         nom: newEns.nom,
@@ -136,13 +139,21 @@ export default function EnseignantsPage() {
         etablissement_id: etablissementId
       };
 
+      // empErr/mouvErr sont des objets retournés par Supabase (pas des
+      // exceptions) : le try/catch seul ne les voit jamais. Avant ce
+      // correctif, un échec ici laissait l'enseignant créé sans dossier RH
+      // ni mouvement d'embauche, sans que rien ne le signale à l'utilisateur
+      // au-delà de Sentry.
       try {
         const { data: empData, error: empErr } = await supabase
           .from('membres_personnel')
           .insert([newEmpData])
           .select();
 
-        if (!empErr && empData && empData.length > 0) {
+        if (empErr) {
+          rhLinkWarning = "créé, mais l'enregistrement dans le module RH a échoué — vérifiez/ajoutez-le manuellement dans RH.";
+          captureMessage("Failed to link teacher creation to membres_personnel:", { detail: empErr });
+        } else if (empData && empData.length > 0) {
           const insertedEmp = empData[0];
           const newMouvData = {
             personnel_id: insertedEmp.id,
@@ -152,13 +163,21 @@ export default function EnseignantsPage() {
             details: `Embauche en contrat ${insertedEmp.type_contrat} (${insertedEmp.categorie})`,
             etablissement_id: etablissementId
           };
-          await supabase.from('mouvements_personnel').insert([newMouvData]);
+          const { error: mouvErr } = await supabase.from('mouvements_personnel').insert([newMouvData]);
+          if (mouvErr) {
+            rhLinkWarning = "créé, mais le mouvement d'embauche n'a pas pu être enregistré dans l'historique RH.";
+            captureMessage("Failed to insert mouvements_personnel for new teacher:", { detail: mouvErr });
+          }
         }
       } catch (err) {
+        rhLinkWarning = "créé, mais son enregistrement RH a échoué — vérifiez/ajoutez-le manuellement dans RH.";
         captureMessage("Failed to link teacher creation to headcount/contracts in Supabase:", { detail: err });
       }
 
       created = (data && data[0]) as EnseignantDB;
+      if (created && rhLinkWarning) {
+        alert(`L'enseignant ${created.nom} a été ${rhLinkWarning}`);
+      }
     }
 
     if (created) {
@@ -172,7 +191,11 @@ export default function EnseignantsPage() {
         type_contrat: 'CDI',
         date_embauche: new Date().toISOString().split('T')[0]
       });
-      triggerToast(`L'enseignant ${created.nom} a été ajouté avec succès et enregistré dans l'effectif.`);
+      // Pas de toast de succès générique si l'alerte ci-dessus a déjà
+      // informé d'un problème de liaison RH — les deux se contrediraient.
+      if (!rhLinkWarning) {
+        triggerToast(`L'enseignant ${created.nom} a été ajouté avec succès et enregistré dans l'effectif.`);
+      }
     }
   };
   const handleExportExcel = () => {

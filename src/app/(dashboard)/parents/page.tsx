@@ -16,7 +16,7 @@ interface ParentProfile {
 
 export default function CommunauteQHSEPage() {
   const [activeTab, setActiveTab] = useState<'communication' | 'satisfaction' | 'qhse'>('satisfaction');
-  const { etablissementId } = useEtablissement();
+  const { etablissementId, academicYearId } = useEtablissement();
   
   // ==========================================
   // LOGIQUE ONGLET 1: COMMUNICATION
@@ -49,10 +49,14 @@ export default function CommunauteQHSEPage() {
       const step = 1000;
       let hasMore = true;
       while (hasMore) {
-        const { data } = await supabase
+        let elevesQuery = supabase
           .from('eleves')
           .select('*')
-          .eq('etablissement_id', etablissementId)
+          .eq('etablissement_id', etablissementId);
+        if (academicYearId) {
+          elevesQuery = elevesQuery.eq('annee_scolaire_id', academicYearId);
+        }
+        const { data } = await elevesQuery
           .order('nom', { ascending: true })
           .order('id', { ascending: true })
           .range(from, from + step - 1);
@@ -131,20 +135,20 @@ export default function CommunauteQHSEPage() {
     };
 
     fetchData();
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   // Liste de parents calculée en base (get_parents_list), pour éviter le
   // fetch complet des élèves ci-dessus. Repli automatique sur parentsList
   // (calcul client) si la RPC échoue ou n'est pas encore appliquée.
   useEffect(() => {
     if (!etablissementId) return;
-    getParentsList(etablissementId)
+    getParentsList(etablissementId, academicYearId)
       .then(setServerParents)
       .catch(err => {
         captureError(err, { context: "Error loading parents list:" });
         setServerParents(null);
       });
-  }, [etablissementId]);
+  }, [etablissementId, academicYearId]);
 
   const effectiveParentsList = serverParents ?? parentsList;
 

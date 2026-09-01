@@ -532,7 +532,11 @@ export default function ElevesPage() {
       return;
     }
 
-    const generatedMatricule = matricule.trim() || `26YAE${Math.floor(100 + Math.random() * 900)}`;
+    // Espace élargi à 6 chiffres (900 valeurs auparavant, collision quasi
+    // certaine dès quelques dizaines d'élèves sans matricule saisi) ; la
+    // contrainte UNIQUE(etablissement_id, matricule, annee_scolaire_id)
+    // reste le filet en cas de collision malgré tout.
+    const generatedMatricule = matricule.trim() || `26YAE${Math.floor(100000 + Math.random() * 900000)}`;
 
     const studentData = {
       matricule: generatedMatricule,

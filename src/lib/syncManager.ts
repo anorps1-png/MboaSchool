@@ -44,12 +44,15 @@ class SyncManager {
   /**
    * Tente de synchroniser toute la file d'attente avec Supabase.
    * Chaque tâche réussie est retirée immédiatement de la queue stockée.
+   * Retourne un résumé pour que l'appelant puisse informer l'utilisateur —
+   * jusqu'ici cette méthode n'était appelée nulle part dans l'application,
+   * la file restait donc en attente indéfiniment après un retour en ligne.
    */
-  static async syncAll() {
-    if (!navigator.onLine) return;
+  static async syncAll(): Promise<{ synced: number; failed: number; total: number }> {
+    if (!navigator.onLine) return { synced: 0, failed: 0, total: 0 };
 
     const queue = await this.getQueue();
-    if (queue.length === 0) return;
+    if (queue.length === 0) return { synced: 0, failed: 0, total: 0 };
 
     console.log(`[SyncManager] Démarrage de la synchronisation (${queue.length} tâches)...`);
     const supabase = createClient();
@@ -82,6 +85,12 @@ class SyncManager {
     } else {
       captureMessage('[SyncManager] Tâches en échec restent en file d\'attente.', { failedCount: remainingQueue.length });
     }
+
+    return {
+      synced: queue.length - remainingQueue.length,
+      failed: remainingQueue.length,
+      total: queue.length,
+    };
   }
 }
 

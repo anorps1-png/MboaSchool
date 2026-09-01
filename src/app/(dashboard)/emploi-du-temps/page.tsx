@@ -22,6 +22,7 @@ export default function EmploiDuTempsPage() {
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [selectedMobileDay, setSelectedMobileDay] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
+  const [canEdit, setCanEdit] = useState(false);
 
   // Modal states
   const [showModal, setShowModal] = useState(false);
@@ -70,6 +71,29 @@ export default function EmploiDuTempsPage() {
     });
     return map;
   }, []);
+
+  // Rôle courant : seuls admin/directeur peuvent modifier l'emploi du temps
+  // (l'écriture est réservée côté RLS depuis la migration du 2026-09-02,
+  // un enseignant ne doit donc voir que la lecture pour éviter un échec
+  // silencieux au clic sur "Enregistrer").
+  useEffect(() => {
+    const loadRole = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+        const roleLower = (profile?.role || '').toLowerCase();
+        setCanEdit(roleLower === 'admin' || roleLower === 'administrateur' || roleLower === 'directeur');
+      } catch (err) {
+        captureError(err, { context: 'Failed to load user role for emploi du temps:' });
+      }
+    };
+    loadRole();
+  }, [supabase]);
 
   // Fetch initial base data
   useEffect(() => {
@@ -156,6 +180,7 @@ export default function EmploiDuTempsPage() {
 
   // Open modal for add or edit
   const openModal = (dayNum: number, startTime: string, existingLesson?: any) => {
+    if (!canEdit) return;
     if (existingLesson) {
       setEditingLesson(existingLesson);
       setFormJourSemaine(existingLesson.jour_semaine);
@@ -209,6 +234,7 @@ export default function EmploiDuTempsPage() {
       setShowModal(false);
     } catch (err) {
       captureError(err, { context: "Failed to save lesson:" });
+      alert("Impossible d'enregistrer ce cours. Vérifiez qu'il ne chevauche pas un autre créneau, ou contactez un administrateur.");
     } finally {
       setIsSubmitting(false);
     }
@@ -228,6 +254,7 @@ export default function EmploiDuTempsPage() {
       setShowModal(false);
     } catch (err) {
       captureError(err, { context: "Failed to delete lesson:" });
+      alert("Impossible de supprimer ce cours. Contactez un administrateur si le problème persiste.");
     } finally {
       setIsSubmitting(false);
     }
@@ -266,13 +293,15 @@ export default function EmploiDuTempsPage() {
             <ChevronDownIcon size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-ink-faint" />
           </div>
 
-          <button
-            onClick={() => openModal(1, '08:00')}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-extrabold shadow-cta transition-colors cursor-pointer shrink-0"
-          >
-            <PlusIcon size={16} />
-            <span className="hidden md:inline">Ajouter un cours</span>
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => openModal(1, '08:00')}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-accent hover:bg-accent-hover text-cream rounded-control text-sm font-extrabold shadow-cta transition-colors cursor-pointer shrink-0"
+            >
+              <PlusIcon size={16} />
+              <span className="hidden md:inline">Ajouter un cours</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -353,6 +382,9 @@ export default function EmploiDuTempsPage() {
                   }
 
                   // Empty Slot
+                  if (!canEdit) {
+                    return <div key={day.num} className="p-2 border-r border-border bg-bg/10"></div>;
+                  }
                   return (
                     <div key={day.num} className="p-2 border-r border-border bg-bg/10 relative group">
                       <button
@@ -441,12 +473,14 @@ export default function EmploiDuTempsPage() {
               return (
                 <div className="text-center py-8 text-ink-faint text-sm">
                   Aucun cours programmé ce jour.
-                  <button
-                    onClick={() => openModal(selectedMobileDay, '08:00')}
-                    className="block mx-auto mt-4 text-xs bg-accent text-cream font-bold px-3 py-1.5 rounded-control"
-                  >
-                    + Ajouter un cours
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => openModal(selectedMobileDay, '08:00')}
+                      className="block mx-auto mt-4 text-xs bg-accent text-cream font-bold px-3 py-1.5 rounded-control"
+                    >
+                      + Ajouter un cours
+                    </button>
+                  )}
                 </div>
               );
             })()

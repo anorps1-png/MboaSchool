@@ -325,7 +325,11 @@ export default function FicheElevePage({ params }: PageProps) {
     setPayType('Scolarité');
     setPayMethod('Orange Money');
     setPayDate(new Date().toISOString().split('T')[0]);
-    setPayReference(`REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
+    // paiements.reference est UNIQUE globalement (toute la plateforme, pas
+    // seulement cet établissement) : espace élargi à 6 chiffres pour limiter
+    // la probabilité de collision inter-écoles, au-delà des 9000 valeurs
+    // précédentes.
+    setPayReference(`REC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`);
     setShowAddPaymentModal(true);
   };
 
@@ -383,7 +387,7 @@ export default function FicheElevePage({ params }: PageProps) {
       return;
     }
 
-    const reference = payReference.trim() || `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const reference = payReference.trim() || `REC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
     const dateVal = payDate || new Date().toISOString().split('T')[0];
 
     const paymentPayload = {

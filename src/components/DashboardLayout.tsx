@@ -42,6 +42,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [isElectron, setIsElectron] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -411,6 +412,32 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   }, [forceOffline]);
 
+  // SyncManager.syncAll() (file mboaschool_sync_queue, idb-keyval) n'était
+  // appelée nulle part dans l'application : toute action mise en file
+  // hors-ligne (eleves/page.tsx, eleves/[id]/page.tsx) y restait
+  // indéfiniment même une fois la connexion rétablie. On tente la synchro
+  // au montage et à chaque retour en ligne, et on garde le compteur en
+  // attente visible plutôt que de synchroniser en silence.
+  useEffect(() => {
+    if (typeof window === 'undefined' || forceOffline) return;
+    let cancelled = false;
+
+    const refreshPendingCount = async () => {
+      const queue = await SyncManager.getQueue();
+      if (!cancelled) setPendingSyncCount(queue.length);
+    };
+
+    const runSync = async () => {
+      await refreshPendingCount();
+      if (!navigator.onLine) return;
+      await SyncManager.syncAll();
+      await refreshPendingCount();
+    };
+
+    runSync();
+    return () => { cancelled = true; };
+  }, [isOnline, forceOffline]);
+
   // Intercept the global navigator.onLine for our components
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -575,9 +602,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
 
             {/* Pastille de statut « Synchronisé » */}
-            <div className="hidden lg:flex items-center gap-2 text-xs font-bold text-ink-faint px-2">
-              <span className={`w-2 h-2 rounded-full ${forceOffline ? 'bg-accent animate-pulse-dot' : (isOnline ? 'bg-green animate-pulse-dot' : 'bg-accent')}`}></span>
-              <span>{forceOffline ? 'Local' : (isOnline ? 'Synchronisé' : 'Hors-ligne')}</span>
+            <div
+              className="hidden lg:flex items-center gap-2 text-xs font-bold text-ink-faint px-2"
+              title={pendingSyncCount > 0 ? `${pendingSyncCount} action(s) en attente de synchronisation` : undefined}
+            >
+              <span className={`w-2 h-2 rounded-full ${pendingSyncCount > 0 ? 'bg-accent animate-pulse-dot' : forceOffline ? 'bg-accent animate-pulse-dot' : (isOnline ? 'bg-green animate-pulse-dot' : 'bg-accent')}`}></span>
+              <span>
+                {pendingSyncCount > 0
+                  ? `${pendingSyncCount} en attente`
+                  : forceOffline ? 'Local' : (isOnline ? 'Synchronisé' : 'Hors-ligne')}
+              </span>
             </div>
 
             {/* Basculer le mode local (desktop Electron) */}

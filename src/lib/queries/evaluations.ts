@@ -58,9 +58,13 @@ export interface MoyenneParSection {
  * notes des élèves. Une section sans élève noté n'apparaît pas dans le
  * résultat.
  */
-export async function getMoyennesParSection(etablissementId: string): Promise<MoyenneParSection[]> {
+export async function getMoyennesParSection(
+  etablissementId: string,
+  anneeScolaireId?: string | null
+): Promise<MoyenneParSection[]> {
   const { data, error } = await supabase.rpc('get_moyennes_par_section', {
     p_etablissement_id: etablissementId,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   return ((data as Record<string, unknown>[]) ?? []).map((row) => ({
@@ -79,9 +83,13 @@ export interface SectionSummary {
  * Nombre de classes et d'élèves par section, calculé en base — évite de
  * charger tous les élèves de l'établissement juste pour les compter.
  */
-export async function getSectionsSummary(etablissementId: string): Promise<SectionSummary[]> {
+export async function getSectionsSummary(
+  etablissementId: string,
+  anneeScolaireId?: string | null
+): Promise<SectionSummary[]> {
   const { data, error } = await supabase.rpc('get_sections_summary', {
     p_etablissement_id: etablissementId,
+    p_annee_scolaire_id: anneeScolaireId ?? null,
   });
   if (error) throw error;
   return ((data as Record<string, unknown>[]) ?? []).map((row) => ({
