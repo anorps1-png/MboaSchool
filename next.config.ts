@@ -2,10 +2,19 @@ import type { NextConfig } from "next";
 import withSerwistInit from "@serwist/next";
 import { withSentryConfig } from "@sentry/nextjs";
 
+// npm_lifecycle_event est positionné par npm au nom du script en cours
+// (fiable multi-plateforme, contrairement à `VAR=1 npm run ...` sous cmd.exe).
+const isElectronBuild = process.env.npm_lifecycle_event === "electron-pack";
+
 const withSerwist = withSerwistInit({
   swSrc: "src/app/sw.ts",
   swDest: "public/sw.js",
-  disable: process.env.NODE_ENV === "development", // On le désactive en dev pour éviter les caches agressifs
+  // Désactivé en dev (caches agressifs) et dans le build Electron : l'app
+  // desktop tourne déjà via son propre serveur local + file offline
+  // (SyncManager/idb-keyval), un service worker PWA n'y a aucun rôle et un
+  // ancien SW resté enregistré dans le profil userData d'une install
+  // précédente peut intercepter la navigation et servir une page blanche.
+  disable: process.env.NODE_ENV === "development" || isElectronBuild,
 });
 
 const isDev = process.env.NODE_ENV === "development";

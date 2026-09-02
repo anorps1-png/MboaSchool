@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { createServer } = require('http');
 const { parse } = require('url');
@@ -266,6 +266,22 @@ function createWindow() {
     log(`Window failed to load page: ${errorDescription} (${errorCode})`);
   });
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    log("Window finished loading page (did-finish-load).");
+  });
+
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    log(`[Renderer console] ${message} (${sourceId}:${line})`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    log(`Renderer process gone: reason=${details.reason} exitCode=${details.exitCode}`);
+  });
+
+  mainWindow.on('unresponsive', () => {
+    log("BrowserWindow became unresponsive.");
+  });
+
   mainWindow.on('closed', () => {
     log("BrowserWindow closed.");
     mainWindow = null;
@@ -281,9 +297,27 @@ function createWindow() {
   }
 }
 
+async function clearStaleServiceWorker() {
+  // Des versions précédentes de l'app (avant que le build Electron ne
+  // désactive le service worker PWA de serwist) ont pu laisser un SW actif
+  // dans le profil userData. S'il reste enregistré, il peut intercepter la
+  // navigation et servir une réponse périmée/vide -> page blanche au
+  // démarrage. Nettoyage ponctuel, ne touche ni IndexedDB (file offline
+  // SyncManager) ni localStorage.
+  try {
+    await session.defaultSession.clearStorageData({
+      storages: ['serviceworkers', 'cachestorage'],
+    });
+    log("Cleared stale service workers / cache storage from previous installs.");
+  } catch (e) {
+    log(`Failed to clear stale service worker storage: ${e.message}`);
+  }
+}
+
 app.on('ready', async () => {
   log("Electron app ready event received.");
   setupMenu();
+  await clearStaleServiceWorker();
   try {
     await startNextServer();
     log("Server start routine finished. Creating window...");

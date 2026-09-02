@@ -88,65 +88,30 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const handleManualSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    setSyncStatusMsg('Synchronisation...');
-    
+    setSyncStatusMsg('Envoi des modifications...');
+
     try {
-      const res = await fetch('/api/local-db?action=get-queue');
-      const data = await res.json();
-      const queue = data.queue || [];
-      
-      if (queue.length === 0) {
+      const { performFullSync } = await import('@/lib/localDbSync');
+      const result = await performFullSync();
+
+      setSyncStatusMsg('Réception des données...');
+
+      const pulledTotal = Object.values(result.pull.pulled).reduce((sum, n) => sum + n, 0);
+      const hasErrors = result.push.errors.length > 0 || result.pull.errors.length > 0;
+
+      if (hasErrors) {
+        setSyncStatusMsg(`${result.push.pushed} envoyé(s), ${pulledTotal} reçu(s), ${result.push.failed + result.pull.errors.length} erreur(s).`);
+        captureError(new Error('Synchronisation partielle'), {
+          context: 'Manual sync completed with errors',
+          pushErrors: result.push.errors,
+          pullErrors: result.pull.errors,
+        });
+      } else if (result.push.pushed === 0 && pulledTotal === 0) {
         setSyncStatusMsg('Déjà à jour !');
-        setTimeout(() => setSyncStatusMsg(''), 2500);
-        setIsSyncing(false);
-        return;
+      } else {
+        setSyncStatusMsg(`${result.push.pushed} envoyé(s), ${pulledTotal} reçu(s) !`);
       }
-
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
-      const { createBrowserClient } = await import('@supabase/ssr');
-      const onlineClient = createBrowserClient(supabaseUrl, supabaseKey);
-
-      let successCount = 0;
-      for (const task of queue) {
-        const { id, table, action, payload, filters } = task;
-        const queryBuilder = onlineClient.from(table);
-        let result: any = null;
-
-        if (action === 'insert') {
-          result = await queryBuilder.insert(payload);
-        } else if (action === 'update') {
-          let builder: any = queryBuilder.update(payload);
-          if (filters && Array.isArray(filters)) {
-            for (const filter of filters) {
-              builder = builder.eq(filter.field, filter.value);
-            }
-          }
-          result = await builder;
-        } else if (action === 'delete') {
-          let builder: any = queryBuilder.delete();
-          if (filters && Array.isArray(filters)) {
-            for (const filter of filters) {
-              builder = builder.eq(filter.field, filter.value);
-            }
-          }
-          result = await builder;
-        }
-
-        if (!result.error) {
-          successCount++;
-          await fetch('/api/local-db', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId: id })
-          });
-        } else {
-          captureError(result.error, { context: 'Sync error on table', table });
-        }
-      }
-
-      setSyncStatusMsg(`${successCount}/${queue.length} synchronisés !`);
-      setTimeout(() => setSyncStatusMsg(''), 3000);
+      setTimeout(() => setSyncStatusMsg(''), 3500);
     } catch (e: any) {
       captureError(e, { context: "Sync failed:" });
       setSyncStatusMsg('Erreur de synchronisation.');

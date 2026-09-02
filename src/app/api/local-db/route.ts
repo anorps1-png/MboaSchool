@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
         await saveRecordsToTable(pullTable, recordsToUpsert);
       }
 
-      return NextResponse.json({ success: true, count: records.length });
+      return NextResponse.json({ success: true, count: recordsToUpsert.length, skipped: records.length - recordsToUpsert.length });
     }
 
     if (!table || !action) {

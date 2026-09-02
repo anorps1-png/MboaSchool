@@ -60,7 +60,7 @@
     "extraResources": [
       {
         "from": ".next",
-        "to": ".next",
+        "to": "app/.next",
         "filter": [
           "**/*",
           "!cache/**",
