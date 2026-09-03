@@ -47,7 +47,11 @@
   "build": {
     "appId": "com.mboaschool.app",
     "productName": "MboaSchool",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "**/@next/swc-*/**"
+    ],
     "directories": {
       "output": "release-dist"
     },
