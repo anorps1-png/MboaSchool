@@ -177,18 +177,49 @@ export default function CommunauteQHSEPage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageText.trim()) return;
+
+    if (messageChannel !== 'SMS') {
+      triggerToast(`L'envoi via ${messageChannel} n'est pas encore disponible — seul le SMS est connecté.`);
+      return;
+    }
+
+    const mobiles = targetParents.map(p => p.telephone).filter(t => t && t !== '-');
+    if (mobiles.length === 0) {
+      triggerToast("Aucun numéro de téléphone valide parmi les destinataires sélectionnés.");
+      return;
+    }
+
     setIsSending(true);
-    setTimeout(() => {
-      setIsSending(false);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Session expirée, veuillez vous reconnecter.');
+
+      const res = await fetch('/api/sms/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ mobiles, message: messageText }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Échec de l'envoi du SMS.");
+
       setShowModal(false);
       setMessageText('');
       setTargetParents([]);
       setSelectedParents([]);
-      triggerToast(`${targetParents.length} message(s) envoyé(s) avec succès via ${messageChannel} !`);
-    }, 1500);
+      triggerToast(`${mobiles.length} SMS envoyé(s) avec succès via Nexah !`);
+    } catch (err) {
+      captureError(err, { context: 'Erreur envoi SMS depuis la page Parents' });
+      triggerToast(err instanceof Error ? err.message : "Échec de l'envoi du SMS.");
+    } finally {
+      setIsSending(false);
+    }
   };
 
   // ==========================================
