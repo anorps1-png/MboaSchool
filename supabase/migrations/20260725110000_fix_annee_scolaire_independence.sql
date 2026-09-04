@@ -162,6 +162,13 @@ GRANT EXECUTE ON FUNCTION public.get_students_per_class(UUID, UUID) TO authentic
 ALTER TABLE public.eleves
   DROP CONSTRAINT IF EXISTS eleves_etablissement_matricule_key;
 
-ALTER TABLE public.eleves
-  ADD CONSTRAINT eleves_etablissement_matricule_annee_key
-  UNIQUE (etablissement_id, matricule, annee_scolaire_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'eleves_etablissement_matricule_annee_key'
+  ) THEN
+    ALTER TABLE public.eleves
+      ADD CONSTRAINT eleves_etablissement_matricule_annee_key
+      UNIQUE (etablissement_id, matricule, annee_scolaire_id);
+  END IF;
+END $$;
