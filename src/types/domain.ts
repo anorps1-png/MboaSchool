@@ -60,6 +60,10 @@ export interface Paiement {
   typeFrais: 'Scolarité' | 'Inscription' | 'Examen' | 'Transport';
   statut: 'paid' | 'pending' | 'failed';
   reference: string;
+  /** Tranche de scolarité à laquelle ce paiement a été explicitement rattaché
+   * (uniquement pertinent pour typeFrais === 'Scolarité'). Absent pour les
+   * paiements antérieurs à cette fonctionnalité ou les autres types de frais. */
+  trancheId?: string | null;
 }
 
 export interface Eleve {

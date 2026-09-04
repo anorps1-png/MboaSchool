@@ -1196,6 +1196,7 @@ export default function ElevesPage() {
           mode: string;
           reference: string;
           usedFallbackReference: boolean;
+          columnIndex: number | null; // N de "Paiement N - ..." (1-5), null pour l'ancien format à une seule colonne
         }
         interface ParsedImportRow {
           nom: string; prenom: string; sexe: 'M' | 'F'; classNameStr: string; sectionStr: string;
@@ -1252,7 +1253,7 @@ export default function ElevesPage() {
               const usedFallbackReference = !rawRef;
               const reference = rawRef ? rawRef.toString().trim() : `REC-${matriculeVal}-P${i}`;
 
-              payments.push({ amount, date, mode, reference, usedFallbackReference });
+              payments.push({ amount, date, mode, reference, usedFallbackReference, columnIndex: i });
             }
           }
 
@@ -1265,7 +1266,7 @@ export default function ElevesPage() {
               const oldRawRef = row.Reference || row.reference || row.REFERENCE;
               const usedFallbackReference = !oldRawRef;
               const oldRef = oldRawRef ? oldRawRef.toString().trim() : `REC-${matriculeVal}-SCOL`;
-              payments.push({ amount: oldAmount, date: oldDate, mode: oldMode, reference: oldRef, usedFallbackReference });
+              payments.push({ amount: oldAmount, date: oldDate, mode: oldMode, reference: oldRef, usedFallbackReference, columnIndex: 1 });
             }
           }
 
@@ -1608,11 +1609,41 @@ export default function ElevesPage() {
             importedCount += (createdData || []).length;
           }
 
+          // Rattache chaque "Paiement N" du fichier à la tranche de même rang
+          // (tranches_scolarite.ordre) pour LA CLASSE du paiement — les
+          // tranches sont propres à chaque classe (prix différents) — si
+          // l'établissement en a configuré, sinon tranche_id reste null
+          // (dégradation gracieuse, comme pour un paiement ajouté à la main
+          // sans tranche). Un seul aller-retour réseau pour toutes les
+          // classes concernées par l'import.
+          const tranchesByClasseAndOrdre = new Map<string, Map<number, string>>();
+          try {
+            const distinctClasseIds = Array.from(new Set(
+              dedupedRows.map(r => createdStudentsByMatricule.get(r.matriculeVal)?.classe_id).filter(Boolean)
+            ));
+            if (distinctClasseIds.length > 0) {
+              const { data: tranchesData } = await supabase
+                .from('tranches_scolarite')
+                .select('id,classe_id,ordre')
+                .eq('etablissement_id', etablissementId)
+                .in('classe_id', distinctClasseIds);
+              (tranchesData || []).forEach((t: any) => {
+                if (!tranchesByClasseAndOrdre.has(t.classe_id)) tranchesByClasseAndOrdre.set(t.classe_id, new Map());
+                tranchesByClasseAndOrdre.get(t.classe_id)!.set(t.ordre, t.id);
+              });
+            }
+          } catch (err) {
+            captureError(err, { context: "Failed to load tranches_scolarite for import" });
+          }
+
           const paymentPayload = new Map<string, any>();
           dedupedRows.forEach(r => {
             if (!createdStudentsByMatricule.has(r.matriculeVal)) return;
             const s = createdStudentsByMatricule.get(r.matriculeVal);
             r.payments.forEach(p => {
+              const trancheId = p.columnIndex != null
+                ? tranchesByClasseAndOrdre.get(s.classe_id)?.get(p.columnIndex) ?? null
+                : null;
               paymentPayload.set(p.reference, {
                 eleve_id: s.id,
                 montant: p.amount,
@@ -1621,7 +1652,8 @@ export default function ElevesPage() {
                 mode_paiement: p.mode,
                 statut: 'paid',
                 reference: p.reference,
-                etablissement_id: etablissementId
+                etablissement_id: etablissementId,
+                tranche_id: trancheId
               });
             });
           });
@@ -1637,7 +1669,8 @@ export default function ElevesPage() {
                 const list = paymentsByEleveId.get(p.eleve_id) || [];
                 list.push({
                   id: p.id, eleveId: p.eleve_id, montant: Number(p.montant), date: p.date,
-                  typeFrais: p.type_frais, modePaiement: p.mode_paiement, statut: p.statut, reference: p.reference
+                  typeFrais: p.type_frais, modePaiement: p.mode_paiement, statut: p.statut, reference: p.reference,
+                  trancheId: p.tranche_id || undefined
                 });
                 paymentsByEleveId.set(p.eleve_id, list);
               });

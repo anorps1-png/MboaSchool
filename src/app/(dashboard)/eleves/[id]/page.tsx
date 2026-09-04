@@ -89,13 +89,16 @@ export default function FicheElevePage({ params }: PageProps) {
           setStudents(mappedClassmates as any);
         }
 
-        // Fetch tranches scolarite
-        if (studentData.annee_scolaire_id) {
+        // Fetch tranches scolarite — propres à la classe de l'élève (chaque
+        // classe a son propre prix, donc ses propres montants de tranche).
+        if (studentData.annee_scolaire_id && studentData.classe_id) {
           const { data: tranchesData } = await supabase
             .from('tranches_scolarite')
             .select('*')
             .eq('etablissement_id', etablissementId)
-            .eq('annee_scolaire_id', studentData.annee_scolaire_id);
+            .eq('annee_scolaire_id', studentData.annee_scolaire_id)
+            .eq('classe_id', studentData.classe_id)
+            .order('ordre', { ascending: true });
           if (tranchesData) {
             setTranches(tranchesData);
           }
@@ -123,7 +126,8 @@ export default function FicheElevePage({ params }: PageProps) {
             typeFrais: p.type_frais,
             statut: p.statut,
             reference: p.reference,
-            modePaiement: p.mode_paiement
+            modePaiement: p.mode_paiement,
+            trancheId: p.tranche_id
           })) || [],
           notes: studentData.notes?.map((n: any) => ({
             id: n.id,
@@ -162,6 +166,7 @@ export default function FicheElevePage({ params }: PageProps) {
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [payDate, setPayDate] = useState('');
   const [payReference, setPayReference] = useState('');
+  const [payTrancheId, setPayTrancheId] = useState('');
 
   // Form states for editing/adding grades
   const [selectedTrimestre, setSelectedTrimestre] = useState('Trimestre 1');
@@ -330,6 +335,7 @@ export default function FicheElevePage({ params }: PageProps) {
     // la probabilité de collision inter-écoles, au-delà des 9000 valeurs
     // précédentes.
     setPayReference(`REC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`);
+    setPayTrancheId('');
     setShowAddPaymentModal(true);
   };
 
@@ -340,6 +346,7 @@ export default function FicheElevePage({ params }: PageProps) {
     setPayMethod(pay.modePaiement);
     setPayDate(pay.date);
     setPayReference(pay.reference);
+    setPayTrancheId(pay.trancheId || '');
     setShowAddPaymentModal(true);
   };
 
@@ -389,6 +396,7 @@ export default function FicheElevePage({ params }: PageProps) {
 
     const reference = payReference.trim() || `REC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
     const dateVal = payDate || new Date().toISOString().split('T')[0];
+    const trancheIdVal = payType === 'Scolarité' && payTrancheId ? payTrancheId : null;
 
     const paymentPayload = {
       eleve_id: student.id,
@@ -398,6 +406,7 @@ export default function FicheElevePage({ params }: PageProps) {
       statut: 'paid',
       reference: reference,
       mode_paiement: payMethod,
+      tranche_id: trancheIdVal,
     };
 
     // Même validation qu'en ligne, appliquée avant la mise en file d'attente
@@ -424,7 +433,8 @@ export default function FicheElevePage({ params }: PageProps) {
         typeFrais: payType as any,
         statut: 'paid',
         reference: reference,
-        modePaiement: payMethod as any
+        modePaiement: payMethod as any,
+        trancheId: trancheIdVal
       };
       isOfflineSave = true;
     } else {
@@ -444,7 +454,8 @@ export default function FicheElevePage({ params }: PageProps) {
             typeFrais: p.type_frais as any,
             statut: p.statut as any,
             reference: p.reference,
-            modePaiement: p.mode_paiement as any
+            modePaiement: p.mode_paiement as any,
+            trancheId: p.tranche_id
           };
         }
       } catch (err: any) {
@@ -459,7 +470,8 @@ export default function FicheElevePage({ params }: PageProps) {
           typeFrais: payType as any,
           statut: 'paid',
           reference: reference,
-          modePaiement: payMethod as any
+          modePaiement: payMethod as any,
+          trancheId: trancheIdVal
         };
         isOfflineSave = true;
       }
@@ -477,6 +489,7 @@ export default function FicheElevePage({ params }: PageProps) {
     setPayAmount('');
     setPayDate('');
     setPayReference('');
+    setPayTrancheId('');
     setShowAddPaymentModal(false);
     triggerToast(
       isOfflineSave
@@ -497,12 +510,14 @@ export default function FicheElevePage({ params }: PageProps) {
     }
 
     const dateVal = payDate || new Date().toISOString().split('T')[0];
+    const trancheIdVal = payType === 'Scolarité' && payTrancheId ? payTrancheId : null;
     const paymentFields = {
       montant: amountVal,
       type_frais: payType,
       mode_paiement: payMethod,
       date: dateVal,
       reference: payReference,
+      tranche_id: trancheIdVal,
     };
 
     // Même validation qu'à la création : l'édition acceptait auparavant une
@@ -536,7 +551,8 @@ export default function FicheElevePage({ params }: PageProps) {
           typeFrais: payType,
           modePaiement: payMethod as any,
           date: dateVal,
-          reference: payReference
+          reference: payReference,
+          trancheId: trancheIdVal
         };
       }
       return p;
@@ -551,6 +567,7 @@ export default function FicheElevePage({ params }: PageProps) {
     setPayAmount('');
     setPayDate('');
     setPayReference('');
+    setPayTrancheId('');
     setEditingPaymentId(null);
     setShowAddPaymentModal(false);
     triggerToast(isOfflineSave ? "Paiement modifié localement (en attente de synchronisation)." : "Paiement modifié avec succès.");
@@ -938,6 +955,11 @@ export default function FicheElevePage({ params }: PageProps) {
                             }`}>
                               {pay.typeFrais}
                             </span>
+                            {pay.trancheId && (
+                              <span className="block text-[10px] text-ink-faint font-semibold mt-1">
+                                {tranches.find(t => t.id === pay.trancheId)?.nom || 'Tranche'}
+                              </span>
+                            )}
                           </td>
                           <td className="px-6 py-4 font-bold text-ink">{formatFCFA(pay.montant)}</td>
                           <td className="px-6 py-4 text-ink-soft text-xs">{pay.modePaiement}</td>
@@ -1293,7 +1315,33 @@ export default function FicheElevePage({ params }: PageProps) {
                   <option value="Examen">Frais d&apos;Examen</option>
                 </select>
               </div>
- 
+
+              {payType === 'Scolarité' && (
+                <div>
+                  <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
+                    Tranche concernée
+                  </label>
+                  {tranches.length > 0 ? (
+                    <select
+                      value={payTrancheId}
+                      onChange={(e) => setPayTrancheId(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-control text-sm bg-bg outline-none focus:border-accent focus:bg-surface"
+                    >
+                      <option value="">Non précisée</option>
+                      {[...tranches].sort((a, b) => a.ordre - b.ordre).map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.nom} ({new Intl.NumberFormat('fr-FR').format(Number(t.montant) || 0)} FCFA — échéance {new Date(t.date_limite).toLocaleDateString('fr-FR')})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-ink-faint italic">
+                      Aucune tranche configurée pour la classe de cet élève (module Classes).
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-1.5">
                   Mode de règlement

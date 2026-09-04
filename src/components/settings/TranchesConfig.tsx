@@ -16,20 +16,27 @@ interface Tranche {
 interface Props {
   etablissementId: string;
   anneeScolaireId: string;
+  /** Classe pour laquelle configurer les tranches. Les tranches sont
+   * propres à chaque classe (des classes différentes ont des prix de
+   * scolarité différents, donc des montants de tranche différents). */
+  classeId: string;
+  /** Prix annuel de la classe (classes.prix), pour comparer au total
+   * configuré et alerter en cas d'écart. */
+  classePrix?: number;
 }
 
-export default function TranchesConfig({ etablissementId, anneeScolaireId }: Props) {
+export default function TranchesConfig({ etablissementId, anneeScolaireId, classeId, classePrix }: Props) {
   const [tranches, setTranches] = useState<Tranche[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  
+
   // Nouveaux champs
   const [nom, setNom] = useState('');
   const [dateLimite, setDateLimite] = useState('');
   const [montant, setMontant] = useState('');
 
   const fetchTranches = async () => {
-    if (!etablissementId || !anneeScolaireId) return;
+    if (!etablissementId || !anneeScolaireId || !classeId) return;
     setLoading(true);
     try {
       const supabase = createClient();
@@ -38,6 +45,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
         .select('*')
         .eq('etablissement_id', etablissementId)
         .eq('annee_scolaire_id', anneeScolaireId)
+        .eq('classe_id', classeId)
         .order('ordre', { ascending: true });
 
       if (error) throw error;
@@ -51,7 +59,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
 
   useEffect(() => {
     fetchTranches();
-  }, [etablissementId, anneeScolaireId]);
+  }, [etablissementId, anneeScolaireId, classeId]);
 
   const handleAdd = async () => {
     if (!nom || !dateLimite || !montant) return;
@@ -77,6 +85,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
         .insert([{
           etablissement_id: etablissementId,
           annee_scolaire_id: anneeScolaireId,
+          classe_id: classeId,
           nom,
           date_limite: dateLimite,
           montant: amountVal,
@@ -137,22 +146,30 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
   };
 
   const totalMontant = tranches.reduce((sum, t) => sum + (Number(t.montant) || 0), 0);
+  const ecartPrix = classePrix != null ? classePrix - totalMontant : null;
 
-  if (!anneeScolaireId) {
+  if (!anneeScolaireId || !classeId) {
     return (
       <div className="text-sm text-ink-soft p-4 border border-dashed border-border rounded-control text-center">
-        Sélectionnez d'abord une année scolaire active.
+        Sélectionnez d'abord une année scolaire active et une classe.
       </div>
     );
   }
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex justify-between items-center">
-        <h4 className="text-xs font-bold text-ink uppercase tracking-wider">Tranches de Scolarité</h4>
-        <span className="text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-accent/10 text-accent">
-          Total : {new Intl.NumberFormat('fr-FR').format(totalMontant)} FCFA
-        </span>
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <h4 className="text-xs font-bold text-ink uppercase tracking-wider">Tranches de Scolarité de cette classe</h4>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-accent/10 text-accent">
+            Total : {new Intl.NumberFormat('fr-FR').format(totalMontant)} FCFA
+          </span>
+          {ecartPrix !== null && ecartPrix !== 0 && (
+            <span className="text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-red-bg text-accent" title="Écart entre le total des tranches et le prix de scolarité de la classe">
+              {ecartPrix > 0 ? `Il manque ${new Intl.NumberFormat('fr-FR').format(ecartPrix)} FCFA` : `Dépasse le prix de ${new Intl.NumberFormat('fr-FR').format(-ecartPrix)} FCFA`}
+            </span>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -160,7 +177,7 @@ export default function TranchesConfig({ etablissementId, anneeScolaireId }: Pro
       ) : (
         <div className="space-y-2">
           {tranches.length === 0 ? (
-            <div className="text-xs text-ink-soft italic">Aucune tranche configurée pour cette année.</div>
+            <div className="text-xs text-ink-soft italic">Aucune tranche configurée pour cette classe.</div>
           ) : (
             tranches.map((t) => (
               <div key={t.id} className="flex items-center justify-between p-2 bg-bg border border-border rounded-control text-sm">

@@ -77,7 +77,10 @@ export default function RapportTranchesPage() {
 
         setClassesList(classesData || []);
 
-        // 3. Fetch Tranches de scolarité
+        // 3. Fetch Tranches de scolarité — désormais propres à chaque classe
+        // (des classes différentes ont des prix, donc des tranches,
+        // différents). Un seul aller-retour pour toutes les classes de
+        // l'année, regroupées ensuite par classe_id.
         let tranchesQuery = supabase
           .from('tranches_scolarite')
           .select('*')
@@ -88,7 +91,12 @@ export default function RapportTranchesPage() {
         }
 
         const { data: tranchesData } = await tranchesQuery.order('ordre', { ascending: true });
-        const realTranches = tranchesData || [];
+        const tranchesByClasse = new Map<string, any[]>();
+        (tranchesData || []).forEach((t: any) => {
+          if (!t.classe_id) return;
+          if (!tranchesByClasse.has(t.classe_id)) tranchesByClasse.set(t.classe_id, []);
+          tranchesByClasse.get(t.classe_id)!.push(t);
+        });
 
         // 4. Fetch Students & Payments
         let query = supabase
@@ -118,6 +126,7 @@ export default function RapportTranchesPage() {
             let t2Amount = Math.round(totalDue * 0.33);
             let t3Amount = totalDue - (t1Limit + t2Amount);
 
+            const realTranches = tranchesByClasse.get(e.classe_id) || [];
             if (realTranches.length > 0) {
               const t1 = realTranches[0];
               const t2 = realTranches[1];

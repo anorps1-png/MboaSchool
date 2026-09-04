@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
-import TranchesConfig from '@/components/settings/TranchesConfig';
 import AppUpdateCard from '@/components/settings/AppUpdateCard';
 
 interface AcademicYear {
@@ -548,13 +547,15 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Tranches de scolarité */}
-            {etablissementId && activeYearId && (
-              <TranchesConfig 
-                etablissementId={etablissementId} 
-                anneeScolaireId={activeYearId} 
-              />
-            )}
+            {/* Tranches de scolarité : configurées par classe (chaque classe a son
+                propre prix, donc ses propres tranches) depuis le module Classes,
+                pas ici. */}
+            <div className="pt-2 border-t border-border">
+              <p className="text-xs text-ink-soft">
+                Les tranches de scolarité se configurent désormais par classe, depuis le module{' '}
+                <a href="/classes" className="text-accent font-bold hover:underline">Classes</a> (chaque classe a son propre prix et ses propres tranches).
+              </p>
+            </div>
           </div>
 
           {/* Card 3: Financial Defaults */}

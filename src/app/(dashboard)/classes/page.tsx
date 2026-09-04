@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { getStudentsPerClass } from '@/lib/queries/classes';
+import TranchesConfig from '@/components/settings/TranchesConfig';
 
 interface SupabaseClasse {
   id: string;
@@ -368,6 +369,15 @@ export default function ClassesPage() {
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint font-bold">💰</span>
                 </div>
               </div>
+
+              {etablissementId && academicYearId && (
+                <TranchesConfig
+                  etablissementId={etablissementId}
+                  anneeScolaireId={academicYearId}
+                  classeId={editingClass.id}
+                  classePrix={Number(editPrix) || undefined}
+                />
+              )}
 
               <div className="pt-6 flex gap-3">
                 <button type="button" onClick={() => setEditingClass(null)} className="flex-1 px-4 py-3 bg-chip text-ink-soft rounded-control text-sm font-bold hover:bg-chip transition-colors">

@@ -12,7 +12,7 @@ export async function getStudents(etablissementId: string) {
   while (hasMore) {
     const { data, error } = await supabase
       .from('eleves')
-      .select('id, matricule, nom, prenom, sexe, classe_id, annee_scolaire_id, nom_parent, telephone_parent, email_parent, date_naissance, lieu_naissance, date_inscription, statut, paiements(id, eleve_id, montant, date, type_frais, statut, reference, mode_paiement)')
+      .select('id, matricule, nom, prenom, sexe, classe_id, annee_scolaire_id, nom_parent, telephone_parent, email_parent, date_naissance, lieu_naissance, date_inscription, statut, paiements(id, eleve_id, montant, date, type_frais, statut, reference, mode_paiement, tranche_id)')
       .eq('etablissement_id', etablissementId)
       .order('nom', { ascending: true })
       .order('id', { ascending: true })
@@ -117,7 +117,7 @@ export async function getStudentsWidgetStats(
 export async function getStudentById(id: string) {
   const { data, error } = await supabase
     .from('eleves')
-    .select('id, matricule, nom, prenom, sexe, classe_id, annee_scolaire_id, nom_parent, telephone_parent, email_parent, date_naissance, lieu_naissance, date_inscription, statut, paiements(id, eleve_id, montant, date, type_frais, statut, reference, mode_paiement), notes(id, note, trimestre, matiere, matiere_id, evaluation_maternelle, enseignant_id, coefficient)')
+    .select('id, matricule, nom, prenom, sexe, classe_id, annee_scolaire_id, nom_parent, telephone_parent, email_parent, date_naissance, lieu_naissance, date_inscription, statut, paiements(id, eleve_id, montant, date, type_frais, statut, reference, mode_paiement, tranche_id), notes(id, note, trimestre, matiere, matiere_id, evaluation_maternelle, enseignant_id, coefficient)')
     .eq('id', id)
     .single();
 
