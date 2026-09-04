@@ -1262,12 +1262,14 @@ export default function ElevesPage() {
 
           // Skip completely empty rows
           if (!nom && !prenom) { skippedEmptyRows++; continue; }
-          // Nom OU prénom manquant (mais pas les deux) : une chaîne vide
-          // satisfait la contrainte NOT NULL de Postgres, donc sans ce
-          // contrôle explicite la ligne serait importée avec un champ vide —
-          // incohérent avec eleveSchema (src/lib/validation/schemas.ts) qui
-          // exige les deux pour toute création manuelle.
-          if (!nom || !prenom) { skippedMissingNameRows++; continue; }
+          // Nom OU prénom manquant (mais pas les deux) : très courant dans les
+          // fichiers réels (nom complet mis dans "Nom", "Prénom" laissé vide) —
+          // NE PAS rejeter la ligne pour autant (ça a déjà bloqué un import
+          // réel de 164 élèves). On importe quand même, en signalant juste le
+          // nombre de lignes concernées dans le résumé final, à titre
+          // informatif (eleveSchema exige les deux pour la création manuelle,
+          // mais l'import doit rester tolérant aux sources de données réelles).
+          if (!nom || !prenom) { skippedMissingNameRows++; }
 
           const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toString().toUpperCase().trim() === 'F' ? 'F' : 'M';
           const classNameStr = (row.Classe || row.classe || row.CLASSE || 'Non classé').toString().trim();
@@ -1808,7 +1810,7 @@ export default function ElevesPage() {
         if (importedCount > 0) refreshServerViews();
         const notes: string[] = [];
         if (skippedEmptyRows > 0) notes.push(`${skippedEmptyRows} ligne(s) vide(s) ignorée(s)`);
-        if (skippedMissingNameRows > 0) notes.push(`⚠️ ${skippedMissingNameRows} ligne(s) ignorée(s) (nom ou prénom manquant)`);
+        if (skippedMissingNameRows > 0) notes.push(`${skippedMissingNameRows} élève(s) importé(s) avec nom ou prénom vide`);
         if (disambiguatedCount > 0) notes.push(`${disambiguatedCount} élève(s) sans matricule partageaient un nom identique et ont reçu un identifiant distinct`);
         if (unresolvedClassCount > 0) notes.push(`⚠️ ${unresolvedClassCount} élève(s) importé(s) SANS classe (échec de création/résolution — à réaffecter manuellement)`);
         if (duplicatePaymentRefCount > 0) notes.push(`⚠️ ${duplicatePaymentRefCount} paiement(s) ignoré(s) (référence déjà utilisée par un autre élève du fichier)`);
