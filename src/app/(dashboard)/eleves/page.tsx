@@ -1444,7 +1444,7 @@ export default function ElevesPage() {
           for (const batch of chunkArray(studentPayload, CHUNK_SIZE)) {
             const { data: createdData, error: createErr } = await supabase
               .from('eleves')
-              .upsert(batch, { onConflict: 'etablissement_id,matricule' })
+              .upsert(batch, { onConflict: 'etablissement_id,matricule,annee_scolaire_id' })
               .select();
             if (createErr) {
               captureError(createErr, { context: "Batch student upsert failed during Excel import" });
@@ -1457,7 +1457,7 @@ export default function ElevesPage() {
               for (const row of batch) {
                 const { data: rowData, error: rowErr } = await supabase
                   .from('eleves')
-                  .upsert([row], { onConflict: 'etablissement_id,matricule' })
+                  .upsert([row], { onConflict: 'etablissement_id,matricule,annee_scolaire_id' })
                   .select();
                 if (rowErr) {
                   errorsCount++;
@@ -1575,6 +1575,10 @@ export default function ElevesPage() {
         captureError(err, { context: "Error parsing excel:" });
         alert("Erreur lors de l'analyse du fichier Excel.");
       }
+    };
+    reader.onerror = () => {
+      captureError(reader.error, { context: "FileReader error during Excel import" });
+      alert("Impossible de lire le fichier sélectionné. Réessayez ou choisissez un autre fichier.");
     };
     reader.readAsBinaryString(file);
     if (e.target) e.target.value = '';
