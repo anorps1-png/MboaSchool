@@ -1175,6 +1175,7 @@ export default function ElevesPage() {
         let importedCount = 0;
         let errorsCount = 0;
         let skippedEmptyRows = 0;
+        let unresolvedClassCount = 0;
         let firstBatchErrorMessage: string | null = null;
 
         const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
@@ -1552,20 +1553,28 @@ export default function ElevesPage() {
             }
           }
 
-          const resolveClassId = (classNameStr: string, anneeId: string | null): string => {
+          // Ne JAMAIS retomber sur une classe arbitraire (ex: localClasses[0])
+          // quand la résolution échoue : ça affecterait silencieusement la
+          // ligne à une classe qui n'a rien à voir avec celle du fichier.
+          // null (élève sans classe, visible et corrigeable) vaut mieux
+          // qu'une mauvaise classe indétectable.
+          const resolveClassId = (classNameStr: string, anneeId: string | null): string | null => {
             const found = localClasses.find(c => classMatches(c, classNameStr, anneeId));
             if (found) return found.id;
             const anyYearMatch = localClasses.find(c => (c.nom || '').toLowerCase().trim() === classNameStr.toLowerCase().trim());
             if (anyYearMatch) return anyYearMatch.id;
-            return localClasses.length > 0 ? localClasses[0].id : classNameStr;
+            return null;
           };
 
-          const studentPayload = dedupedRows.map(r => ({
+          const studentPayload = dedupedRows.map(r => {
+            const classeId = resolveClassId(r.classNameStr, r.resolvedAnneeScolaireId);
+            if (!classeId) unresolvedClassCount++;
+            return {
             matricule: r.matriculeVal,
             nom: r.nom.toUpperCase(),
             prenom: r.prenom,
             sexe: r.sexe,
-            classe_id: resolveClassId(r.classNameStr, r.resolvedAnneeScolaireId),
+            classe_id: classeId,
             annee_scolaire_id: r.resolvedAnneeScolaireId,
             nom_parent: r.nomParent,
             telephone_parent: r.telephoneParent,
@@ -1575,7 +1584,8 @@ export default function ElevesPage() {
             date_inscription: r.dateInscriptionVal,
             statut: 'actif',
             etablissement_id: etablissementId
-          }));
+            };
+          });
 
           const createdStudentsByMatricule = new Map<string, any>();
           for (const batch of chunkArray(studentPayload, CHUNK_SIZE)) {
@@ -1737,6 +1747,7 @@ export default function ElevesPage() {
         const notes: string[] = [];
         if (skippedEmptyRows > 0) notes.push(`${skippedEmptyRows} ligne(s) vide(s) ignorée(s)`);
         if (disambiguatedCount > 0) notes.push(`${disambiguatedCount} élève(s) sans matricule partageaient un nom identique et ont reçu un identifiant distinct`);
+        if (unresolvedClassCount > 0) notes.push(`⚠️ ${unresolvedClassCount} élève(s) importé(s) SANS classe (échec de création/résolution — à réaffecter manuellement)`);
         if (errorsCount > 0) notes.push(`${errorsCount} ligne(s) en erreur${firstBatchErrorMessage ? ` : ${firstBatchErrorMessage}` : ''}`);
         const suffix = notes.length > 0 ? ` (${notes.join(' · ')})` : '';
         triggerToast(`Importation réussie : ${importedCount} élèves importés.${suffix}`);
