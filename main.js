@@ -184,10 +184,16 @@ function setupMenu() {
 
 function getNextAppDir() {
   if (!app.isPackaged) return __dirname;
-  const resourcesNext = path.join(process.resourcesPath, '.next');
+  // .next et public sont copiés hors de l'archive asar (extraResources vers
+  // resources/nextapp/), volontairement décorrélés du réglage "asar" du
+  // bundle Electron principal (main.js/preload.js) : Next doit trouver les
+  // deux comme sous-dossiers directs d'un même `dir`, ce qui casse dès que
+  // l'un des deux se retrouve packé dans app.asar et l'autre non.
+  const nextAppDir = path.join(process.resourcesPath, 'nextapp');
+  const resourcesNext = path.join(nextAppDir, '.next');
   if (fs.existsSync(resourcesNext)) {
-    log(`Found .next in process.resourcesPath: ${resourcesNext}`);
-    return process.resourcesPath;
+    log(`Found .next in resources/nextapp: ${resourcesNext}`);
+    return nextAppDir;
   }
   const appPathNext = path.join(app.getAppPath(), '.next');
   if (fs.existsSync(appPathNext)) {

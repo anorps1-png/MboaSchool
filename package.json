@@ -58,18 +58,21 @@
     "files": [
       "main.js",
       "preload.js",
-      "package.json",
-      "public/**"
+      "package.json"
     ],
     "extraResources": [
       {
         "from": ".next",
-        "to": "app/.next",
+        "to": "nextapp/.next",
         "filter": [
           "**/*",
           "!cache/**",
           "!dev/**"
         ]
+      },
+      {
+        "from": "public",
+        "to": "nextapp/public"
       }
     ],
     "publish": [
