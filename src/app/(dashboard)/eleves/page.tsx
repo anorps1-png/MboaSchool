@@ -1104,9 +1104,19 @@ export default function ElevesPage() {
     const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
     const supabase = createClient();
 
-    let resolvedAnneeScolaireId = null;
+    if (!etablissementId) {
+      alert("Erreur : Impossible de déterminer l'établissement actif.");
+      return;
+    }
 
-    if (!isOffline && etablissementId) {
+    // Année scolaire de repli : utilisée telle quelle en mode hors-ligne. En
+    // ligne, elle ne sert plus que de dernier recours — chaque ligne résout
+    // ou crée désormais SA PROPRE année scolaire à partir de sa date
+    // d'inscription (voir plus bas, après le parsing), au lieu de forcer une
+    // seule année pour tout le fichier importé.
+    let fallbackAnneeScolaireId = null;
+
+    if (!isOffline) {
       try {
         const { data: etab } = await supabase
           .from('etablissements')
@@ -1114,13 +1124,13 @@ export default function ElevesPage() {
           .eq('id', etablissementId)
           .single();
         if (etab?.annee_scolaire_active_id) {
-          resolvedAnneeScolaireId = etab.annee_scolaire_active_id;
+          fallbackAnneeScolaireId = etab.annee_scolaire_active_id;
         }
       } catch (err) {
         captureError(err, { context: "Failed to fetch active year from DB:" });
       }
 
-      if (!resolvedAnneeScolaireId) {
+      if (!fallbackAnneeScolaireId) {
         try {
           const { data: years } = await supabase
             .from('annees_scolaires')
@@ -1128,7 +1138,7 @@ export default function ElevesPage() {
             .eq('etablissement_id', etablissementId)
             .limit(1);
           if (years && years.length > 0) {
-            resolvedAnneeScolaireId = years[0].id;
+            fallbackAnneeScolaireId = years[0].id;
           }
         } catch (err) {
           captureError(err, { context: "Failed to fetch fallback year from DB:" });
@@ -1136,14 +1146,14 @@ export default function ElevesPage() {
       }
     }
 
-    if (!resolvedAnneeScolaireId && typeof window !== 'undefined') {
-      resolvedAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
+    if (!fallbackAnneeScolaireId && typeof window !== 'undefined') {
+      fallbackAnneeScolaireId = localStorage.getItem('mboaschool_active_year_id');
     }
-    if (!resolvedAnneeScolaireId && students.length > 0) {
+    if (!fallbackAnneeScolaireId && students.length > 0) {
       const studentWithYear = students.find(s => s && s.anneeScolaireId);
-      if (studentWithYear) resolvedAnneeScolaireId = studentWithYear.anneeScolaireId;
+      if (studentWithYear) fallbackAnneeScolaireId = studentWithYear.anneeScolaireId;
     }
-    if (!resolvedAnneeScolaireId) {
+    if (isOffline && !fallbackAnneeScolaireId) {
       alert("Erreur : Impossible de déterminer l'année scolaire active. Créez d'abord au moins une classe ou une année scolaire.");
       return;
     }
@@ -1193,6 +1203,7 @@ export default function ElevesPage() {
           dateNaissance: string | null; lieuNaissance: string; dateInscriptionVal: string;
           matriculeVal: string; usedFallbackMatricule: boolean;
           payments: ParsedImportPayment[];
+          resolvedAnneeScolaireId: string | null;
         }
         const parsedRows: ParsedImportRow[] = [];
         for (const row of data) {
@@ -1261,13 +1272,83 @@ export default function ElevesPage() {
           parsedRows.push({
             nom, prenom, sexe, classNameStr, sectionStr, nomParent, telephoneParent, emailParent,
             dateNaissance, lieuNaissance, dateInscriptionVal, matriculeVal, usedFallbackMatricule,
-            payments
+            payments, resolvedAnneeScolaireId: null
           });
         }
 
         if (parsedRows.length === 0) {
           alert("Aucune ligne valide trouvée dans le fichier.");
           return;
+        }
+
+        // 1a) Résolution de l'année scolaire PAR LIGNE, à partir de sa date
+        // d'inscription (année scolaire = 1er septembre -> 30 juin). Réutilise
+        // une année existante dont la plage de dates couvre la date de la
+        // ligne (y compris une année aux dates personnalisées par l'admin) ;
+        // sinon la crée avec le nom calculé "AAAA-AAAA". Un seul aller-retour
+        // réseau pour lire les années existantes, un seul pour créer celles
+        // qui manquent — pas un aller-retour par ligne du fichier.
+        const computeSchoolYearBounds = (dateStr: string) => {
+          const [yStr, mStr] = dateStr.split('-');
+          const y = Number(yStr);
+          const m = Number(mStr);
+          const startY = m >= 9 ? y : y - 1;
+          const endY = startY + 1;
+          return { nom: `${startY}-${endY}`, date_debut: `${startY}-09-01`, date_fin: `${endY}-06-30` };
+        };
+
+        if (isOffline) {
+          parsedRows.forEach(r => { r.resolvedAnneeScolaireId = fallbackAnneeScolaireId; });
+        } else {
+          const yearsByNom = new Map<string, { id: string; nom: string; date_debut: string; date_fin: string }>();
+          try {
+            const { data: existingYears } = await supabase
+              .from('annees_scolaires')
+              .select('id,nom,date_debut,date_fin')
+              .eq('etablissement_id', etablissementId);
+            (existingYears || []).forEach((y: any) => yearsByNom.set(y.nom, y));
+          } catch (err) {
+            captureError(err, { context: "Failed to load annees_scolaires for import" });
+          }
+
+          const findYearForDate = (dateStr: string) => {
+            for (const y of yearsByNom.values()) {
+              if (y.date_debut && y.date_fin && dateStr >= y.date_debut && dateStr <= y.date_fin) return y;
+            }
+            return null;
+          };
+
+          const missingYears = new Map<string, { nom: string; date_debut: string; date_fin: string }>();
+          for (const r of parsedRows) {
+            if (findYearForDate(r.dateInscriptionVal)) continue;
+            const bounds = computeSchoolYearBounds(r.dateInscriptionVal);
+            if (!yearsByNom.has(bounds.nom) && !missingYears.has(bounds.nom)) {
+              missingYears.set(bounds.nom, bounds);
+            }
+          }
+
+          if (missingYears.size > 0) {
+            const yearInsertPayload = Array.from(missingYears.values()).map(y => ({ ...y, etablissement_id: etablissementId }));
+            const { data: createdYears, error: yearErr } = await supabase
+              .from('annees_scolaires')
+              .insert(yearInsertPayload)
+              .select();
+            if (yearErr) {
+              captureError(yearErr, { context: "Batch année scolaire creation failed during Excel import" });
+            } else {
+              (createdYears || []).forEach((y: any) => yearsByNom.set(y.nom, y));
+            }
+          }
+
+          parsedRows.forEach(r => {
+            const match = findYearForDate(r.dateInscriptionVal) || yearsByNom.get(computeSchoolYearBounds(r.dateInscriptionVal).nom);
+            r.resolvedAnneeScolaireId = match ? match.id : fallbackAnneeScolaireId;
+          });
+
+          if (parsedRows.some(r => !r.resolvedAnneeScolaireId)) {
+            alert("Erreur : Impossible de déterminer ou créer l'année scolaire pour certaines lignes. Vérifiez la configuration de l'établissement.");
+            return;
+          }
         }
 
         // 1b) Désambiguïsation des matricules de repli en collision. Sans fichier
@@ -1304,11 +1385,11 @@ export default function ElevesPage() {
           // pas de coût réseau réel — la boucle par ligne reste donc telle quelle.
           const localClasses = [...classesList];
           for (const r of parsedRows) {
-            const classId = await getOrCreateClass(r.classNameStr, resolvedAnneeScolaireId, r.sectionStr, localClasses);
+            const classId = await getOrCreateClass(r.classNameStr, r.resolvedAnneeScolaireId as string, r.sectionStr, localClasses);
 
             const studentData = {
               matricule: r.matriculeVal, nom: r.nom.toUpperCase(), prenom: r.prenom, sexe: r.sexe,
-              classe_id: classId, annee_scolaire_id: resolvedAnneeScolaireId, nom_parent: r.nomParent,
+              classe_id: classId, annee_scolaire_id: r.resolvedAnneeScolaireId, nom_parent: r.nomParent,
               telephone_parent: r.telephoneParent, email_parent: r.emailParent, date_naissance: r.dateNaissance,
               lieu_naissance: r.lieuNaissance, date_inscription: r.dateInscriptionVal, statut: 'actif'
             };
@@ -1316,7 +1397,7 @@ export default function ElevesPage() {
             const studentId = crypto.randomUUID();
             await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
             const finalStudentObj: any = {
-              id: studentId, ...studentData, classeId: classId, anneeScolaireId: resolvedAnneeScolaireId,
+              id: studentId, ...studentData, classeId: classId, anneeScolaireId: r.resolvedAnneeScolaireId,
               dateNaissance: r.dateNaissance, lieuNaissance: r.lieuNaissance, dateInscription: r.dateInscriptionVal,
               nomParent: r.nomParent, telephoneParent: r.telephoneParent, emailParent: r.emailParent,
               paiements: [] as any[], notes: []
@@ -1386,20 +1467,74 @@ export default function ElevesPage() {
             });
           });
 
+          // Les classes sont scopées par année scolaire (classes.annee_scolaire_id) :
+          // une même "Terminale D" doit avoir sa propre ligne classes par année,
+          // exactement comme une réinscription crée une nouvelle ligne eleves par
+          // année. La clé de correspondance/déduplication inclut donc l'année
+          // scolaire résolue de la ligne, pas seulement le nom de la classe.
           const localClasses = [...classesList];
-          const distinctClasses = new Map<string, { classNameStr: string; sectionStr: string }>();
+          const classKey = (nameStr: string, anneeId: string | null) => `${nameStr.toLowerCase().trim()}::${anneeId || ''}`;
+          const distinctClasses = new Map<string, { classNameStr: string; sectionStr: string; anneeScolaireId: string | null }>();
           dedupedRows.forEach(r => {
-            const key = r.classNameStr.toLowerCase().trim();
-            if (!distinctClasses.has(key)) distinctClasses.set(key, { classNameStr: r.classNameStr, sectionStr: r.sectionStr });
+            const key = classKey(r.classNameStr, r.resolvedAnneeScolaireId);
+            if (!distinctClasses.has(key)) {
+              distinctClasses.set(key, { classNameStr: r.classNameStr, sectionStr: r.sectionStr, anneeScolaireId: r.resolvedAnneeScolaireId });
+            }
           });
 
-          const missingClasses = Array.from(distinctClasses.entries()).filter(([key]) =>
-            !localClasses.some(c => (c.nom || '').toLowerCase().trim() === key || (c.id || '').toLowerCase().trim() === key)
+          const classMatches = (c: Classe, nameStr: string, anneeId: string | null) => {
+            const cNom = (c.nom || '').toLowerCase().trim();
+            const cId = (c.id || '').toLowerCase().trim();
+            const nameMatches = cNom === nameStr.toLowerCase().trim() || cId === nameStr.toLowerCase().trim();
+            return nameMatches && (c.anneeScolaireId || null) === (anneeId || null);
+          };
+
+          const missingClasses = Array.from(distinctClasses.entries()).filter(([, v]) =>
+            !localClasses.some(c => classMatches(c, v.classNameStr, v.anneeScolaireId))
           );
+
+          // Résout/crée les sections référencées par les classes manquantes.
+          // La table `sections` existe et sert au calcul de productivité par
+          // section en Finance, mais rien ne la peuplait jusqu'ici : les
+          // classes n'écrivaient que le nom en texte libre (classes.section),
+          // jamais classes.section_id. On peuple les deux désormais.
+          const sectionIdByNom = new Map<string, string>();
+          if (missingClasses.length > 0) {
+            try {
+              const { data: existingSections } = await supabase
+                .from('sections')
+                .select('id,nom')
+                .eq('etablissement_id', etablissementId);
+              (existingSections || []).forEach((s: any) => sectionIdByNom.set((s.nom || '').toLowerCase().trim(), s.id));
+            } catch (err) {
+              captureError(err, { context: "Failed to load sections for import" });
+            }
+
+            const neededSectionNoms = new Map<string, string>();
+            missingClasses.forEach(([, v]) => {
+              const key = v.sectionStr.toLowerCase().trim();
+              if (!sectionIdByNom.has(key) && !neededSectionNoms.has(key)) neededSectionNoms.set(key, v.sectionStr);
+            });
+
+            if (neededSectionNoms.size > 0) {
+              const sectionInsertPayload = Array.from(neededSectionNoms.values()).map(nom => ({ nom, etablissement_id: etablissementId }));
+              const { data: createdSections, error: sectionErr } = await supabase
+                .from('sections')
+                .insert(sectionInsertPayload)
+                .select();
+              if (sectionErr) {
+                captureError(sectionErr, { context: "Batch section creation failed during Excel import" });
+              } else {
+                (createdSections || []).forEach((s: any) => sectionIdByNom.set((s.nom || '').toLowerCase().trim(), s.id));
+              }
+            }
+          }
 
           if (missingClasses.length > 0) {
             const classInsertPayload = missingClasses.map(([, v]) => ({
-              nom: v.classNameStr, niveau: v.classNameStr, section: v.sectionStr, etablissement_id: etablissementId
+              nom: v.classNameStr, niveau: v.classNameStr, section: v.sectionStr,
+              section_id: sectionIdByNom.get(v.sectionStr.toLowerCase().trim()) || null,
+              etablissement_id: etablissementId, annee_scolaire_id: v.anneeScolaireId
             }));
             const { data: createdClasses, error: classErr } = await supabase
               .from('classes')
@@ -1409,17 +1544,18 @@ export default function ElevesPage() {
               captureError(classErr, { context: "Batch class creation failed during Excel import" });
             } else if (createdClasses) {
               const newClassObjs: Classe[] = createdClasses.map((c: any) => ({
-                id: c.id, nom: c.nom, niveauId: c.niveau, anneeScolaireId: resolvedAnneeScolaireId, sectionId: c.section
+                id: c.id, nom: c.nom, niveauId: c.niveau, anneeScolaireId: c.annee_scolaire_id, sectionId: c.section
               }));
               localClasses.push(...newClassObjs);
               setClassesList(prev => [...prev, ...newClassObjs]);
             }
           }
 
-          const resolveClassId = (classNameStr: string): string => {
-            const key = classNameStr.toLowerCase().trim();
-            const found = localClasses.find(c => (c.nom || '').toLowerCase().trim() === key || (c.id || '').toLowerCase().trim() === key);
+          const resolveClassId = (classNameStr: string, anneeId: string | null): string => {
+            const found = localClasses.find(c => classMatches(c, classNameStr, anneeId));
             if (found) return found.id;
+            const anyYearMatch = localClasses.find(c => (c.nom || '').toLowerCase().trim() === classNameStr.toLowerCase().trim());
+            if (anyYearMatch) return anyYearMatch.id;
             return localClasses.length > 0 ? localClasses[0].id : classNameStr;
           };
 
@@ -1428,8 +1564,8 @@ export default function ElevesPage() {
             nom: r.nom.toUpperCase(),
             prenom: r.prenom,
             sexe: r.sexe,
-            classe_id: resolveClassId(r.classNameStr),
-            annee_scolaire_id: resolvedAnneeScolaireId,
+            classe_id: resolveClassId(r.classNameStr, r.resolvedAnneeScolaireId),
+            annee_scolaire_id: r.resolvedAnneeScolaireId,
             nom_parent: r.nomParent,
             telephone_parent: r.telephoneParent,
             email_parent: r.emailParent,
@@ -1540,7 +1676,7 @@ export default function ElevesPage() {
                 dateNaissance: createdStudent.date_naissance || '',
                 lieuNaissance: createdStudent.lieu_naissance || '',
                 dateInscription: createdStudent.date_inscription,
-                anneeScolaireId: createdStudent.annee_scolaire_id || resolvedAnneeScolaireId,
+                anneeScolaireId: createdStudent.annee_scolaire_id || fallbackAnneeScolaireId,
                 statut: createdStudent.statut || 'actif',
                 paiements: paymentsByEleveId.get(createdStudent.id) || [],
                 notes: []
