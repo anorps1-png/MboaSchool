@@ -982,19 +982,36 @@ export default function ElevesPage() {
     triggerToast('Export Excel généré avec succès !');
   };
 
+  // Comparaison de nom de classe insensible aux accents et aux espaces
+  // internes multiples ("École Maternelle" ~ "Ecole Maternelle",
+  // "Terminale  D" ~ "Terminale D") : sans ça, une variante d'orthographe
+  // légèrement différente crée une classe quasi-doublon en silence au lieu
+  // de réutiliser l'existante. Utilisée à la fois par getOrCreateClass
+  // (import hors-ligne) et par le chemin d'import en ligne, pour éviter que
+  // les deux divergent comme avant (le hors-ligne ne filtrait pas par année
+  // scolaire alors que les classes sont scopées par année).
+  const normalizeClassLabel = (s: string): string =>
+    (s || '')
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, ' ');
+
+  const classNameMatches = (c: Classe, nameStr: string, anneeId: string | null) => {
+    const target = normalizeClassLabel(nameStr);
+    const nameMatches = normalizeClassLabel(c.nom || '') === target || normalizeClassLabel(c.id || '') === target;
+    return nameMatches && (c.anneeScolaireId || null) === (anneeId || null);
+  };
+
   const getOrCreateClass = async (
-    classNameStr: string, 
-    resolvedAnneeScolaireId: string, 
-    sectionStr: string = 'Francophone', 
+    classNameStr: string,
+    resolvedAnneeScolaireId: string,
+    sectionStr: string = 'Francophone',
     localClassesRef?: Classe[]
   ) => {
     const listToSearch = localClassesRef || classesList;
-    const existing = listToSearch.find(c => {
-      const cNom = c.nom || '';
-      const cId = c.id || '';
-      return cNom.toLowerCase().trim() === classNameStr.toLowerCase().trim() || 
-             cId.toLowerCase().trim() === classNameStr.toLowerCase().trim();
-    });
+    const existing = listToSearch.find(c => classNameMatches(c, classNameStr, resolvedAnneeScolaireId));
     if (existing) return existing.id;
 
     const newClassData = {
@@ -1087,6 +1104,21 @@ export default function ElevesPage() {
         && candidate.getDate() === Number(d);
       return isValid ? str : null;
     }
+    // Convention JJ/MM/AAAA (saisie manuelle française/camerounaise), à
+    // distinguer explicitement du repli générique ci-dessous : `new
+    // Date("14/05/2012")` échoue (Invalid Date, jour hors plage MM/JJ) et
+    // `new Date("01/12/2012")` est lu comme le 12 janvier (format
+    // MM/JJ/AAAA US) au lieu du 1er décembre. Même validation de date
+    // calendaire réelle que la branche ISO ci-dessus.
+    const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch;
+      const candidate = new Date(Number(y), Number(m) - 1, Number(d));
+      const isValid = candidate.getFullYear() === Number(y)
+        && candidate.getMonth() === Number(m) - 1
+        && candidate.getDate() === Number(d);
+      return isValid ? `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}` : null;
+    }
     const parsedDate = new Date(str);
     if (!isNaN(parsedDate.getTime())) {
       const year = parsedDate.getFullYear();
@@ -1095,6 +1127,20 @@ export default function ElevesPage() {
       return `${year}-${month}-${day}`;
     }
     return null;
+  };
+
+  // Montants en FCFA (pas de sous-unité) : une saisie manuelle utilise
+  // souvent un séparateur de milliers (point, virgule ou espace) —
+  // Number("150.000") vaut 150 (division par 1000 silencieuse) et
+  // Number("150 000") vaut NaN (paiement entier perdu en silence). On
+  // retire donc tout caractère non numérique avant conversion.
+  const parseImportAmount = (raw: any): number => {
+    if (raw === null || raw === undefined || raw === '') return 0;
+    if (typeof raw === 'number') return raw;
+    const cleaned = raw.toString().replace(/[^\d-]/g, '');
+    if (!cleaned) return 0;
+    const n = Number(cleaned);
+    return isNaN(n) ? 0 : n;
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1175,7 +1221,9 @@ export default function ElevesPage() {
         let importedCount = 0;
         let errorsCount = 0;
         let skippedEmptyRows = 0;
+        let skippedMissingNameRows = 0;
         let unresolvedClassCount = 0;
+        let duplicatePaymentRefCount = 0;
         let firstBatchErrorMessage: string | null = null;
 
         const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
@@ -1214,6 +1262,12 @@ export default function ElevesPage() {
 
           // Skip completely empty rows
           if (!nom && !prenom) { skippedEmptyRows++; continue; }
+          // Nom OU prénom manquant (mais pas les deux) : une chaîne vide
+          // satisfait la contrainte NOT NULL de Postgres, donc sans ce
+          // contrôle explicite la ligne serait importée avec un champ vide —
+          // incohérent avec eleveSchema (src/lib/validation/schemas.ts) qui
+          // exige les deux pour toute création manuelle.
+          if (!nom || !prenom) { skippedMissingNameRows++; continue; }
 
           const sexe = (row.Sexe || row.sexe || row.SEXE || 'M').toString().toUpperCase().trim() === 'F' ? 'F' : 'M';
           const classNameStr = (row.Classe || row.classe || row.CLASSE || 'Non classé').toString().trim();
@@ -1241,7 +1295,7 @@ export default function ElevesPage() {
             const refKey = `Paiement ${i} - Référence`;
 
             const rawAmount = row[amountKey] || row[amountKey.toLowerCase()] || row[`Paiement ${i} - Montant`.normalize('NFD').replace(/[\u0300-\u036f]/g, "")];
-            const amount = Number(rawAmount || 0);
+            const amount = parseImportAmount(rawAmount);
 
             if (amount > 0) {
               const rawDate = row[dateKey] || row[dateKey.toLowerCase()] || row[`Paiement ${i} - Date`.normalize('NFD').replace(/[\u0300-\u036f]/g, "")];
@@ -1260,7 +1314,7 @@ export default function ElevesPage() {
 
           // Backward compatibility for old single payment columns
           if (payments.length === 0) {
-            const oldAmount = Number(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye || 0);
+            const oldAmount = parseImportAmount(row["Frais Payes"] || row.frais_payes || row["Montant Payé"] || row.montant_paye);
             if (oldAmount > 0) {
               const oldDate = parseImportDate(row["Date Paiement"] || row.date_paiement || row["Date Payment"] || row.date_payment) || new Date().toISOString().split('T')[0];
               const oldMode = normalizePaymentMode(row["Mode Paiement"] || row.mode_paiement || 'Espèces');
@@ -1475,7 +1529,7 @@ export default function ElevesPage() {
           // année. La clé de correspondance/déduplication inclut donc l'année
           // scolaire résolue de la ligne, pas seulement le nom de la classe.
           const localClasses = [...classesList];
-          const classKey = (nameStr: string, anneeId: string | null) => `${nameStr.toLowerCase().trim()}::${anneeId || ''}`;
+          const classKey = (nameStr: string, anneeId: string | null) => `${normalizeClassLabel(nameStr)}::${anneeId || ''}`;
           const distinctClasses = new Map<string, { classNameStr: string; sectionStr: string; anneeScolaireId: string | null }>();
           dedupedRows.forEach(r => {
             const key = classKey(r.classNameStr, r.resolvedAnneeScolaireId);
@@ -1484,15 +1538,8 @@ export default function ElevesPage() {
             }
           });
 
-          const classMatches = (c: Classe, nameStr: string, anneeId: string | null) => {
-            const cNom = (c.nom || '').toLowerCase().trim();
-            const cId = (c.id || '').toLowerCase().trim();
-            const nameMatches = cNom === nameStr.toLowerCase().trim() || cId === nameStr.toLowerCase().trim();
-            return nameMatches && (c.anneeScolaireId || null) === (anneeId || null);
-          };
-
           const missingClasses = Array.from(distinctClasses.entries()).filter(([, v]) =>
-            !localClasses.some(c => classMatches(c, v.classNameStr, v.anneeScolaireId))
+            !localClasses.some(c => classNameMatches(c, v.classNameStr, v.anneeScolaireId))
           );
 
           // Résout/crée les sections référencées par les classes manquantes.
@@ -1559,9 +1606,10 @@ export default function ElevesPage() {
           // null (élève sans classe, visible et corrigeable) vaut mieux
           // qu'une mauvaise classe indétectable.
           const resolveClassId = (classNameStr: string, anneeId: string | null): string | null => {
-            const found = localClasses.find(c => classMatches(c, classNameStr, anneeId));
+            const found = localClasses.find(c => classNameMatches(c, classNameStr, anneeId));
             if (found) return found.id;
-            const anyYearMatch = localClasses.find(c => (c.nom || '').toLowerCase().trim() === classNameStr.toLowerCase().trim());
+            const target = normalizeClassLabel(classNameStr);
+            const anyYearMatch = localClasses.find(c => normalizeClassLabel(c.nom || '') === target);
             if (anyYearMatch) return anyYearMatch.id;
             return null;
           };
@@ -1646,11 +1694,25 @@ export default function ElevesPage() {
             captureError(err, { context: "Failed to load tranches_scolarite for import" });
           }
 
+          // `paiements` a une contrainte UNIQUE (etablissement_id, reference) :
+          // deux élèves différents ne peuvent physiquement pas partager la
+          // même référence. Si le fichier en contient une (saisie manuelle
+          // coïncidente), on le signale explicitement au lieu de laisser l'un
+          // écraser l'autre en silence dans ce Map (et potentiellement, sans
+          // ce contrôle, dans un upsert qui écraserait le paiement du premier
+          // élève par celui du second au niveau de la base).
           const paymentPayload = new Map<string, any>();
+          const paymentRefOwner = new Map<string, string>();
           dedupedRows.forEach(r => {
             if (!createdStudentsByMatricule.has(r.matriculeVal)) return;
             const s = createdStudentsByMatricule.get(r.matriculeVal);
             r.payments.forEach(p => {
+              const existingOwner = paymentRefOwner.get(p.reference);
+              if (existingOwner && existingOwner !== s.id) {
+                duplicatePaymentRefCount++;
+                return;
+              }
+              paymentRefOwner.set(p.reference, s.id);
               const trancheId = p.columnIndex != null
                 ? tranchesByClasseAndOrdre.get(s.classe_id)?.get(p.columnIndex) ?? null
                 : null;
@@ -1746,8 +1808,10 @@ export default function ElevesPage() {
         if (importedCount > 0) refreshServerViews();
         const notes: string[] = [];
         if (skippedEmptyRows > 0) notes.push(`${skippedEmptyRows} ligne(s) vide(s) ignorée(s)`);
+        if (skippedMissingNameRows > 0) notes.push(`⚠️ ${skippedMissingNameRows} ligne(s) ignorée(s) (nom ou prénom manquant)`);
         if (disambiguatedCount > 0) notes.push(`${disambiguatedCount} élève(s) sans matricule partageaient un nom identique et ont reçu un identifiant distinct`);
         if (unresolvedClassCount > 0) notes.push(`⚠️ ${unresolvedClassCount} élève(s) importé(s) SANS classe (échec de création/résolution — à réaffecter manuellement)`);
+        if (duplicatePaymentRefCount > 0) notes.push(`⚠️ ${duplicatePaymentRefCount} paiement(s) ignoré(s) (référence déjà utilisée par un autre élève du fichier)`);
         if (errorsCount > 0) notes.push(`${errorsCount} ligne(s) en erreur${firstBatchErrorMessage ? ` : ${firstBatchErrorMessage}` : ''}`);
         const suffix = notes.length > 0 ? ` (${notes.join(' · ')})` : '';
         triggerToast(`Importation réussie : ${importedCount} élèves importés.${suffix}`);
