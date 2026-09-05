@@ -466,6 +466,25 @@ export default function FinancePage() {
           });
         }
 
+        // Constatation des frais d'inscription : même compte 706 que la
+        // scolarité (les deux sont des prestations de services de l'école),
+        // pour que la Trésorerie Perçue (qui inclut l'inscription) se
+        // rapproche d'un CA Constaté qui couvre le même périmètre.
+        const fraisInscription = matchedClass ? Number(matchedClass.frais_inscription || 0) : 0;
+        if (fraisInscription > 0) {
+          const dateConst = student.dateInscription ? student.dateInscription.split('T')[0] : '2025-09-01';
+          paymentEcritures.push({
+            id: `ecr-const-insc-${student.id}`,
+            date: dateConst,
+            libelle: `Constatation Frais Inscription - ${student.nom} ${student.prenom}`,
+            reference: `FACT-INSC-${student.matricule}`,
+            lignes: [
+              { compteNumero: '411', debit: fraisInscription, credit: 0 },
+              { compteNumero: '706', debit: 0, credit: fraisInscription }
+            ]
+          });
+        }
+
         const paiements = student.paiements || [];
         paiements.forEach(p => {
           if (p.statut === 'paid') {
@@ -662,12 +681,14 @@ export default function FinancePage() {
   // Trésorerie perçue (real cash collections from student payments) :
   // RPC serveur si disponible (évite de dépendre du fetch complet students),
   // sinon repli sur le calcul client historique.
-  // Scolarité uniquement, comme le serveur (get_dashboard_stats) : le taux de
-  // recouvrement ci-dessous compare ce montant au CA constaté (compte 706),
-  // qui ne couvre que la scolarité.
+  // Inscription + Scolarité (tout encaissement réel, quel que soit le type de
+  // frais) : la trésorerie perçue est un montant de caisse, pas un agrégat
+  // scolarité seule. Le CA Constaté (compte 706) est élargi en miroir
+  // (constatation frais d'inscription ci-dessus) pour que le rapprochement
+  // compare le même périmètre des deux côtés.
   const totalTresoreriePercue = serverStats?.total_paid ?? students.reduce((sum, student) => {
     return sum + (student.paiements || [])
-      .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
+      .filter(p => p.statut === 'paid')
       .reduce((s, p) => s + p.montant, 0);
   }, 0);
 
