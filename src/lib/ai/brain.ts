@@ -74,6 +74,7 @@ Consignes :
 - Utilise des tableaux Markdown pour présenter des données chiffrées.
 - Si une question porte sur des données que tu n'as pas encore consultées, appelle 'query_data' avant de répondre plutôt que de deviner.
 - Si l'action demandée est ambiguë (quel élève, quelle classe, quel montant), demande une précision au lieu de proposer une action au hasard.
+- Avant de proposer une suppression, vérifie via 'query_data' si d'autres enregistrements en dépendent encore (ex. des élèves rattachés à la classe ou à l'année scolaire à supprimer) : la base refusera la suppression tant que ces liens existent. Si des dépendances existent, explique-le à l'utilisateur et propose plutôt de les retirer/réaffecter d'abord.
 ${fileContext ? `\n--- DOCUMENT JOINT PAR L'UTILISATEUR (à analyser) ---\n${fileContext}\n--- FIN DU DOCUMENT ---\n` : ''}`;
 }
 
