@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { SearchIcon, PlusIcon, DownloadIcon } from '@/components/icons';
 import { createClient } from '@/lib/supabase/client';
 import { downloadExcel } from '@/lib/excel';
-import SyncManager from '@/lib/syncManager';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
 import { createEnseignantWithPersonnel } from '@/lib/queries/enseignants';

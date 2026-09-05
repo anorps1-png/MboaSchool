@@ -176,6 +176,61 @@ function createDesktopLocalBuilder(table: string): any {
   return proxy;
 }
 
+// En Electron, TOUTE lecture/écriture passe désormais par le miroir SQLite
+// local, que le réseau soit disponible ou non : il n'existe plus qu'un seul
+// circuit de données (fini le flag forceOffline/hasOfflineSession qui
+// laissait l'app "se croire en ligne" tout en lisant un miroir local vide
+// ou périmé). Supabase n'est touché que par les actions manuelles Push/Pull
+// (src/lib/localDbSync.ts, via getOnlineClient() qui contourne ce Proxy).
+// Sur le web (hors Electron), ce Proxy est un no-op : tout va toujours à
+// Supabase, comme avant.
+const isLocalOnlyRuntime = () => typeof window !== 'undefined' && isRunningInElectron();
+
+// profiles/etablissements/invitations ne sont JAMAIS mirroées en local (même
+// exclusion que SYNCABLE_TABLES dans src/lib/localDbSync.ts : identité/compte,
+// pas des données de travail hors-ligne). Sans cette exception, router .from()
+// vers le miroir local pour ces 3 tables romprait la résolution du profil/rôle
+// et de l'établissement dans DashboardLayout, puisque le miroir ne les
+// contient jamais — elles doivent toujours atteindre le vrai Supabase (le
+// code appelant gère déjà l'échec réseau via ses propres repli localStorage).
+const ACCOUNT_TABLES = new Set(['profiles', 'etablissements', 'invitations']);
+
+// Suppression en cascade de tout un établissement (Paramètres) : action
+// destructive et rare qui n'a aucun équivalent local (voir
+// src/lib/db/localAggregates.ts) et ne doit de toute façon jamais être
+// exécutable sans une vraie connexion Supabase — toujours envoyée en ligne,
+// jamais interceptée par callLocalRpc, même en Electron.
+const ONLINE_ONLY_RPCS = new Set(['delete_etablissement_child_data']);
+
+// Appelle l'équivalent local d'une fonction RPC Postgres (voir
+// src/lib/db/localAggregates.ts côté serveur) et renvoie la même forme
+// { data, error } que le vrai client Supabase, pour que les appelants dans
+// src/lib/queries/*.ts n'aient rien à changer.
+function callLocalRpc(fn: string, params: any) {
+  // Les RPC réelles dérivent l'établissement/le rôle de l'appelant via
+  // auth.uid() côté Postgres (SECURITY INVOKER) ; l'API locale n'a aucune
+  // session serveur pour ça. On les injecte donc ici, jamais dans les
+  // fonctions appelantes de src/lib/queries/*.ts (qui restent inchangées et
+  // continuent d'appeler la vraie RPC telle quelle sur le web) : callLocalRpc
+  // n'est jamais invoquée hors du chemin "toujours local" en Electron.
+  const callerEtablissementId = typeof window !== 'undefined' ? localStorage.getItem('mboaschool_etablissement_id') : null;
+  const callerRole = typeof window !== 'undefined' ? localStorage.getItem('mboaschool_current_role') : null;
+
+  return fetch('/api/local-db', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'rpc',
+      fn,
+      params,
+      callerEtablissementId,
+      callerRole
+    })
+  })
+    .then(res => res.json())
+    .catch(err => ({ data: null, error: { message: err?.message || String(err) } }));
+}
+
 export function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
@@ -184,20 +239,17 @@ export function createClient() {
 
   return new Proxy(realClient, {
     get(target: any, prop: string | symbol) {
-      if (prop === 'from') {
-        const isOffline = () => {
-          if (typeof window === 'undefined') return false;
-          if (!isRunningInElectron()) return false; // Force online mode on standard web browsers
-          const forceOffline = localStorage.getItem('mboaschool_force_offline') === 'true';
-          const hasOfflineSession = !!localStorage.getItem('mboaschool_offline_session');
-          return !navigator.onLine || forceOffline || hasOfflineSession;
+      if (prop === 'from' && isLocalOnlyRuntime()) {
+        return (table: string) => {
+          if (ACCOUNT_TABLES.has(table)) return target.from(table);
+          return createDesktopLocalBuilder(table);
         };
-
-        if (isOffline()) {
-          return (table: string) => {
-            return createDesktopLocalBuilder(table);
-          };
-        }
+      }
+      if (prop === 'rpc' && isLocalOnlyRuntime()) {
+        return (fn: string, params: any) => {
+          if (ONLINE_ONLY_RPCS.has(fn)) return target.rpc(fn, params);
+          return callLocalRpc(fn, params);
+        };
       }
       return target[prop];
     }

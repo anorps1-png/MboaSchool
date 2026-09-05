@@ -7,6 +7,7 @@ import {
   addToQueue,
   removeFromQueue
 } from '@/lib/db/sqlite';
+import { callLocalAggregate } from '@/lib/db/localAggregates';
 
 // Cette API sert de base de données locale SQL (SQLite) pour l'application desktop (Electron).
 // Elle lit/écrit directement dans un fichier SQLite (.mboaschool/local_db.sqlite) sur la machine.
@@ -24,11 +25,22 @@ async function resolveRelations(table: string, records: any[]) {
   if (table === 'eleves') {
     const paiements = await getAllRecordsFromTable('paiements');
     const notes = await getAllRecordsFromTable('notes');
-    return records.map(record => ({
-      ...record,
-      paiements: paiements.filter((p: any) => p.eleve_id === record.id),
-      notes: notes.filter((n: any) => n.eleve_id === record.id)
-    }));
+    const discipline = await getAllRecordsFromTable('discipline');
+    const classes = await getAllRecordsFromTable('classes');
+    const niveauxClasses = await getAllRecordsFromTable('niveaux_classes');
+    const sections = await getAllRecordsFromTable('sections');
+    return records.map(record => {
+      const classe = classes.find((c: any) => c.id === record.classe_id) || null;
+      const niveau = classe ? niveauxClasses.find((n: any) => n.id === classe.niveau_id) || null : null;
+      const section = niveau ? sections.find((s: any) => s.id === niveau.section_id) || null : null;
+      return {
+        ...record,
+        classes: classe ? { ...classe, niveaus: niveau ? { ...niveau, sections: section } : null } : null,
+        paiements: paiements.filter((p: any) => p.eleve_id === record.id),
+        notes: notes.filter((n: any) => n.eleve_id === record.id),
+        discipline: discipline.filter((d: any) => d.eleve_id === record.id)
+      };
+    });
   }
   
   if (table === 'ecritures_comptables') {
@@ -197,7 +209,45 @@ export async function POST(req: NextRequest) {
         await saveRecordsToTable(pullTable, recordsToUpsert);
       }
 
-      return NextResponse.json({ success: true, count: recordsToUpsert.length, skipped: records.length - recordsToUpsert.length });
+      // Le Pull ramène systématiquement TOUTES les lignes visibles à distance
+      // (select('*') filtré par RLS, qui exclut déjà les soft-deletes) : toute
+      // ligne locale absente de ce jeu complet a donc été supprimée (ou
+      // soft-supprimée) à distance depuis le dernier Pull, et doit disparaître
+      // du miroir local — sans quoi elle y reste indéfiniment (le Pull ne
+      // faisait jusqu'ici qu'ajouter/mettre à jour, jamais supprimer). On ne
+      // touche jamais aux lignes encore en attente dans la file (pas encore
+      // poussées, donc normalement absentes du jeu distant).
+      const remoteIds = new Set(records.filter(r => r?.id).map(r => r.id));
+      const localRecords = await getAllRecordsFromTable(pullTable);
+      const idsToRemoveLocally = localRecords
+        .map((r: any) => r.id)
+        .filter((id: string) => id && !remoteIds.has(id) && !pendingIds.has(id));
+      if (idsToRemoveLocally.length > 0) {
+        await deleteRecordsFromTable(pullTable, idsToRemoveLocally);
+      }
+
+      return NextResponse.json({
+        success: true,
+        count: recordsToUpsert.length,
+        skipped: records.length - recordsToUpsert.length,
+        removedLocally: idsToRemoveLocally.length
+      });
+    }
+
+    // 3. RPC : équivalent local d'une fonction Postgres (finance, dashboard,
+    // classements, etc.) — voir src/lib/db/localAggregates.ts. Renvoie la même
+    // forme { data, error } que le vrai supabase.rpc(...).
+    if (action === 'rpc') {
+      const { fn, params, callerEtablissementId, callerRole } = body;
+      if (!fn) {
+        return NextResponse.json({ data: null, error: { message: "Missing fn parameter" } }, { status: 400 });
+      }
+      try {
+        const data = await callLocalAggregate(fn, params || {}, { callerEtablissementId, callerRole });
+        return NextResponse.json({ data, error: null });
+      } catch (e: any) {
+        return NextResponse.json({ data: null, error: { message: e.message } }, { status: 200 });
+      }
     }
 
     if (!table || !action) {

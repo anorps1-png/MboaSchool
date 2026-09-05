@@ -4,7 +4,6 @@ import { captureError, captureMessage } from '@/lib/observability/logger';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import SyncManager from '@/lib/syncManager';
 import AiBrainChat from '@/components/ai/AiBrainChat';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import {
@@ -37,8 +36,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [userRole, setUserRole] = useState('Administrateur');
   const [userPermissions, setUserPermissions] = useState<Record<string, boolean> | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
-  const [forceOffline, setForceOffline] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isElectron, setIsElectron] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -56,17 +53,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       // inventés) dans la base locale au premier lancement : une base vide
       // reste vide, l'utilisateur crée ses propres données réelles.
 
+      // mboaschool_force_offline ne pilote plus le routage des données
+      // (toujours local en Electron désormais, cf. src/lib/supabase/client.ts)
+      // — seul le choix de méthode de connexion sur l'écran de login le lit
+      // encore. window.__forceOffline reste exposé pour les deux derniers
+      // repolis de lecture qui le consultent encore (eleves/page.tsx).
       const storedForceOffline = localStorage.getItem('mboaschool_force_offline');
-      let initForceOffline = false;
-      if (storedForceOffline !== null && isEl) {
-        initForceOffline = storedForceOffline === 'true';
-      } else {
-        initForceOffline = false;
+      if (storedForceOffline === null || !isEl) {
         localStorage.setItem('mboaschool_force_offline', 'false');
       }
-      
-      setForceOffline(initForceOffline);
-      (window as any).__forceOffline = initForceOffline;
+      (window as any).__forceOffline = isEl && storedForceOffline === 'true';
     }
   }, []);
 
@@ -77,14 +73,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       return () => window.removeEventListener('school_settings_updated', handleUpdate);
     }
   }, []);
-
-  const toggleForceOffline = () => {
-    const newVal = !forceOffline;
-    setForceOffline(newVal);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('mboaschool_force_offline', String(newVal));
-    }
-  };
 
   // Push et Pull sont deux actions manuelles indépendantes (jamais enchaînées
   // automatiquement) : l'utilisateur choisit d'envoyer ses modifications
@@ -113,6 +101,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       setTimeout(() => setSyncStatusMsg(''), 3000);
     } finally {
       setIsSyncing(false);
+      refreshPendingCount();
     }
   };
 
@@ -141,6 +130,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       setTimeout(() => setSyncStatusMsg(''), 3000);
     } finally {
       setIsSyncing(false);
+      refreshPendingCount();
     }
   };
 
@@ -206,6 +196,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
             if (profile) {
               setUserRole(profile.role === 'admin' ? 'Administrateur' : profile.role);
+              // Seule trace persistée du rôle courant (pas de mboaschool_profiles
+              // unique quand la connexion s'est faite en ligne) : lue par
+              // callLocalRpc (src/lib/supabase/client.ts) pour les RPC locales
+              // desktop qui vérifient un rôle (ex. soft_delete_paiement).
+              if (profile.role) localStorage.setItem('mboaschool_current_role', profile.role);
               if (profile.permissions) {
                 setUserPermissions(profile.permissions);
               }
@@ -374,65 +369,27 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [etablissementId, refreshTrigger]);
 
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const handleOnline = () => {
-        if (!forceOffline) {
-          setIsOnline(true);
-        }
-      };
-      const handleOffline = () => setIsOnline(false);
-
-      window.addEventListener('online', handleOnline);
-      window.addEventListener('offline', handleOffline);
-
-      // Check initial state
-      if (!forceOffline) {
-        setIsOnline(navigator.onLine);
-      } else {
-        setIsOnline(false);
-      }
-
-      return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-      };
+  // Compteur d'actions en attente : reflète désormais la file SQLite locale
+  // (/api/local-db, action=get-queue), la même que Push consomme — plus de
+  // file IndexedDB séparée (SyncManager, supprimé) à tenir synchronisée avec
+  // elle. Pas de synchro automatique en arrière-plan (Mode 100% Manuel,
+  // Push/Pull explicites uniquement) : on se contente d'afficher le compte.
+  const refreshPendingCount = async () => {
+    if (!isElectron) return;
+    try {
+      const res = await fetch('/api/local-db?action=get-queue');
+      const body = await res.json();
+      setPendingSyncCount((body.queue || []).length);
+    } catch {
+      // Pas grave si ça échoue une fois : Push/Pull redonnera l'occasion de rafraîchir.
     }
-  }, [forceOffline]);
+  };
 
-  // SyncManager.syncAll() (file mboaschool_sync_queue, idb-keyval) n'était
-  // appelée nulle part dans l'application : toute action mise en file
-  // hors-ligne (eleves/page.tsx, eleves/[id]/page.tsx) y restait
-  // indéfiniment même une fois la connexion rétablie. On tente la synchro
-  // au montage et à chaque retour en ligne, et on garde le compteur en
-  // attente visible plutôt que de synchroniser en silence.
   useEffect(() => {
-    if (typeof window === 'undefined' || forceOffline) return;
-    let cancelled = false;
+    refreshPendingCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isElectron]);
 
-    const refreshPendingCount = async () => {
-      const queue = await SyncManager.getQueue();
-      if (!cancelled) setPendingSyncCount(queue.length);
-    };
-
-    const runSync = async () => {
-      await refreshPendingCount();
-      if (!navigator.onLine) return;
-      await SyncManager.syncAll();
-      await refreshPendingCount();
-    };
-
-    runSync();
-    return () => { cancelled = true; };
-  }, [isOnline, forceOffline]);
-
-  // Intercept the global navigator.onLine for our components
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Pour les tests, on injecte une variable globale que les autres pages peuvent lire
-      (window as any).__forceOffline = forceOffline;
-    }
-  }, [forceOffline]);
 
   // BYPASS POUR LA LANDING PAGE
   if (pathname === '/') {
@@ -521,16 +478,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Bande kenté signature */}
       <div className="kente-band sticky top-0 z-40" />
 
-      {/* Offline/Local Banner */}
-      {isElectron && !isOnline && (
-        <div className={`${forceOffline ? 'bg-accent' : 'bg-accent'} text-cream text-xs font-bold text-center py-1.5 px-4 z-30`}>
-          {forceOffline ? (
-            <span>💻 Base de données locale active sur cette machine. Cliquez sur « Synchroniser » pour mettre à jour Supabase.</span>
-          ) : (
-            <span>⚠️ Mode Hors-ligne : aucune connexion internet. Les données sont lues et écrites sur le disque local de cette machine.</span>
-          )}
-        </div>
-      )}
 
       {/* Configuration Warning Banner */}
       {(typeof window !== 'undefined' &&
@@ -589,29 +536,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <ChevronDownIcon size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-ink-faint" />
             </div>
 
-            {/* Pastille de statut « Synchronisé » */}
-            <div
-              className="hidden lg:flex items-center gap-2 text-xs font-bold text-ink-faint px-2"
-              title={pendingSyncCount > 0 ? `${pendingSyncCount} action(s) en attente de synchronisation` : undefined}
-            >
-              <span className={`w-2 h-2 rounded-full ${pendingSyncCount > 0 ? 'bg-accent animate-pulse-dot' : forceOffline ? 'bg-accent animate-pulse-dot' : (isOnline ? 'bg-green animate-pulse-dot' : 'bg-accent')}`}></span>
-              <span>
-                {pendingSyncCount > 0
-                  ? `${pendingSyncCount} en attente`
-                  : forceOffline ? 'Local' : (isOnline ? 'Synchronisé' : 'Hors-ligne')}
-              </span>
-            </div>
-
-            {/* Basculer le mode local (desktop Electron) */}
+            {/* Pastille de statut : le desktop Electron fonctionne toujours en
+                local (src/lib/supabase/client.ts) — pas de notion "en ligne/
+                hors-ligne" à afficher, juste ce qui reste à envoyer via Push. */}
             {isElectron && (
-              <button
-                type="button"
-                onClick={toggleForceOffline}
-                title={forceOffline ? 'Mode local actif. Cliquez pour basculer en ligne.' : 'Mode connecté actif. Cliquez pour forcer le mode local.'}
-                className="px-3 py-1.5 bg-chip hover:bg-chip-hover text-ink rounded-pill text-xs font-bold transition-colors cursor-pointer"
+              <div
+                className="hidden lg:flex items-center gap-2 text-xs font-bold text-ink-faint px-2"
+                title={pendingSyncCount > 0 ? `${pendingSyncCount} action(s) en attente d'envoi (bouton Push)` : "Aucune action en attente d'envoi"}
               >
-                {forceOffline ? 'Local' : (isOnline ? 'En ligne' : 'Déconnecté')}
-              </button>
+                <span className={`w-2 h-2 rounded-full ${pendingSyncCount > 0 ? 'bg-accent animate-pulse-dot' : 'bg-green'}`}></span>
+                <span>{pendingSyncCount > 0 ? `${pendingSyncCount} en attente` : 'Local'}</span>
+              </div>
             )}
 
             {/* Push / Pull (desktop Electron) : deux actions manuelles

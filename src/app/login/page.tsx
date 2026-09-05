@@ -96,6 +96,9 @@ function LoginContent() {
           if (matchedProfile.school) {
             localStorage.setItem('mboaschool_current_school', matchedProfile.school);
           }
+          if (matchedProfile.role) {
+            localStorage.setItem('mboaschool_current_role', matchedProfile.role);
+          }
           if (matchedProfile.etablissement_id) {
             localStorage.setItem('mboaschool_etablissement_id', matchedProfile.etablissement_id);
           }

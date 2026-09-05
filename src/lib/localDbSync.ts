@@ -149,14 +149,34 @@ export async function pullFromRemote(): Promise<PullResult> {
 
   for (const table of SYNCABLE_TABLES) {
     try {
-      const { data, error } = await withNetworkRetry(() => client.from(table).select('*'));
-      if (error) {
-        errors.push(`${table}: ${error.message}`);
-        captureError(error, { context: 'Pull sync error on table', table });
+      // Pagination obligatoire : le serveur (/api/local-db, sync-pull-table)
+      // traite maintenant toute ligne locale absente de ce jeu comme
+      // supprimée à distance et la retire du miroir. Un select('*') non
+      // paginé peut être tronqué par PostgREST sur une grande table
+      // (paiements, notes...) : sans boucle jusqu'à épuisement, un Pull sur
+      // une table volumineuse effacerait localement tout ce qui dépasse la
+      // première page, alors que ces lignes existent toujours à distance.
+      const records: any[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      let hasMore = true;
+      let pageError: any = null;
+      while (hasMore) {
+        const { data, error } = await withNetworkRetry(() =>
+          client.from(table).select('*').range(from, from + pageSize - 1)
+        );
+        if (error) { pageError = error; break; }
+        const page = data || [];
+        records.push(...page);
+        if (page.length < pageSize) hasMore = false;
+        else from += pageSize;
+      }
+      if (pageError) {
+        errors.push(`${table}: ${pageError.message}`);
+        captureError(pageError, { context: 'Pull sync error on table', table });
         continue;
       }
 
-      const records = data || [];
       const res = await fetch('/api/local-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -92,6 +92,18 @@ export function ensureTable(db: Database, tableName: string) {
   `);
 }
 
+// Migration ponctuelle depuis l'ancien format JSON (avant l'introduction de
+// SQLite). BUG CORRIGÉ : cette fonction tournait à CHAQUE démarrage à froid
+// (chaque fois que dbInstance repart de zéro, donc à chaque relance de l'app,
+// puisque dbInstance est un singleton en mémoire du process serveur) et
+// utilisait INSERT OR IGNORE — inoffensif tant que les lignes migrées
+// restaient en base, mais dès qu'on en supprimait une manuellement (ex.
+// nettoyage d'entrées de test dans sync_queue), le prochain démarrage la
+// réinsérait aussitôt depuis le fichier JSON jamais purgé, la ressuscitant
+// indéfiniment. On renomme maintenant les fichiers sources juste après une
+// migration réussie : la présence du fichier `.json` est le signal "encore à
+// migrer", son absence (ou son renommage en `.migrated`) signale "déjà fait,
+// ne plus jamais rejouer".
 function migrateLegacyJson(db: Database) {
   try {
     const jsonDbPath = path.join(getDbDir(), 'local_db.json');
@@ -117,6 +129,7 @@ function migrateLegacyJson(db: Database) {
           }
         }
       }
+      fs.renameSync(jsonDbPath, jsonDbPath + '.migrated');
     }
 
     const jsonQueuePath = path.join(getDbDir(), 'sync_queue.json');
@@ -140,6 +153,7 @@ function migrateLegacyJson(db: Database) {
           }
         }
       }
+      fs.renameSync(jsonQueuePath, jsonQueuePath + '.migrated');
     }
   } catch {
     // Migration fallback

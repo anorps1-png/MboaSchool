@@ -7,7 +7,6 @@ import Link from 'next/link';
 import { SearchIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, DownloadIcon } from '@/components/icons';
 import { Eleve, Classe } from '@/types/domain';
 import { downloadExcel } from '@/lib/excel';
-import SyncManager from '@/lib/syncManager';
 import { getStudents, createStudent, addPayment, getStudentsWidgetStats, getStudentsPaginated, type StudentsWidgetStats, type StudentPage } from '@/lib/queries/eleves';
 import { getClasses } from '@/lib/queries/classes';
 import { useEtablissement } from '@/contexts/etablissement-context';
@@ -41,7 +40,11 @@ export default function ElevesPage() {
 
   const classesOfActiveYear = useMemo(() => {
     if (!academicYearId) return classesList;
-    return classesList.filter(c => c.anneeScolaireId === academicYearId);
+    // getClasses() renvoie les lignes Supabase brutes (annee_scolaire_id en
+    // snake_case) alors que le type Classe déclare anneeScolaireId : sans ce
+    // fallback, ce filtre ne matchait jamais rien dès que academicYearId
+    // était renseigné, vidant la liste des classes à l'inscription.
+    return classesList.filter(c => ((c as any).annee_scolaire_id || c.anneeScolaireId) === academicYearId);
   }, [classesList, academicYearId]);
 
   // Form states for adding student
@@ -551,73 +554,18 @@ export default function ElevesPage() {
       date_naissance: dateOfBirth || null,
       lieu_naissance: birthPlace || null,
       statut: 'actif',
-      // Requis par la file hors-ligne (SyncManager) : createStudent() l'ajoute
-      // lui-même pour le chemin en ligne, mais l'insertion directe en file
-      // d'attente ci-dessous n'utilise jamais createStudent().
       etablissement_id: etablissementId
     };
 
-    // Même garde que la réinscription et les autres flux du fichier : la file
-    // de synchro hors-ligne n'existe que dans l'app desktop.
-    if (isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline))) {
-      const tempId = crypto.randomUUID();
-      await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: tempId });
-
-      // L'acompte encaissé à l'inscription doit partir dans la même file :
-      // avant ce correctif, ce bloc sortait (return) avant la création du
-      // paiement initial, et l'argent encaissé physiquement disparaissait du
-      // système à la synchronisation.
-      let offlinePaymentObj = null;
-      const offlineInitialPay = Number(initialPayment);
-      if (offlineInitialPay > 0) {
-        const tempPayId = crypto.randomUUID();
-        const offlinePaymentData = {
-          id: tempPayId,
-          eleve_id: tempId,
-          montant: offlineInitialPay,
-          date: new Date().toISOString().split('T')[0],
-          type_frais: 'Scolarité',
-          mode_paiement: 'Espèces',
-          statut: 'paid',
-          reference: `REC-INS-${Date.now()}`,
-          etablissement_id: etablissementId
-        };
-        await SyncManager.addToQueue('paiements', 'insert', offlinePaymentData);
-        offlinePaymentObj = {
-          ...offlinePaymentData,
-          eleveId: tempId,
-          typeFrais: 'Scolarité',
-          modePaiement: 'Espèces'
-        };
-      }
-
-      const localStudent = {
-        id: tempId,
-        ...studentData,
-        classeId: studentData.classe_id,
-        anneeScolaireId: studentData.annee_scolaire_id,
-        dateNaissance: studentData.date_naissance,
-        lieuNaissance: studentData.lieu_naissance,
-        nomParent: studentData.nom_parent,
-        telephoneParent: studentData.telephone_parent,
-        emailParent: studentData.email_parent,
-        paiements: offlinePaymentObj ? [offlinePaymentObj] : [],
-        notes: []
-      };
-
-      setStudents([localStudent as any, ...students]);
-      setShowAddModal(false);
-      setInitialPayment('');
-      triggerToast(`Hors-ligne : L'élève ${lastName} a été mis en file d'attente de synchronisation.`);
-      return;
-    }
-
+    // createStudent/addPayment passent transparemment par le miroir SQLite
+    // local en Electron (src/lib/supabase/client.ts) : plus besoin de
+    // brancher sur la connectivité ici, un seul chemin pour web et desktop.
     try {
       const data = await createStudent(studentData, etablissementId!);
 
       if (data && data.length > 0) {
         const d = data[0];
-        
+
         let newPaymentObj = null;
         const initialPayVal = Number(initialPayment);
         if (initialPayVal > 0) {
@@ -633,44 +581,19 @@ export default function ElevesPage() {
             etablissement_id: etablissementId
           };
 
-          if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
-             const tempPayId = crypto.randomUUID();
-             await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: tempPayId });
-             newPaymentObj = {
-               id: tempPayId,
-               ...paymentData,
-               eleveId: d.id,
-               typeFrais: 'Scolarité',
-               modePaiement: 'Espèces'
-             };
-          } else {
-             try {
-               const payData = await addPayment(paymentData, etablissementId!);
-               if (payData && payData.length > 0) {
-                 const pd = payData[0];
-                 newPaymentObj = {
-                   id: pd.id,
-                   eleveId: pd.eleve_id,
-                   montant: Number(pd.montant),
-                   date: pd.date,
-                   typeFrais: pd.type_frais,
-                   statut: pd.statut,
-                   reference: pd.reference,
-                   modePaiement: pd.mode_paiement
-                 };
-               }
-             } catch (payErr) {
-               console.warn("Échec addPayment en ligne, repli SyncManager:", payErr);
-               const tempPayId = crypto.randomUUID();
-               await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: tempPayId });
-               newPaymentObj = {
-                 id: tempPayId,
-                 ...paymentData,
-                 eleveId: d.id,
-                 typeFrais: 'Scolarité',
-                 modePaiement: 'Espèces'
-               };
-             }
+          const payData = await addPayment(paymentData, etablissementId!);
+          if (payData && payData.length > 0) {
+            const pd = payData[0];
+            newPaymentObj = {
+              id: pd.id,
+              eleveId: pd.eleve_id,
+              montant: Number(pd.montant),
+              date: pd.date,
+              typeFrais: pd.type_frais,
+              statut: pd.statut,
+              reference: pd.reference,
+              modePaiement: pd.mode_paiement
+            };
           }
         }
 
@@ -758,59 +681,6 @@ export default function ElevesPage() {
       etablissement_id: etablissementId
     };
 
-    const isOfflineMode = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
-
-    if (isOfflineMode) {
-      const tempId = crypto.randomUUID();
-      await SyncManager.addToQueue('eleves', 'insert', { ...reenrollData, id: tempId });
-
-      // Comme pour l'inscription : l'acompte de réinscription part dans la
-      // même file, sinon il était silencieusement perdu.
-      let offlinePayObj = null;
-      const offlineReenrollPay = Number(reenrollInitialPayment);
-      if (offlineReenrollPay > 0) {
-        const tempPayId = crypto.randomUUID();
-        const offlinePayData = {
-          id: tempPayId,
-          eleve_id: tempId,
-          montant: offlineReenrollPay,
-          date: new Date().toISOString().split('T')[0],
-          type_frais: 'Scolarité',
-          mode_paiement: 'Espèces',
-          statut: 'paid',
-          reference: `REC-REINS-${Date.now()}`,
-          etablissement_id: etablissementId
-        };
-        await SyncManager.addToQueue('paiements', 'insert', offlinePayData);
-        offlinePayObj = {
-          ...offlinePayData,
-          eleveId: tempId,
-          typeFrais: 'Scolarité',
-          modePaiement: 'Espèces'
-        };
-      }
-
-      const localStudent = {
-        id: tempId,
-        ...reenrollData,
-        classeId: reenrollClassId,
-        anneeScolaireId: targetYearId,
-        dateNaissance: reenrollData.date_naissance,
-        lieuNaissance: reenrollData.lieu_naissance,
-        nomParent: reenrollData.nom_parent,
-        telephoneParent: reenrollData.telephone_parent,
-        emailParent: reenrollData.email_parent,
-        paiements: offlinePayObj ? [offlinePayObj] : [],
-        notes: []
-      };
-      setStudents([localStudent as any, ...students]);
-      setShowReenrollModal(false);
-      setSelectedReenrollStudent(null);
-      setReenrollInitialPayment('');
-      triggerToast(`Hors-ligne : L'élève ${selectedReenrollStudent.nom} a été réinscrit.`);
-      return;
-    }
-
     try {
       const data = await createStudent(reenrollData, etablissementId!);
       if (data && data.length > 0) {
@@ -829,31 +699,18 @@ export default function ElevesPage() {
             reference: reference,
             etablissement_id: etablissementId
           };
-          try {
-            const payRes = await addPayment(payPayload, etablissementId!);
-            if (payRes && payRes.length > 0) {
-              const pd = payRes[0];
-              newPayObj = {
-                id: pd.id,
-                eleveId: pd.eleve_id,
-                montant: Number(pd.montant),
-                date: pd.date,
-                typeFrais: pd.type_frais,
-                statut: pd.statut,
-                reference: pd.reference,
-                modePaiement: pd.mode_paiement
-              };
-            }
-          } catch (payErr) {
-            console.warn("Échec addPayment réinscription en ligne, repli SyncManager:", payErr);
-            const tempPayId = crypto.randomUUID();
-            await SyncManager.addToQueue('paiements', 'insert', { ...payPayload, id: tempPayId });
+          const payRes = await addPayment(payPayload, etablissementId!);
+          if (payRes && payRes.length > 0) {
+            const pd = payRes[0];
             newPayObj = {
-              id: tempPayId,
-              ...payPayload,
-              eleveId: d.id,
-              typeFrais: 'Scolarité',
-              modePaiement: 'Espèces'
+              id: pd.id,
+              eleveId: pd.eleve_id,
+              montant: Number(pd.montant),
+              date: pd.date,
+              typeFrais: pd.type_frais,
+              statut: pd.statut,
+              reference: pd.reference,
+              modePaiement: pd.mode_paiement
             };
           }
         }
@@ -894,25 +751,18 @@ export default function ElevesPage() {
     event.stopPropagation();
 
     if (confirm(`Voulez-vous vraiment supprimer l'élève ${name} définitivement ? Cette action supprimera également ses paiements et ses notes.`)) {
-      const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
       const supabase = createClient();
-
-      if (isOffline) {
-        await SyncManager.addToQueue('eleves', 'delete', { id });
-        setStudents(prev => prev.filter(s => s.id !== id));
-        triggerToast("Élève supprimé localement !");
+      // Soft-delete : l'élève et ses paiements/notes/bulletins sont marqués
+      // supprimés (récupérables) plutôt que détruits. Ils disparaissent des
+      // lectures via la RLS (ou son équivalent local en Electron, cf.
+      // src/lib/db/localAggregates.ts).
+      const { error } = await supabase.rpc('soft_delete_eleve', { p_id: id });
+      if (error) {
+        alert("Erreur lors de la suppression: " + error.message);
       } else {
-        // Soft-delete : l'élève et ses paiements/notes/bulletins sont marqués
-        // supprimés (récupérables) plutôt que détruits. Ils disparaissent des
-        // lectures via la RLS.
-        const { error } = await supabase.rpc('soft_delete_eleve', { p_id: id });
-        if (error) {
-          alert("Erreur lors de la suppression: " + error.message);
-        } else {
-          setStudents(prev => prev.filter(s => s.id !== id));
-          refreshServerViews();
-          triggerToast("Élève supprimé avec succès !");
-        }
+        setStudents(prev => prev.filter(s => s.id !== id));
+        refreshServerViews();
+        triggerToast("Élève supprimé avec succès !");
       }
     }
   };
@@ -1010,7 +860,8 @@ export default function ElevesPage() {
   const classNameMatches = (c: Classe, nameStr: string, anneeId: string | null) => {
     const target = normalizeClassLabel(nameStr);
     const nameMatches = normalizeClassLabel(c.nom || '') === target || normalizeClassLabel(c.id || '') === target;
-    return nameMatches && (c.anneeScolaireId || null) === (anneeId || null);
+    const cAnneeId = (c as any).annee_scolaire_id || c.anneeScolaireId || null;
+    return nameMatches && cAnneeId === (anneeId || null);
   };
 
   const getOrCreateClass = async (
@@ -1033,51 +884,35 @@ export default function ElevesPage() {
       etablissement_id: etablissementId
     };
 
-    const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
+    // .from('classes') passe transparemment par le miroir SQLite local en
+    // Electron (src/lib/supabase/client.ts) : un seul chemin pour web et
+    // desktop, plus de file SyncManager séparée à tenir à jour en parallèle.
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('classes')
+        .insert([{ ...newClassData, etablissement_id: etablissementId }])
+        .select();
 
-    if (isOffline) {
-      const tempId = crypto.randomUUID();
-      const newLocalClass: Classe = {
-        id: tempId,
-        nom: classNameStr,
-        niveauId: classNameStr,
-        anneeScolaireId: resolvedAnneeScolaireId,
-        sectionId: sectionStr
-      };
-      await SyncManager.addToQueue('classes', 'insert', { ...newClassData, id: tempId });
-      if (localClassesRef) {
-        localClassesRef.push(newLocalClass);
-      }
-      setClassesList(prev => [...prev, newLocalClass]);
-      return tempId;
-    } else {
-      try {
-        const supabase = createClient();
-        const { data, error } = await supabase
-          .from('classes')
-          .insert([{ ...newClassData, etablissement_id: etablissementId }])
-          .select();
-        
-        if (!error && data && data.length > 0) {
-          const created = data[0];
-          const newClassObj: Classe = {
-            id: created.id,
-            nom: created.nom,
-            niveauId: created.niveau,
-            anneeScolaireId: resolvedAnneeScolaireId,
-            sectionId: created.section
-          };
-          if (localClassesRef) {
-            localClassesRef.push(newClassObj);
-          }
-          setClassesList(prev => [...prev, newClassObj]);
-          return created.id;
-        } else if (error) {
-          captureError(error, { context: "Supabase error creating class:" });
+      if (!error && data && data.length > 0) {
+        const created = data[0];
+        const newClassObj: Classe = {
+          id: created.id,
+          nom: created.nom,
+          niveauId: created.niveau,
+          anneeScolaireId: resolvedAnneeScolaireId,
+          sectionId: created.section
+        };
+        if (localClassesRef) {
+          localClassesRef.push(newClassObj);
         }
-      } catch (err) {
-        captureError(err, { context: "Error creating class:" });
+        setClassesList(prev => [...prev, newClassObj]);
+        return created.id;
+      } else if (error) {
+        captureError(error, { context: "Supabase error creating class:" });
       }
+    } catch (err) {
+      captureError(err, { context: "Error creating class:" });
     }
     return classNameStr;
   };
@@ -1239,7 +1074,6 @@ export default function ElevesPage() {
         let duplicatePaymentRefCount = 0;
         let firstBatchErrorMessage: string | null = null;
 
-        const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
         const supabase = createClient();
 
         const normalizePaymentMode = (modeStr: string): string => {
@@ -1368,9 +1202,7 @@ export default function ElevesPage() {
           return { nom: `${startY}-${endY}`, date_debut: `${startY}-09-01`, date_fin: `${endY}-06-30` };
         };
 
-        if (isOffline) {
-          parsedRows.forEach(r => { r.resolvedAnneeScolaireId = fallbackAnneeScolaireId; });
-        } else {
+        {
           // Clé de correspondance = date_debut (format ISO fiable), pas nom
           // (texte libre saisi par l'admin dans Paramètres — "2025/2026",
           // "2025-2026", etc. selon l'établissement, donc pas comparable de
@@ -1448,59 +1280,13 @@ export default function ElevesPage() {
           }
         }
 
-        if (isOffline) {
-          // Mode hors-ligne (Electron) : écritures locales via SyncManager (IndexedDB),
-          // pas de coût réseau réel — la boucle par ligne reste donc telle quelle.
-          const localClasses = [...classesList];
-          for (const r of parsedRows) {
-            const classId = await getOrCreateClass(r.classNameStr, r.resolvedAnneeScolaireId as string, r.sectionStr, localClasses);
-
-            const studentData = {
-              matricule: r.matriculeVal, nom: r.nom.toUpperCase(), prenom: r.prenom, sexe: r.sexe,
-              classe_id: classId, annee_scolaire_id: r.resolvedAnneeScolaireId, nom_parent: r.nomParent,
-              telephone_parent: r.telephoneParent, email_parent: r.emailParent, date_naissance: r.dateNaissance,
-              lieu_naissance: r.lieuNaissance, date_inscription: r.dateInscriptionVal, statut: 'actif',
-              etablissement_id: etablissementId
-            };
-
-            const studentId = crypto.randomUUID();
-            await SyncManager.addToQueue('eleves', 'insert', { ...studentData, id: studentId });
-            const finalStudentObj: any = {
-              id: studentId, ...studentData, classeId: classId, anneeScolaireId: r.resolvedAnneeScolaireId,
-              dateNaissance: r.dateNaissance, lieuNaissance: r.lieuNaissance, dateInscription: r.dateInscriptionVal,
-              nomParent: r.nomParent, telephoneParent: r.telephoneParent, emailParent: r.emailParent,
-              paiements: [] as any[], notes: []
-            };
-
-            for (const p of r.payments) {
-              const localPayId = crypto.randomUUID();
-              const paymentData = {
-                eleve_id: studentId, montant: p.amount, date: p.date,
-                type_frais: 'Scolarité', mode_paiement: p.mode, statut: 'paid', reference: p.reference,
-                etablissement_id: etablissementId
-              };
-              await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
-              finalStudentObj.paiements.push({
-                id: localPayId, eleveId: studentId, montant: p.amount, date: p.date,
-                typeFrais: 'Scolarité', modePaiement: p.mode, statut: 'paid', reference: p.reference
-              });
-            }
-
-            setStudents(prev => {
-              const existingIndex = prev.findIndex(s => s.id === finalStudentObj.id);
-              if (existingIndex > -1) {
-                const existingStudent = prev[existingIndex];
-                const mergedPaiements = [...(existingStudent.paiements || []), ...finalStudentObj.paiements];
-                const copy = [...prev];
-                copy[existingIndex] = { ...finalStudentObj, paiements: mergedPaiements, notes: existingStudent.notes || [] };
-                return copy;
-              }
-              return [finalStudentObj, ...prev];
-            });
-            importedCount++;
-          }
-        } else {
-          // Mode en ligne : (1) résout les classes manquantes en un seul insert,
+        {
+          // .from() passe transparemment par le miroir SQLite local en
+          // Electron : le chemin par lots ci-dessous (autrefois "mode en
+          // ligne" seulement) fonctionne maintenant aussi bien hors-ligne,
+          // avec une résolution d'année scolaire par ligne plus précise que
+          // l'ancien repli hors-ligne (une seule année pour tout le fichier).
+          // (1) résout les classes manquantes en un seul insert,
           // (2) upsert tous les élèves en un seul appel (par lots), (3) upsert tous
           // les paiements initiaux en un seul appel — au lieu d'un aller-retour
           // réseau par ligne du fichier (potentiellement des milliers pour un
