@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { captureMessage } from '@/lib/observability/logger';
 
 // ============================================================================
 // Cerveau IA — assistant multi-fournisseurs scopé à une seule école.
@@ -123,6 +124,27 @@ async function execQueryData(supabase: SupabaseClient, args: any) {
   return { data };
 }
 
+// Certains fournisseurs (observé avec DeepSeek) renvoient parfois, au lieu
+// d'un vrai appel de fonction structuré, le pseudo-format XML/tokens spéciaux
+// de leur propre gabarit d'appel d'outil directement dans le texte de
+// réponse (ex. des tokens `｜tool_calls｜`/`<invoke name=...>`). Ce texte brut
+// ne doit JAMAIS être affiché tel quel à l'utilisateur : il ressemble à une
+// action (parfois destructrice) déjà décidée alors qu'aucun outil réel n'a
+// été invoqué et qu'aucune proposition structurée n'a été créée.
+const TOOL_LEAK_PATTERN = /[｜]|<\/?invoke\b|<\/?parameter\b|tool[_▁]calls?\s*>/i;
+
+function isLeakedToolSyntax(text: string): boolean {
+  return typeof text === 'string' && TOOL_LEAK_PATTERN.test(text);
+}
+
+const SAFE_FALLBACK_TEXT = "Le fournisseur IA a renvoyé une réponse mal formée (une syntaxe d'appel d'outil brute au lieu d'une réponse ou d'un appel de fonction valide). Aucune action n'a été proposée ni exécutée. Merci de reformuler votre demande, ou de réessayer.";
+
+function sanitizeFinalText(text: string, provider: string): string {
+  if (!isLeakedToolSyntax(text)) return text;
+  captureMessage('AI brain: réponse texte contenant une syntaxe d\'appel d\'outil non structurée, filtrée avant affichage', { provider, rawText: text.slice(0, 2000) });
+  return SAFE_FALLBACK_TEXT;
+}
+
 function buildProposalFromArgs(args: any): Proposal | null {
   const table = String(args?.table || '');
   if (!ALLOWED_TABLES.has(table)) return null;
@@ -178,9 +200,9 @@ async function askOpenAiCompatible(
 
     const msg = completion.choices?.[0]?.message;
     if (!msg) throw new Error("L'API IA n'a retourné aucune réponse valide.");
-    messages.push(msg);
 
     if (msg.tool_calls && msg.tool_calls.length > 0) {
+      messages.push(msg);
       // Tous les outils déclarés ci-dessus sont de type 'function' : seul ce
       // variant possède `.function` (le SDK inclut aussi un type "custom tool"
       // qu'on n'utilise jamais ici).
@@ -198,12 +220,26 @@ async function askOpenAiCompatible(
         }
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(toolResult) });
       }
+    } else if (isLeakedToolSyntax(msg.content || '')) {
+      // Le modèle a renvoyé en texte brut une syntaxe d'appel d'outil non
+      // structurée au lieu d'un vrai tool_call — on ne la fait JAMAIS suivre
+      // à l'utilisateur. On retire le message fautif de l'historique envoyé
+      // au modèle (pour ne pas propager ses tokens spéciaux) et on lui
+      // demande explicitement de se corriger, avant de reboucler.
+      captureMessage("AI brain: syntaxe d'appel d'outil non structurée reçue en texte brut (DeepSeek/OpenAI-compatible), correction demandée", { model, rawText: (msg.content || '').slice(0, 2000) });
+      messages.push({ role: 'assistant', content: '[réponse invalide ignorée : format non conforme]' });
+      messages.push({
+        role: 'user',
+        content: "Ta réponse précédente contenait une syntaxe d'appel d'outil écrite en texte brut au lieu d'un vrai appel de fonction structuré. Ne reproduis jamais ce format en texte : réponds normalement en français, ou appelle correctement l'un des outils disponibles (query_data, propose_action) via le mécanisme standard d'appel de fonction.",
+      });
+      if (isLast) finalText = SAFE_FALLBACK_TEXT;
     } else {
+      messages.push(msg);
       finalText = msg.content || 'Analyse terminée.';
     }
   }
 
-  return { text: finalText || 'Analyse terminée.', proposal };
+  return { text: sanitizeFinalText(finalText || 'Analyse terminée.', model), proposal };
 }
 
 // ----------------------------------------------------------------------------
@@ -276,7 +312,7 @@ async function askGemini(
     }
   }
 
-  return { text: finalText || 'Analyse terminée.', proposal };
+  return { text: sanitizeFinalText(finalText || 'Analyse terminée.', model), proposal };
 }
 
 // ----------------------------------------------------------------------------
@@ -340,7 +376,7 @@ async function askAnthropic(
     }
   }
 
-  return { text: finalText || 'Analyse terminée.', proposal };
+  return { text: sanitizeFinalText(finalText || 'Analyse terminée.', model), proposal };
 }
 
 // ----------------------------------------------------------------------------
