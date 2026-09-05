@@ -1670,12 +1670,15 @@ export default function ElevesPage() {
           // « cascade » : d'abord les frais d'inscription de la classe
           // (classes.frais_inscription, configuré par établissement), puis
           // les tranches de scolarité de cette classe dans leur ordre
-          // configuré (tranches_scolarite.ordre). Chaque paiement du fichier
-          // est affecté ENTIER au panier courant (pas de fractionnement d'un
-          // même montant entre deux paniers) : on avance au panier suivant
-          // une fois le panier courant atteint ou dépassé. Si l'inscription
-          // n'est pas configurée pour la classe (0 par défaut), son panier
-          // est immédiatement considéré comme rempli et les paiements vont
+          // configuré (tranches_scolarite.ordre). Un paiement du fichier qui
+          // dépasse le panier courant est SCINDÉ entre autant de paniers que
+          // nécessaire (ex. un versement de 90 000 avec une inscription à
+          // 15 000 devient 15 000 d'inscription + 75 000 sur la/les
+          // tranche(s) suivante(s)) : chaque morceau devient sa propre ligne
+          // `paiements`, avec une référence dérivée (suffixe -S2, -S3...)
+          // pour respecter la contrainte d'unicité. Si l'inscription n'est
+          // pas configurée pour la classe (0 par défaut), son panier est
+          // immédiatement considéré comme rempli et les paiements vont
           // directement aux tranches — dégradation gracieuse, comme pour un
           // paiement ajouté à la main sans tranche. Un seul aller-retour
           // réseau pour toutes les classes concernées par l'import.
@@ -1719,19 +1722,28 @@ export default function ElevesPage() {
             captureError(err, { context: "Failed to load frais_inscription/tranches_scolarite for import" });
           }
 
+          type BucketPart = { typeFrais: string; trancheId: string | null; montant: number };
           const assignPaymentBuckets = (classeId: string | undefined, payments: ParsedImportPayment[]) => {
             const buckets = classeId ? bucketsByClasseId.get(classeId) : undefined;
             if (!buckets || buckets.length === 0) {
-              return payments.map(p => ({ payment: p, typeFrais: 'Scolarité', trancheId: null as string | null }));
+              return payments.map(p => ({ payment: p, parts: [{ typeFrais: 'Scolarité', trancheId: null as string | null, montant: p.amount }] }));
             }
             let bucketIndex = 0;
             return payments.map(p => {
-              while (bucketIndex < buckets.length - 1 && buckets[bucketIndex].filled >= buckets[bucketIndex].target) {
-                bucketIndex++;
+              let remaining = p.amount;
+              const parts: BucketPart[] = [];
+              while (remaining > 0) {
+                while (bucketIndex < buckets.length - 1 && buckets[bucketIndex].filled >= buckets[bucketIndex].target) {
+                  bucketIndex++;
+                }
+                const bucket = buckets[bucketIndex];
+                const isLastBucket = bucketIndex === buckets.length - 1;
+                const take = isLastBucket ? remaining : Math.min(remaining, bucket.target - bucket.filled);
+                bucket.filled += take;
+                remaining -= take;
+                parts.push({ typeFrais: bucket.typeFrais, trancheId: bucket.trancheId, montant: take });
               }
-              const bucket = buckets[bucketIndex];
-              bucket.filled += p.amount;
-              return { payment: p, typeFrais: bucket.typeFrais, trancheId: bucket.trancheId };
+              return { payment: p, parts };
             });
           };
 
@@ -1748,23 +1760,29 @@ export default function ElevesPage() {
             if (!createdStudentsByMatricule.has(r.matriculeVal)) return;
             const s = createdStudentsByMatricule.get(r.matriculeVal);
             const assigned = assignPaymentBuckets(s.classe_id, r.payments);
-            assigned.forEach(({ payment: p, typeFrais, trancheId }) => {
+            assigned.forEach(({ payment: p, parts }) => {
               const existingOwner = paymentRefOwner.get(p.reference);
               if (existingOwner && existingOwner !== s.id) {
                 duplicatePaymentRefCount++;
                 return;
               }
               paymentRefOwner.set(p.reference, s.id);
-              paymentPayload.set(p.reference, {
-                eleve_id: s.id,
-                montant: p.amount,
-                date: p.date,
-                type_frais: typeFrais,
-                mode_paiement: p.mode,
-                statut: 'paid',
-                reference: p.reference,
-                etablissement_id: etablissementId,
-                tranche_id: trancheId
+              parts.forEach((part, idx) => {
+                // Un même versement scindé sur plusieurs paniers devient
+                // plusieurs lignes : la première garde la référence saisie,
+                // les suivantes reçoivent un suffixe pour rester uniques.
+                const reference = idx === 0 ? p.reference : `${p.reference}-S${idx + 1}`;
+                paymentPayload.set(reference, {
+                  eleve_id: s.id,
+                  montant: part.montant,
+                  date: p.date,
+                  type_frais: part.typeFrais,
+                  mode_paiement: p.mode,
+                  statut: 'paid',
+                  reference,
+                  etablissement_id: etablissementId,
+                  tranche_id: part.trancheId
+                });
               });
             });
           });
