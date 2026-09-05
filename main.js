@@ -210,6 +210,23 @@ function startNextServer() {
     const dev = false;
     const appDir = getNextAppDir();
     log(`Next.js runtime directory: ${appDir}`);
+
+    // `appDir` (resources/nextapp) ne contient QUE `.next` et `public` : aucun
+    // `node_modules` n'existe dans son arborescence. Le bundle serveur de Next
+    // (React inclus) a pourtant besoin de résoudre certains modules à
+    // l'exécution, et Node ne cherche `node_modules` qu'en remontant depuis le
+    // fichier qui `require()`, jamais depuis `dir`. Sans ce NODE_PATH, la
+    // résolution échoue silencieusement et Next répond 200 avec un corps vide
+    // au lieu de l'erreur réelle (page blanche, reproduit et confirmé hors
+    // Electron). NODE_PATH n'est lu par Node qu'au démarrage du process : il
+    // faut forcer `_initPaths()` pour qu'il prenne effet immédiatement.
+    const nodeModulesDir = path.join(app.getAppPath(), 'node_modules');
+    process.env.NODE_PATH = process.env.NODE_PATH
+      ? `${nodeModulesDir}${path.delimiter}${process.env.NODE_PATH}`
+      : nodeModulesDir;
+    require('module').Module._initPaths();
+    log(`NODE_PATH réglé sur : ${process.env.NODE_PATH}`);
+
     const nextApp = next({ dev, dir: appDir });
     const handle = nextApp.getRequestHandler();
 
