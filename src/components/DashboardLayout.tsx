@@ -86,36 +86,58 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   };
 
-  const handleManualSync = async () => {
+  // Push et Pull sont deux actions manuelles indépendantes (jamais enchaînées
+  // automatiquement) : l'utilisateur choisit d'envoyer ses modifications
+  // locales, ou de rapatrier l'état distant, sans que l'une déclenche l'autre.
+  const handlePush = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
     setSyncStatusMsg('Envoi des modifications...');
 
     try {
-      const { performFullSync } = await import('@/lib/localDbSync');
-      const result = await performFullSync();
+      const { pushLocalQueue } = await import('@/lib/localDbSync');
+      const result = await pushLocalQueue();
 
-      setSyncStatusMsg('Réception des données...');
-
-      const pulledTotal = Object.values(result.pull.pulled).reduce((sum, n) => sum + n, 0);
-      const hasErrors = result.push.errors.length > 0 || result.pull.errors.length > 0;
-
-      if (hasErrors) {
-        setSyncStatusMsg(`${result.push.pushed} envoyé(s), ${pulledTotal} reçu(s), ${result.push.failed + result.pull.errors.length} erreur(s).`);
-        captureError(new Error('Synchronisation partielle'), {
-          context: 'Manual sync completed with errors',
-          pushErrors: result.push.errors,
-          pullErrors: result.pull.errors,
-        });
-      } else if (result.push.pushed === 0 && pulledTotal === 0) {
-        setSyncStatusMsg('Déjà à jour !');
+      if (result.errors.length > 0) {
+        setSyncStatusMsg(`${result.pushed} envoyé(s), ${result.failed} erreur(s).`);
+        captureError(new Error('Push partiel'), { context: 'Manual push completed with errors', pushErrors: result.errors });
+      } else if (result.pushed === 0) {
+        setSyncStatusMsg('Rien à envoyer.');
       } else {
-        setSyncStatusMsg(`${result.push.pushed} envoyé(s), ${pulledTotal} reçu(s) !`);
+        setSyncStatusMsg(`${result.pushed} envoyé(s) !`);
       }
       setTimeout(() => setSyncStatusMsg(''), 3500);
     } catch (e: any) {
-      captureError(e, { context: "Sync failed:" });
-      setSyncStatusMsg('Erreur de synchronisation.');
+      captureError(e, { context: "Push failed:" });
+      setSyncStatusMsg("Erreur d'envoi.");
+      setTimeout(() => setSyncStatusMsg(''), 3000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handlePull = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncStatusMsg('Réception des données...');
+
+    try {
+      const { pullFromRemote } = await import('@/lib/localDbSync');
+      const result = await pullFromRemote();
+      const pulledTotal = Object.values(result.pulled).reduce((sum, n) => sum + n, 0);
+
+      if (result.errors.length > 0) {
+        setSyncStatusMsg(`${pulledTotal} reçu(s), ${result.errors.length} erreur(s).`);
+        captureError(new Error('Pull partiel'), { context: 'Manual pull completed with errors', pullErrors: result.errors });
+      } else if (pulledTotal === 0) {
+        setSyncStatusMsg('Déjà à jour !');
+      } else {
+        setSyncStatusMsg(`${pulledTotal} reçu(s) !`);
+      }
+      setTimeout(() => setSyncStatusMsg(''), 3500);
+    } catch (e: any) {
+      captureError(e, { context: "Pull failed:" });
+      setSyncStatusMsg('Erreur de réception.');
       setTimeout(() => setSyncStatusMsg(''), 3000);
     } finally {
       setIsSyncing(false);
@@ -592,17 +614,33 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </button>
             )}
 
-            {/* Synchroniser (desktop Electron) */}
+            {/* Push / Pull (desktop Electron) : deux actions manuelles
+                indépendantes, jamais enchaînées automatiquement. */}
             {isElectron && (
-              <button
-                onClick={handleManualSync}
-                disabled={isSyncing}
-                className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-60 text-cream rounded-pill text-xs font-bold transition-colors cursor-pointer"
-                style={{ boxShadow: 'var(--shadow-cta)' }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                <span>{syncStatusMsg || 'Synchroniser'}</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handlePull}
+                  disabled={isSyncing}
+                  title="Rapatrier les données distantes vers ce poste"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-chip hover:bg-chip-hover disabled:opacity-60 text-ink rounded-pill text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+                  <span>Pull</span>
+                </button>
+                <button
+                  onClick={handlePush}
+                  disabled={isSyncing}
+                  title="Envoyer les modifications locales vers le serveur"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-60 text-cream rounded-pill text-xs font-bold transition-colors cursor-pointer"
+                  style={{ boxShadow: 'var(--shadow-cta)' }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+                  <span>Push</span>
+                </button>
+                {syncStatusMsg && (
+                  <span className="text-[11px] font-bold text-ink-faint px-1 whitespace-nowrap">{syncStatusMsg}</span>
+                )}
+              </div>
             )}
 
             {/* Notifications */}

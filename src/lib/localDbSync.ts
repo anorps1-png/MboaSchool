@@ -82,11 +82,6 @@ export interface PullResult {
   errors: string[];
 }
 
-export interface SyncResult {
-  push: PushResult;
-  pull: PullResult;
-}
-
 // PUSH : rejoue la file locale (sync_queue en SQLite, alimentée à chaque
 // insert/update/delete offline via /api/local-db) vers Supabase.
 export async function pushLocalQueue(): Promise<PushResult> {
@@ -176,14 +171,4 @@ export async function pullFromRemote(): Promise<PullResult> {
   }
 
   return { pulled, errors };
-}
-
-// Synchronisation complète : PUSH puis PULL, dans cet ordre (comme
-// performSync() dans Agent OHADA) — envoyer les modifs locales avant de
-// rapatrier l'état distant évite d'écraser localement un travail qui vient
-// tout juste d'être poussé.
-export async function performFullSync(): Promise<SyncResult> {
-  const push = await pushLocalQueue();
-  const pull = await pullFromRemote();
-  return { push, pull };
 }
