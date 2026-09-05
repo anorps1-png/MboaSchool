@@ -550,7 +550,11 @@ export default function ElevesPage() {
       email_parent: parentEmail || null,
       date_naissance: dateOfBirth || null,
       lieu_naissance: birthPlace || null,
-      statut: 'actif'
+      statut: 'actif',
+      // Requis par la file hors-ligne (SyncManager) : createStudent() l'ajoute
+      // lui-même pour le chemin en ligne, mais l'insertion directe en file
+      // d'attente ci-dessous n'utilise jamais createStudent().
+      etablissement_id: etablissementId
     };
 
     // Même garde que la réinscription et les autres flux du fichier : la file
@@ -575,7 +579,8 @@ export default function ElevesPage() {
           type_frais: 'Scolarité',
           mode_paiement: 'Espèces',
           statut: 'paid',
-          reference: `REC-INS-${Date.now()}`
+          reference: `REC-INS-${Date.now()}`,
+          etablissement_id: etablissementId
         };
         await SyncManager.addToQueue('paiements', 'insert', offlinePaymentData);
         offlinePaymentObj = {
@@ -624,7 +629,8 @@ export default function ElevesPage() {
             type_frais: 'Scolarité',
             mode_paiement: 'Espèces',
             statut: 'paid',
-            reference: reference
+            reference: reference,
+            etablissement_id: etablissementId
           };
 
           if (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline)) {
@@ -748,7 +754,8 @@ export default function ElevesPage() {
       date_naissance: selectedReenrollStudent.dateNaissance || null,
       lieu_naissance: selectedReenrollStudent.lieuNaissance || null,
       date_inscription: new Date().toISOString().split('T')[0],
-      statut: 'actif'
+      statut: 'actif',
+      etablissement_id: etablissementId
     };
 
     const isOfflineMode = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
@@ -771,7 +778,8 @@ export default function ElevesPage() {
           type_frais: 'Scolarité',
           mode_paiement: 'Espèces',
           statut: 'paid',
-          reference: `REC-REINS-${Date.now()}`
+          reference: `REC-REINS-${Date.now()}`,
+          etablissement_id: etablissementId
         };
         await SyncManager.addToQueue('paiements', 'insert', offlinePayData);
         offlinePayObj = {
@@ -818,7 +826,8 @@ export default function ElevesPage() {
             type_frais: 'Scolarité',
             mode_paiement: 'Espèces',
             statut: 'paid',
-            reference: reference
+            reference: reference,
+            etablissement_id: etablissementId
           };
           try {
             const payRes = await addPayment(payPayload, etablissementId!);
@@ -1017,7 +1026,11 @@ export default function ElevesPage() {
     const newClassData = {
       nom: classNameStr,
       niveau: classNameStr,
-      section: sectionStr
+      section: sectionStr,
+      // annee_scolaire_id est NOT NULL en base : sans lui, la création d'une
+      // classe manquante pendant l'import échouait (en ligne comme hors-ligne).
+      annee_scolaire_id: resolvedAnneeScolaireId,
+      etablissement_id: etablissementId
     };
 
     const isOffline = isElectron && (!navigator.onLine || (typeof window !== 'undefined' && (window as any).__forceOffline));
@@ -1446,7 +1459,8 @@ export default function ElevesPage() {
               matricule: r.matriculeVal, nom: r.nom.toUpperCase(), prenom: r.prenom, sexe: r.sexe,
               classe_id: classId, annee_scolaire_id: r.resolvedAnneeScolaireId, nom_parent: r.nomParent,
               telephone_parent: r.telephoneParent, email_parent: r.emailParent, date_naissance: r.dateNaissance,
-              lieu_naissance: r.lieuNaissance, date_inscription: r.dateInscriptionVal, statut: 'actif'
+              lieu_naissance: r.lieuNaissance, date_inscription: r.dateInscriptionVal, statut: 'actif',
+              etablissement_id: etablissementId
             };
 
             const studentId = crypto.randomUUID();
@@ -1462,7 +1476,8 @@ export default function ElevesPage() {
               const localPayId = crypto.randomUUID();
               const paymentData = {
                 eleve_id: studentId, montant: p.amount, date: p.date,
-                type_frais: 'Scolarité', mode_paiement: p.mode, statut: 'paid', reference: p.reference
+                type_frais: 'Scolarité', mode_paiement: p.mode, statut: 'paid', reference: p.reference,
+                etablissement_id: etablissementId
               };
               await SyncManager.addToQueue('paiements', 'insert', { ...paymentData, id: localPayId });
               finalStudentObj.paiements.push({
