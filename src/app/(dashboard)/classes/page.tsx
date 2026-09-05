@@ -12,6 +12,7 @@ interface SupabaseClasse {
   niveau: string;
   section: string | null;
   prix: number | null;
+  frais_inscription: number | null;
 }
 
 export default function ClassesPage() {
@@ -29,6 +30,7 @@ export default function ClassesPage() {
   const [niveau, setNiveau] = useState('');
   const [section, setSection] = useState('Francophone');
   const [prix, setPrix] = useState('');
+  const [fraisInscription, setFraisInscription] = useState('');
 
   // Edit form states
   const [editingClass, setEditingClass] = useState<SupabaseClasse | null>(null);
@@ -36,6 +38,7 @@ export default function ClassesPage() {
   const [editNiveau, setEditNiveau] = useState('');
   const [editSection, setEditSection] = useState('Francophone');
   const [editPrix, setEditPrix] = useState('');
+  const [editFraisInscription, setEditFraisInscription] = useState('');
 
   const { etablissementId, academicYearId } = useEtablissement();
   const supabase = useMemo(() => createClient(), []);
@@ -133,6 +136,7 @@ export default function ClassesPage() {
           niveau,
           section,
           prix: Number(prix) || 0,
+          frais_inscription: Number(fraisInscription) || 0,
           etablissement_id: etablissementId,
           annee_scolaire_id: academicYearId || null,
         }
@@ -148,6 +152,7 @@ export default function ClassesPage() {
       setNiveau('');
       setSection('Francophone');
       setPrix('');
+      setFraisInscription('');
       triggerToast('Classe créée avec succès !');
     }
     
@@ -162,6 +167,7 @@ export default function ClassesPage() {
     setEditNiveau(cls.niveau || '');
     setEditSection(cls.section || 'Francophone');
     setEditPrix(cls.prix ? cls.prix.toString() : '');
+    setEditFraisInscription(cls.frais_inscription ? cls.frais_inscription.toString() : '');
   };
 
   const handleEditClass = async (e: React.FormEvent) => {
@@ -175,7 +181,8 @@ export default function ClassesPage() {
         nom: editNom,
         niveau: editNiveau,
         section: editSection,
-        prix: Number(editPrix) || 0
+        prix: Number(editPrix) || 0,
+        frais_inscription: Number(editFraisInscription) || 0
       })
       .eq('id', editingClass.id)
       .select();
@@ -370,6 +377,15 @@ export default function ClassesPage() {
                 </div>
               </div>
 
+              <div className="pt-2">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Frais d'inscription (FCFA)</label>
+                <div className="relative">
+                  <input type="number" value={editFraisInscription} onChange={(e) => setEditFraisInscription(e.target.value)} placeholder="Ex: 25000" min="0" className="w-full px-4 py-3 pl-12 bg-bg border border-border rounded-control text-lg text-ink font-bold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint font-bold">🎫</span>
+                </div>
+                <p className="text-[11px] text-ink-faint mt-1.5">Utilisé par l'import Excel pour affecter les paiements à l'inscription avant les tranches de scolarité.</p>
+              </div>
+
               {etablissementId && academicYearId && (
                 <TranchesConfig
                   etablissementId={etablissementId}
@@ -433,6 +449,14 @@ export default function ClassesPage() {
                 <div className="relative">
                   <input type="number" value={prix} onChange={(e) => setPrix(e.target.value)} required placeholder="Ex: 250000" min="0" className="w-full px-4 py-3 pl-12 bg-bg border border-border rounded-control text-lg text-ink font-bold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint font-bold">💰</span>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <label className="block text-[12px] font-bold text-ink-faint uppercase tracking-[1px] mb-2">Frais d'inscription (FCFA)</label>
+                <div className="relative">
+                  <input type="number" value={fraisInscription} onChange={(e) => setFraisInscription(e.target.value)} placeholder="Ex: 25000" min="0" className="w-full px-4 py-3 pl-12 bg-bg border border-border rounded-control text-lg text-ink font-bold focus:ring-2 focus:border-accent focus:border-accent outline-none transition-all" />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint font-bold">🎫</span>
                 </div>
               </div>
 

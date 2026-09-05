@@ -1340,17 +1340,17 @@ export default function ElevesPage() {
         }
 
         // 1a) Résolution de l'année scolaire PAR LIGNE, à partir de sa date
-        // d'inscription (année scolaire = 1er septembre -> 30 juin). Réutilise
-        // une année existante dont la plage de dates couvre la date de la
-        // ligne (y compris une année aux dates personnalisées par l'admin) ;
-        // sinon la crée avec le nom calculé "AAAA-AAAA". Un seul aller-retour
-        // réseau pour lire les années existantes, un seul pour créer celles
-        // qui manquent — pas un aller-retour par ligne du fichier.
+        // d'inscription : l'année scolaire d'une inscription est TOUJOURS
+        // "année-civile-de-l'inscription / année-suivante", quel que soit le
+        // mois (une inscription en janvier 2026 vaut 2026-2027, pas
+        // 2025-2026) — règle métier confirmée par l'établissement, différente
+        // d'un calcul "année scolaire en cours au 1er septembre-30 juin".
+        // Un seul aller-retour réseau pour lire les années existantes, un
+        // seul pour créer celles qui manquent — pas un aller-retour par
+        // ligne du fichier.
         const computeSchoolYearBounds = (dateStr: string) => {
-          const [yStr, mStr] = dateStr.split('-');
-          const y = Number(yStr);
-          const m = Number(mStr);
-          const startY = m >= 9 ? y : y - 1;
+          const [yStr] = dateStr.split('-');
+          const startY = Number(yStr);
           const endY = startY + 1;
           return { nom: `${startY}-${endY}`, date_debut: `${startY}-09-01`, date_fin: `${endY}-06-30` };
         };
@@ -1358,30 +1358,26 @@ export default function ElevesPage() {
         if (isOffline) {
           parsedRows.forEach(r => { r.resolvedAnneeScolaireId = fallbackAnneeScolaireId; });
         } else {
-          const yearsByNom = new Map<string, { id: string; nom: string; date_debut: string; date_fin: string }>();
+          // Clé de correspondance = date_debut (format ISO fiable), pas nom
+          // (texte libre saisi par l'admin dans Paramètres — "2025/2026",
+          // "2025-2026", etc. selon l'établissement, donc pas comparable de
+          // façon fiable entre deux calculs indépendants).
+          const yearsByStartDate = new Map<string, { id: string; nom: string; date_debut: string; date_fin: string }>();
           try {
             const { data: existingYears } = await supabase
               .from('annees_scolaires')
               .select('id,nom,date_debut,date_fin')
               .eq('etablissement_id', etablissementId);
-            (existingYears || []).forEach((y: any) => yearsByNom.set(y.nom, y));
+            (existingYears || []).forEach((y: any) => { if (y.date_debut) yearsByStartDate.set(y.date_debut, y); });
           } catch (err) {
             captureError(err, { context: "Failed to load annees_scolaires for import" });
           }
 
-          const findYearForDate = (dateStr: string) => {
-            for (const y of yearsByNom.values()) {
-              if (y.date_debut && y.date_fin && dateStr >= y.date_debut && dateStr <= y.date_fin) return y;
-            }
-            return null;
-          };
-
           const missingYears = new Map<string, { nom: string; date_debut: string; date_fin: string }>();
           for (const r of parsedRows) {
-            if (findYearForDate(r.dateInscriptionVal)) continue;
             const bounds = computeSchoolYearBounds(r.dateInscriptionVal);
-            if (!yearsByNom.has(bounds.nom) && !missingYears.has(bounds.nom)) {
-              missingYears.set(bounds.nom, bounds);
+            if (!yearsByStartDate.has(bounds.date_debut) && !missingYears.has(bounds.date_debut)) {
+              missingYears.set(bounds.date_debut, bounds);
             }
           }
 
@@ -1394,12 +1390,13 @@ export default function ElevesPage() {
             if (yearErr) {
               captureError(yearErr, { context: "Batch année scolaire creation failed during Excel import" });
             } else {
-              (createdYears || []).forEach((y: any) => yearsByNom.set(y.nom, y));
+              (createdYears || []).forEach((y: any) => { if (y.date_debut) yearsByStartDate.set(y.date_debut, y); });
             }
           }
 
           parsedRows.forEach(r => {
-            const match = findYearForDate(r.dateInscriptionVal) || yearsByNom.get(computeSchoolYearBounds(r.dateInscriptionVal).nom);
+            const bounds = computeSchoolYearBounds(r.dateInscriptionVal);
+            const match = yearsByStartDate.get(bounds.date_debut);
             r.resolvedAnneeScolaireId = match ? match.id : fallbackAnneeScolaireId;
           });
 
@@ -1669,32 +1666,74 @@ export default function ElevesPage() {
             importedCount += (createdData || []).length;
           }
 
-          // Rattache chaque "Paiement N" du fichier à la tranche de même rang
-          // (tranches_scolarite.ordre) pour LA CLASSE du paiement — les
-          // tranches sont propres à chaque classe (prix différents) — si
-          // l'établissement en a configuré, sinon tranche_id reste null
-          // (dégradation gracieuse, comme pour un paiement ajouté à la main
-          // sans tranche). Un seul aller-retour réseau pour toutes les
-          // classes concernées par l'import.
-          const tranchesByClasseAndOrdre = new Map<string, Map<number, string>>();
+          // Répartit les montants payés d'une ligne (Paiement 1, 2, 3...) en
+          // « cascade » : d'abord les frais d'inscription de la classe
+          // (classes.frais_inscription, configuré par établissement), puis
+          // les tranches de scolarité de cette classe dans leur ordre
+          // configuré (tranches_scolarite.ordre). Chaque paiement du fichier
+          // est affecté ENTIER au panier courant (pas de fractionnement d'un
+          // même montant entre deux paniers) : on avance au panier suivant
+          // une fois le panier courant atteint ou dépassé. Si l'inscription
+          // n'est pas configurée pour la classe (0 par défaut), son panier
+          // est immédiatement considéré comme rempli et les paiements vont
+          // directement aux tranches — dégradation gracieuse, comme pour un
+          // paiement ajouté à la main sans tranche. Un seul aller-retour
+          // réseau pour toutes les classes concernées par l'import.
+          type PaymentBucket = { typeFrais: string; trancheId: string | null; target: number; filled: number };
+          const bucketsByClasseId = new Map<string, PaymentBucket[]>();
           try {
             const distinctClasseIds = Array.from(new Set(
               dedupedRows.map(r => createdStudentsByMatricule.get(r.matriculeVal)?.classe_id).filter(Boolean)
             ));
             if (distinctClasseIds.length > 0) {
-              const { data: tranchesData } = await supabase
-                .from('tranches_scolarite')
-                .select('id,classe_id,ordre')
-                .eq('etablissement_id', etablissementId)
-                .in('classe_id', distinctClasseIds);
+              const [{ data: classesData }, { data: tranchesData }] = await Promise.all([
+                supabase.from('classes').select('id,frais_inscription').in('id', distinctClasseIds),
+                supabase
+                  .from('tranches_scolarite')
+                  .select('id,classe_id,ordre,montant')
+                  .eq('etablissement_id', etablissementId)
+                  .in('classe_id', distinctClasseIds)
+                  .order('ordre', { ascending: true })
+              ]);
+
+              const fraisInscriptionByClasse = new Map<string, number>();
+              (classesData || []).forEach((c: any) => fraisInscriptionByClasse.set(c.id, Number(c.frais_inscription) || 0));
+
+              const tranchesByClasse = new Map<string, { id: string; montant: number }[]>();
               (tranchesData || []).forEach((t: any) => {
-                if (!tranchesByClasseAndOrdre.has(t.classe_id)) tranchesByClasseAndOrdre.set(t.classe_id, new Map());
-                tranchesByClasseAndOrdre.get(t.classe_id)!.set(t.ordre, t.id);
+                if (!tranchesByClasse.has(t.classe_id)) tranchesByClasse.set(t.classe_id, []);
+                tranchesByClasse.get(t.classe_id)!.push({ id: t.id, montant: Number(t.montant) || 0 });
               });
+
+              for (const classeId of distinctClasseIds) {
+                const buckets: PaymentBucket[] = [
+                  { typeFrais: 'Inscription', trancheId: null, target: fraisInscriptionByClasse.get(classeId!) || 0, filled: 0 },
+                  ...(tranchesByClasse.get(classeId!) || []).map(t => ({
+                    typeFrais: 'Scolarité', trancheId: t.id, target: t.montant, filled: 0
+                  }))
+                ];
+                bucketsByClasseId.set(classeId!, buckets);
+              }
             }
           } catch (err) {
-            captureError(err, { context: "Failed to load tranches_scolarite for import" });
+            captureError(err, { context: "Failed to load frais_inscription/tranches_scolarite for import" });
           }
+
+          const assignPaymentBuckets = (classeId: string | undefined, payments: ParsedImportPayment[]) => {
+            const buckets = classeId ? bucketsByClasseId.get(classeId) : undefined;
+            if (!buckets || buckets.length === 0) {
+              return payments.map(p => ({ payment: p, typeFrais: 'Scolarité', trancheId: null as string | null }));
+            }
+            let bucketIndex = 0;
+            return payments.map(p => {
+              while (bucketIndex < buckets.length - 1 && buckets[bucketIndex].filled >= buckets[bucketIndex].target) {
+                bucketIndex++;
+              }
+              const bucket = buckets[bucketIndex];
+              bucket.filled += p.amount;
+              return { payment: p, typeFrais: bucket.typeFrais, trancheId: bucket.trancheId };
+            });
+          };
 
           // `paiements` a une contrainte UNIQUE (etablissement_id, reference) :
           // deux élèves différents ne peuvent physiquement pas partager la
@@ -1708,21 +1747,19 @@ export default function ElevesPage() {
           dedupedRows.forEach(r => {
             if (!createdStudentsByMatricule.has(r.matriculeVal)) return;
             const s = createdStudentsByMatricule.get(r.matriculeVal);
-            r.payments.forEach(p => {
+            const assigned = assignPaymentBuckets(s.classe_id, r.payments);
+            assigned.forEach(({ payment: p, typeFrais, trancheId }) => {
               const existingOwner = paymentRefOwner.get(p.reference);
               if (existingOwner && existingOwner !== s.id) {
                 duplicatePaymentRefCount++;
                 return;
               }
               paymentRefOwner.set(p.reference, s.id);
-              const trancheId = p.columnIndex != null
-                ? tranchesByClasseAndOrdre.get(s.classe_id)?.get(p.columnIndex) ?? null
-                : null;
               paymentPayload.set(p.reference, {
                 eleve_id: s.id,
                 montant: p.amount,
                 date: p.date,
-                type_frais: 'Scolarité',
+                type_frais: typeFrais,
                 mode_paiement: p.mode,
                 statut: 'paid',
                 reference: p.reference,
