@@ -265,15 +265,41 @@ function createWindow() {
     autoHideMenuBar: false
   });
 
+  // La page blanche vécue sur ce poste ne laissait aucune trace dans les
+  // écouteurs ci-dessous (did-fail-load/console-message ne couvrent que la
+  // navigation principale et les appels explicites à console.*) : les échecs
+  // de sous-ressources (chunks JS/CSS `_next/static/...`, appels réseau vers
+  // Supabase) passent par un canal différent (Chromium "Log"/Network) que ces
+  // événements WebContents ne remontent pas. On les capture explicitement ici.
+  mainWindow.webContents.session.webRequest.onCompleted((details) => {
+    if (details.statusCode >= 400) {
+      log(`[Requête HTTP échouée] ${details.statusCode} ${details.method} ${details.url}`);
+    }
+  });
+  mainWindow.webContents.session.webRequest.onErrorOccurred((details) => {
+    if (details.error === 'net::ERR_ABORTED') return; // navigation annulée normale (ex. redirection), pas une vraie erreur
+    log(`[Requête réseau en erreur] ${details.error} ${details.method} ${details.url}`);
+  });
+
   log("Loading URL http://127.0.0.1:3000...");
   mainWindow.loadURL('http://127.0.0.1:3000');
 
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-    log(`Window failed to load page: ${errorDescription} (${errorCode})`);
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    log(`Window failed to load page: ${errorDescription} (${errorCode}) url=${validatedURL} isMainFrame=${isMainFrame}`);
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
-    log("Window finished loading page (did-finish-load).");
+    log(`Window finished loading page (did-finish-load). Current URL: ${mainWindow.webContents.getURL()}`);
+    // Instrumente la page pour remonter toute exception non interceptée
+    // (window.onerror / promesses rejetées) vers console.error, seul canal
+    // que 'console-message' capture déjà côté main process ; et prend un
+    // instantané du DOM pour distinguer "rien n'a été rendu" de "rendu mais
+    // invisible" (CSS).
+    mainWindow.webContents.executeJavaScript(`
+      window.addEventListener('error', (e) => console.error('[window.onerror]', e.message, e.filename + ':' + e.lineno));
+      window.addEventListener('unhandledrejection', (e) => console.error('[unhandledrejection]', e.reason && e.reason.message || e.reason));
+      console.log('[DOM snapshot] readyState=' + document.readyState + ' bodyChildren=' + document.body.children.length + ' bodyTextLength=' + document.body.innerText.length);
+    `).catch((e) => log(`executeJavaScript injection failed: ${e.message}`));
   });
 
   mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
