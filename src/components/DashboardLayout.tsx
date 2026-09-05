@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import SyncManager from '@/lib/syncManager';
+import AiBrainChat from '@/components/ai/AiBrainChat';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import {
   DashboardIcon,
@@ -699,6 +700,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         )}
       </main>
+
+      {(roleLower === 'admin' || roleLower === 'administrateur' || roleLower === 'directeur') && <AiBrainChat />}
     </div>
   );
 }

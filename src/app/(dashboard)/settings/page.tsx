@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useEtablissement } from '@/contexts/etablissement-context';
 import { captureError, captureMessage } from '@/lib/observability/logger';
 import AppUpdateCard from '@/components/settings/AppUpdateCard';
+import AiBrainConfig from '@/components/settings/AiBrainConfig';
 
 interface AcademicYear {
   id: string;
@@ -872,6 +873,9 @@ export default function SettingsPage() {
               La gestion des abonnements n'est pas encore disponible dans cette version. Pour toute question sur votre licence, ajout de modules ou modification de quota d'élèves/parents, contactez le support MboaSchool.
             </div>
           </div>
+
+          {/* Card: Cerveau IA */}
+          {etablissementId && <AiBrainConfig etablissementId={etablissementId} />}
 
           {/* Card 6: Danger Zone - Delete Account */}
           <div className="bg-surface p-6 rounded-card border border-transparent shadow-sm space-y-4 bg-red-bg/5">
