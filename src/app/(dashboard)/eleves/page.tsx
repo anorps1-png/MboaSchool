@@ -330,7 +330,11 @@ export default function ElevesPage() {
   const getStudentPaymentStats = useCallback((student: Eleve) => {
     if (!student) return { totalDue: null as number | null, totalPaid: 0, status: 'unpaid' as const };
     const classObj = classesList.find(c => c.nom === student.classeId || c.id === student.classeId);
-    const totalDue: number | null = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
+    // prix inclut les frais d'inscription : totalDue ne doit couvrir que la
+    // scolarité, comme totalPaid ci-dessous (paiements type_frais='Scolarité').
+    const totalDue: number | null = classObj && typeof classObj.prix === 'number'
+      ? classObj.prix - (Number((classObj as any).frais_inscription) || 0)
+      : null;
     const totalPaid = (student.paiements || [])
       .filter(p => p.statut === 'paid' && p.typeFrais === 'Scolarité')
       .reduce((sum, p) => sum + p.montant, 0);

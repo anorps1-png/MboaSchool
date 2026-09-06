@@ -71,15 +71,18 @@ async function getDashboardStats(params: any) {
   const nbClasses = classes.length;
 
   const classesById = new Map((await table('classes')).map((c) => [c.id, c]));
+  // prix inclut désormais les frais d'inscription (classes.frais_inscription) :
+  // total_expected ne doit couvrir que la scolarité, comme total_paid ci-dessous
+  // (même correctif que la migration 20260906200000 côté Postgres).
   let totalExpected = 0;
   for (const e of eleves) {
     const c = e.classe_id ? classesById.get(e.classe_id) : null;
-    if (c) totalExpected += num(c.prix);
+    if (c) totalExpected += num(c.prix) - num(c.frais_inscription);
   }
 
   const elevesIdSet = new Set(eleves.map((e) => e.id));
   const paiements = alive(await table('paiements')).filter(
-    (p) => p.etablissement_id === etabId && p.statut === 'paid' && elevesIdSet.has(p.eleve_id)
+    (p) => p.etablissement_id === etabId && p.statut === 'paid' && p.type_frais === 'Scolarité' && elevesIdSet.has(p.eleve_id)
   );
   const totalPaid = paiements.reduce((sum, p) => sum + num(p.montant), 0);
 
@@ -182,7 +185,9 @@ async function getStudentsPaginated(params: any) {
 
   const scored = eleves.map((e) => {
     const classe = e.classe_id ? classesById.get(e.classe_id) : null;
-    const totalDue = num(classe?.prix);
+    // total_due ne couvre que la scolarité (prix - frais_inscription), à
+    // comparer aux paiements type_frais = 'Scolarité' filtrés plus haut.
+    const totalDue = num(classe?.prix) - num(classe?.frais_inscription);
     const totalPaid = paidByEleve.get(e.id) || 0;
     const pctEchu = pctEchuParAnnee.get(e.annee_scolaire_id) || 0;
     const statut = statutPaiement(totalDue, totalPaid, pctEchu);
@@ -250,7 +255,9 @@ async function getStudentsWidgetStats(params: any) {
   const counts = { total: 0, paidCount: 0, partialCount: 0, lateCount: 0, unpaidCount: 0 };
   for (const e of eleves) {
     const classe = e.classe_id ? classesById.get(e.classe_id) : null;
-    const totalDue = num(classe?.prix);
+    // total_due ne couvre que la scolarité (prix - frais_inscription), à
+    // comparer aux paiements type_frais = 'Scolarité' filtrés plus haut.
+    const totalDue = num(classe?.prix) - num(classe?.frais_inscription);
     const totalPaid = paidByEleve.get(e.id) || 0;
     const pctEchu = pctEchuParAnnee.get(e.annee_scolaire_id) || 0;
     const statut = statutPaiement(totalDue, totalPaid, pctEchu);

@@ -199,7 +199,9 @@ export default function Dashboard() {
     const activeList = dateFilterType === 'all' ? students : filteredStudentsForExpected;
     return activeList.reduce((sum, student) => {
       const classObj = classesList.find(c => c.id === student.classeId);
-      return sum + (classObj?.prix || 0);
+      // prix inclut les frais d'inscription : ne couvre que la scolarité ici,
+      // comme totalPaid ci-dessous (paiements type_frais='Scolarité').
+      return sum + ((classObj?.prix || 0) - (Number((classObj as any)?.frais_inscription) || 0));
     }, 0);
   }, [students, filteredStudentsForExpected, classesList, dateFilterType]);
 
@@ -248,7 +250,7 @@ export default function Dashboard() {
       }, 0);
       const allExpected = students.reduce((sum, student) => {
         const classObj = classesList.find(c => c.id === student.classeId);
-        return sum + (classObj?.prix || 0);
+        return sum + ((classObj?.prix || 0) - (Number((classObj as any)?.frais_inscription) || 0));
       }, 0);
       return Math.max(0, allExpected - allPaid);
     }

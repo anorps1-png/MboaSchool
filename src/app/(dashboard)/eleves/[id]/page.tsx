@@ -261,7 +261,13 @@ export default function FicheElevePage({ params }: PageProps) {
   // on le traite comme "non configuré", sinon le bouton "Enregistrer un
   // paiement" restait invisible sans aucune indication pour les nouveaux
   // établissements n'ayant pas encore paramétré leurs frais de scolarité.
-  const rawTotalDue = classObj && typeof classObj.prix === 'number' ? classObj.prix : null;
+  // prix inclut désormais les frais d'inscription (classes.frais_inscription) :
+  // rawTotalDue ne doit couvrir que la scolarité, comme totalPaid ci-dessous
+  // qui ne compte que les paiements type_frais = 'Scolarité' (même correctif
+  // que la migration 20260906200000).
+  const rawTotalDue = classObj && typeof classObj.prix === 'number'
+    ? classObj.prix - (Number((classObj as any).frais_inscription) || 0)
+    : null;
   const feeConfigured = rawTotalDue !== null && rawTotalDue > 0;
   const totalDue = feeConfigured ? rawTotalDue : null;
   const totalPaid = ((student.paiements || []) || [])

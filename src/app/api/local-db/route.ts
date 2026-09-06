@@ -27,20 +27,13 @@ async function resolveRelations(table: string, records: any[]) {
     const notes = await getAllRecordsFromTable('notes');
     const discipline = await getAllRecordsFromTable('discipline');
     const classes = await getAllRecordsFromTable('classes');
-    const niveauxClasses = await getAllRecordsFromTable('niveaux_classes');
-    const sections = await getAllRecordsFromTable('sections');
-    return records.map(record => {
-      const classe = classes.find((c: any) => c.id === record.classe_id) || null;
-      const niveau = classe ? niveauxClasses.find((n: any) => n.id === classe.niveau_id) || null : null;
-      const section = niveau ? sections.find((s: any) => s.id === niveau.section_id) || null : null;
-      return {
-        ...record,
-        classes: classe ? { ...classe, niveaus: niveau ? { ...niveau, sections: section } : null } : null,
-        paiements: paiements.filter((p: any) => p.eleve_id === record.id),
-        notes: notes.filter((n: any) => n.eleve_id === record.id),
-        discipline: discipline.filter((d: any) => d.eleve_id === record.id)
-      };
-    });
+    return records.map(record => ({
+      ...record,
+      classes: classes.find((c: any) => c.id === record.classe_id) || null,
+      paiements: paiements.filter((p: any) => p.eleve_id === record.id),
+      notes: notes.filter((n: any) => n.eleve_id === record.id),
+      discipline: discipline.filter((d: any) => d.eleve_id === record.id)
+    }));
   }
   
   if (table === 'ecritures_comptables') {

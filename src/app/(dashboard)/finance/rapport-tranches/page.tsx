@@ -101,7 +101,7 @@ export default function RapportTranchesPage() {
         // 4. Fetch Students & Payments
         let query = supabase
           .from('eleves')
-          .select('*, classes(id, nom, prix, niveaus:niveaux_classes(sections(nom))), paiements(id, montant, statut, type_frais)')
+          .select('*, classes(id, nom, prix, section), paiements(id, montant, statut, type_frais)')
           .eq('etablissement_id', etablissementId);
 
         if (academicYearId) {
@@ -115,8 +115,7 @@ export default function RapportTranchesPage() {
         if (elevesData) {
           const mapped: TrancheStudent[] = elevesData.map((e: any) => {
             const classObj = e.classes || {};
-            const sectionObj = classObj.niveaus?.sections || {};
-            
+
             const totalDue = Number(classObj.prix) || 150000;
             
             // Calculate tranche limits based on real configured tranches if present
@@ -175,7 +174,7 @@ export default function RapportTranchesPage() {
               sexe: e.sexe || 'M',
               classeId: e.classe_id,
               classeNom: classObj.nom || 'Sans classe',
-              sectionNom: sectionObj.nom || 'FRANCO',
+              sectionNom: classObj.section || 'FRANCO',
               nomParent: e.nom_parent || 'Parent Non renseigné',
               telephoneParent: e.telephone_parent || '',
               totalDue,
